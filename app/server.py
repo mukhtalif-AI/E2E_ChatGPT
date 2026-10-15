@@ -279,6 +279,39 @@ def code_changed():
     return False
 
 
+def git_snapshot():
+    """Save non-ignored repo changes as a local checkpoint before a Hub restart; never push."""
+    base = ["git", "-C", ROOT]
+    try:
+        repo = subprocess.run(base + ["rev-parse", "--is-inside-work-tree"], capture_output=True, text=True, timeout=10)
+        if repo.returncode or repo.stdout.strip() != "true":
+            return {"saved": False, "message": "Git repository not detected; restarted without a snapshot."}
+        add = subprocess.run(base + ["add", "-A", "--", ".",
+                                     ":(exclude)secrets.json", ":(exclude)**/secrets.json",
+                                     ":(exclude)**/.env", ":(exclude)**/.env.*",
+                                     ":(exclude)**/*.pem", ":(exclude)**/*.key"],
+                            capture_output=True, text=True, timeout=30)
+        if add.returncode:
+            return {"saved": False, "message": "Git could not stage changes: " + (add.stderr or add.stdout).strip()[:240]}
+        staged = subprocess.run(base + ["diff", "--cached", "--quiet"], capture_output=True, timeout=10)
+        if staged.returncode == 0:
+            return {"saved": False, "message": "No changes to snapshot."}
+        if staged.returncode != 1:
+            return {"saved": False, "message": "Git could not inspect staged changes."}
+        files = subprocess.run(base + ["diff", "--cached", "--name-only"], capture_output=True, text=True, timeout=10)
+        count = len([line for line in files.stdout.splitlines() if line.strip()])
+        message = "HubGPT snapshot before restart " + time.strftime("%Y-%m-%d %H:%M:%S")
+        commit = subprocess.run(base + ["-c", "user.name=HubGPT Local Snapshot", "-c",
+                                        "user.email=hubgpt-snapshot@localhost", "commit", "-m", message],
+                                capture_output=True, text=True, timeout=30)
+        if commit.returncode:
+            return {"saved": False, "message": "Git snapshot failed: " + (commit.stderr or commit.stdout).strip()[:240]}
+        head = subprocess.run(base + ["rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=10)
+        return {"saved": True, "files": count, "commit": head.stdout.strip(), "message": message}
+    except Exception as e:
+        return {"saved": False, "message": f"Git snapshot unavailable ({e}); restarted without a snapshot."}
+
+
 def restart_self():
     """start a fresh hub (it waits until this one has let go of the port), then leave"""
     if WIN:                                            # a new hub.bat window (CREATE_NEW_CONSOLE)
@@ -864,8 +897,9 @@ class H(BaseHTTPRequestHandler):
                 if any(j["status"] == "running" for j in JOBS.jobs) and not body.get("force"):
                     return self.send(409, {"error": "a job is running - it would be cut short (it continues after the "
                                                     "restart, from its current step). Restart anyway?"})
+                snapshot = git_snapshot()
                 restart_self()
-                return self.send(200, {"ok": True})
+                return self.send(200, {"ok": True, "git_snapshot": snapshot})
             if p == "/api/system":
                 return self.send(200, tools.system_action(body.get("action"), CFG, JOBS,
                                                           body.get("model"), body.get("backend")))

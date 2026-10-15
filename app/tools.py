@@ -2920,10 +2920,12 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
                 say(f"   (vision AI could not judge {os.path.basename(f)}: {e})")
         if not sc:
             return None, 0.0, ""
-        best = max(sc, key=lambda k: sc[k][0])
+        # _judge returns (score, flaws, revision), but sc stores only the
+        # numeric score; review text lives separately in `reviews`.
+        best = max(sc, key=sc.get)
         say(f"   {s['file']}: " + "  ".join(f"{os.path.basename(k)} {v:.0f}/10" for k, v in sc.items())
-            + (f"  - flaws: {reviews[best][0]}" if reviews[best][0] and sc[best][0] < 7 else ""))
-        return best, sc[best][0], reviews[best][1]
+            + (f"  - flaws: {reviews[best][0]}" if reviews[best][0] and sc[best] < 7 else ""))
+        return best, sc[best], reviews[best][1]
 
     free_gpu(ctx)
     bad = []
