@@ -10,6 +10,7 @@
 **/work/
 **/_work/
 **/outputs/
+engines/video/loops/
 **/__pycache__/
 *.py[cod]
 
