@@ -1,0 +1,1042 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HubGPT · Experimental</title>
+<style>
+:root{
+  --bg:#0f1115;--panel:#161922;--panel2:#1c2030;--line:#262b3b;--text:#e8eaf0;--muted:#8d93a6;
+  --accent:#e0a75e;--accent2:#7c8cff;--ok:#4cc38a;--bad:#ef6b6b;--warn:#e6b450;--shadow:0 8px 30px rgba(0,0,0,.35);
+  --r:14px;--mono:ui-monospace,SFMono-Regular,Consolas,"Cascadia Mono",monospace;
+}
+:root[data-theme="light"]{
+  --bg:#f5f4f0;--panel:#ffffff;--panel2:#f0efe9;--line:#e3e1d8;--text:#1d1f24;--muted:#6b6f7a;
+  --accent:#b9772c;--accent2:#4b5bd6;--shadow:0 6px 24px rgba(30,30,20,.08);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:14px/1.5 "Segoe UI",system-ui,-apple-system,Roboto,"Noto Sans Devanagari",sans-serif}
+a{color:var(--accent2)}
+.app{display:grid;grid-template-columns:230px 1fr;height:100vh}
+aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:18px 12px}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 18px}
+.brand .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#8a5a2b);
+  display:grid;place-items:center;color:#1a1208;font-weight:800}
+.brand b{font-size:15px;letter-spacing:.3px}.brand small{display:block;color:var(--muted);font-size:11px}
+nav button{all:unset;display:flex;align-items:center;gap:11px;width:100%;box-sizing:border-box;padding:9px 12px;
+  border-radius:10px;color:var(--muted);cursor:pointer;margin:1px 0;font-weight:500}
+nav button svg{width:18px;height:18px;flex:none}
+nav button:hover{background:var(--panel2);color:var(--text)}
+nav button.on{background:var(--panel2);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+nav .sep{height:1px;background:var(--line);margin:10px 8px}
+.side-status{margin-top:auto;font-size:12px;color:var(--muted);padding:10px;border-top:1px solid var(--line)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:6px}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}.dot.run{background:var(--warn);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+main{overflow:auto;padding:26px 30px 120px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:22px 0 10px}
+.sub{color:var(--muted);margin:0 0 20px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow)}
+.flow{cursor:pointer;transition:transform .12s,border-color .12s}
+.flow:hover{transform:translateY(-2px);border-color:var(--accent)}
+.flow .ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--panel2);margin-bottom:10px;color:var(--accent)}
+.flow h3{margin:0 0 4px;font-size:15px}.flow p{margin:0;color:var(--muted);font-size:13px}
+label{display:block;font-size:12px;color:var(--muted);margin:12px 0 5px;font-weight:600;letter-spacing:.2px}
+input[type=text],input[type=number],textarea,select{width:100%;background:var(--panel2);border:1px solid var(--line);
+  color:var(--text);border-radius:10px;padding:9px 11px;font:inherit;outline:none}
+textarea{min-height:300px;resize:vertical;font-family:"Noto Sans Devanagari","Segoe UI",sans-serif;line-height:1.7}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}.row>*{flex:1;min-width:140px}
+.btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:10px;
+  background:var(--panel2);border:1px solid var(--line);font-weight:600;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:#1b1206;border-color:transparent}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--bad)}.btn.small{padding:5px 10px;font-size:12px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{all:unset;cursor:pointer;padding:6px 12px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);font-size:12.5px}
+.chip.on{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.hint{color:var(--muted);font-size:12px;margin-top:6px}
+.actions{display:flex;gap:10px;margin-top:18px;align-items:center;flex-wrap:wrap}
+.tabs{display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.tab{all:unset;cursor:pointer;padding:8px 14px;color:var(--muted);border-bottom:2px solid transparent;font-weight:600}
+.tab.on{color:var(--text);border-color:var(--accent)}
+.list .item{display:flex;gap:12px;align-items:center;padding:12px;border-bottom:1px solid var(--line)}
+.list .item:last-child{border:0}
+.item .meta{flex:1;min-width:0}.item .meta b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item .meta small{color:var(--muted)}
+audio{height:34px;max-width:320px;width:100%}
+.thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.thumb{position:relative;border-radius:10px;overflow:hidden;border:2px solid transparent;cursor:pointer;background:var(--panel2);aspect-ratio:16/9}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb.sel{border-color:var(--accent)}
+.thumb span{position:absolute;left:6px;bottom:6px;font-size:11px;background:rgba(0,0,0,.6);color:#fff;padding:1px 6px;border-radius:6px}
+.jobs{display:grid;grid-template-columns:minmax(0,330px) minmax(0,1fr);gap:14px;height:calc(100vh - 150px);min-width:0;max-width:100%;min-height:0}
+.jobs>*{min-width:0;max-width:100%}
+.joblist{overflow:auto;padding:6px}
+.job{padding:10px 12px;border-radius:10px;cursor:pointer;margin-bottom:4px;border:1px solid transparent}
+.job:hover{background:var(--panel2)}.job.on{background:var(--panel2);border-color:var(--line)}
+.job b{display:block;font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.job small{color:var(--muted)}
+.badge{font-size:11px;padding:1px 8px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);margin-left:6px}
+.badge.running{color:var(--warn)}.badge.done{color:var(--ok)}.badge.failed{color:var(--bad)}.badge.stopped{color:var(--muted)}
+.logbox{display:flex;flex-direction:column;min-height:0;min-width:0;max-width:100%;overflow:auto}
+.jobs .log{height:min(45vh,460px);min-height:240px;flex:1 0 240px}
+.log{flex:1;overflow:auto;background:#0b0d12;color:#cfd5e2;font:12.5px/1.55 var(--mono);padding:14px;border-radius:12px;
+  white-space:pre-wrap;overflow-wrap:anywhere;word-break:normal;min-width:0;max-width:100%;overflow-anchor:none;contain:layout;border:1px solid var(--line)}
+:root[data-theme="light"] .log{background:#16181d}
+.log .e{color:#ff8f8f}.log .s{color:#e0a75e;font-weight:600}.log .d{color:#79d6a4;font-weight:700}
+.progress{height:6px;background:var(--panel2);border-radius:99px;overflow:hidden;margin:10px 0}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));width:0;transition:width .4s}
+.dock{position:fixed;left:230px;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);z-index:5}
+.dock .bar{display:flex;align-items:center;gap:12px;padding:8px 18px;cursor:pointer;font-size:13px}
+.dock .bar .t{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dock .log{height:220px;border-radius:0;border:0;display:none}
+.dock.open .log{display:block}
+.stat{display:flex;flex-direction:column;gap:2px}.stat b{font-size:18px}.stat small{color:var(--muted)}
+.toast{position:fixed;right:22px;top:20px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);
+  padding:12px 16px;border-radius:10px;box-shadow:var(--shadow);z-index:20;max-width:380px;animation:in .2s}
+@keyframes in{from{transform:translateY(-8px);opacity:0}}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;place-items:center;z-index:30;cursor:zoom-out}
+.lightbox img,.lightbox video{max-width:92vw;max-height:88vh;border-radius:10px}
+.lightbox p{color:#ddd;max-width:80vw;font-size:13px;text-align:center}
+.empty{color:var(--muted);padding:20px;text-align:center}
+.pill:empty{display:none}input[type=range]{accent-color:var(--accent)}
+.pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:99px;padding:1px 8px}
+.range{display:flex;align-items:center;gap:10px}.range input{flex:1}
+.hidden{display:none!important}
+video.v{width:100%;border-radius:10px;background:#000;max-height:260px}
+@media (max-width:900px){.app{grid-template-columns:1fr}aside{display:none}.dock{left:0}.jobs{grid-template-columns:1fr}main{padding:18px 16px 120px}}
+
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;place-items:center;z-index:40;padding:16px}
+.modal.open{display:grid}
+.modal .box{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);width:min(640px,100%);padding:20px;max-height:90vh;overflow:auto}
+.modal .box img{width:100%;border-radius:10px;display:block}
+.switch{white-space:nowrap;display:inline-flex;align-items:center;gap:8px;cursor:pointer;user-select:none;font-size:13px;margin:6px 14px 6px 0}
+.switch input{appearance:none;width:36px;height:20px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);position:relative;cursor:pointer;transition:.2s}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:.2s}
+.switch input:checked{background:color-mix(in srgb,var(--accent) 35%,transparent);border-color:var(--accent)}
+.switch input:checked::after{left:18px;background:var(--accent)}
+.drop{border:1.5px dashed var(--line);border-radius:12px;padding:16px;text-align:center;color:var(--muted);cursor:pointer;transition:.15s}
+.drop.over,textarea.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.thumb .acts{position:absolute;inset:auto 6px 6px auto;display:none;gap:4px}
+.thumb:hover .acts{display:flex}
+.thumb .acts button{all:unset;cursor:pointer;background:rgba(0,0,0,.72);color:#fff;font-size:11px;padding:3px 8px;border-radius:6px}
+.thumb .acts button:hover{background:var(--accent);color:#1b1206}
+.editor{display:flex;flex-direction:column;gap:8px}
+.ed{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:6px 8px;cursor:grab}
+.ed.drag{opacity:.4}.ed.over{border-color:var(--accent)}
+.ed img{width:96px;aspect-ratio:16/9;object-fit:cover;border-radius:6px}
+.ed .tx{flex:1;min-width:0;font-size:12px;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ed input{width:76px}
+.ed .x{all:unset;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:6px}.ed .x:hover{color:var(--bad)}
+.timeline{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:10px 0}
+.timeline div{background-size:cover;background-position:center;border-right:2px solid var(--bg);position:relative;cursor:pointer;min-width:6px}
+.timeline div span{position:absolute;left:4px;bottom:2px;font-size:10px;color:#fff;text-shadow:0 1px 2px #000}
+.capprev{position:relative;border-radius:10px;overflow:hidden;aspect-ratio:16/9;background:#123 center/cover;display:flex;justify-content:center}
+.capprev .t{position:absolute;left:8%;right:8%;text-align:center;line-height:1.35;text-shadow:0 0 4px #000,0 2px 6px #000}
+.fontprev{font-size:22px;padding:10px 12px;background:var(--panel2);border-radius:10px;margin-top:6px;min-height:52px}
+.colors{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.colors label{margin:0;display:flex;align-items:center;gap:8px}
+input[type=color]{width:38px;height:30px;border:1px solid var(--line);border-radius:8px;background:none;padding:2px;cursor:pointer}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.btn[disabled]{opacity:.5;pointer-events:none}
+.sec{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin:18px 0 2px;font-weight:700}
+
+/* ---------- v3 refinement: lighter, calmer, faster ---------- */
+:root{color-scheme:dark}:root[data-theme="light"]{color-scheme:light}
+:root{--bg:#0b0c10;--panel:#111318;--panel2:#171a21;--line:#22262f;--text:#ecedf1;--muted:#8a90a0;--accent:#d8a35c;--accent2:#8b9bff;--shadow:none;--r:12px}
+:root[data-theme="light"]{--bg:#f6f5f2;--panel:#ffffff;--panel2:#f1efea;--line:#e6e3dc;--text:#16171b;--muted:#6d717c;--accent:#a8692a;--accent2:#4b5bd6;--shadow:none}
+html,body{font-family:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,-apple-system,"Noto Sans Devanagari",sans-serif;letter-spacing:-.003em;-webkit-font-smoothing:antialiased}
+.app{grid-template-columns:216px 1fr}
+aside{background:var(--bg);padding:16px 10px}
+nav button{padding:8px 11px;font-size:13.5px;border-radius:9px}
+nav button.on{background:var(--panel2);box-shadow:none;color:var(--text)}
+nav button.on svg{color:var(--accent)}
+.brand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#e7b876,#9a6532)}
+main{padding:30px 36px 120px}
+main>*{max-width:1280px;margin-left:auto;margin-right:auto}
+main>*{animation:fade .14s ease-out}@keyframes fade{from{opacity:0;transform:translateY(3px)}}
+h1{font-size:24px;font-weight:650;letter-spacing:-.02em}
+.sub{font-size:13.5px}
+.card{box-shadow:none;border-radius:12px;padding:20px}
+.flow:hover{transform:none;border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 4%,var(--panel))}
+.flow .ic{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+label{font-weight:550;font-size:11.5px;letter-spacing:.3px}
+input[type=text],input[type=number],textarea,select{border-radius:9px;background:var(--bg);transition:border-color .12s}
+.btn{border-radius:9px;transition:border-color .12s,filter .12s}
+.btn.primary{background:linear-gradient(180deg,#e2b06c,#c98f45);color:#1b1206}
+:root[data-theme="light"] .btn.primary{background:linear-gradient(180deg,#c48843,#a8692a);color:#fff}
+.chip{transition:.12s}
+.dock{left:216px;background:color-mix(in srgb,var(--panel) 92%,transparent);backdrop-filter:blur(10px)}
+.toast{border-radius:10px;font-size:13px}
+.thumb{border-radius:9px}
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+@media (max-width:900px){.dock{left:0}main{padding:18px 16px 120px}}
+
+details.more{margin-top:14px;border-top:1px solid var(--line);padding-top:4px}
+details.more>summary{list-style:none;cursor:pointer;color:var(--muted);font-size:13px;font-weight:600;padding:8px 0;display:flex;align-items:center;gap:8px;user-select:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"";width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s;margin-left:2px}
+details.more[open]>summary::before{transform:rotate(45deg)}
+details.more>summary:hover{color:var(--text)}
+.back{all:unset;cursor:pointer;color:var(--muted);font-size:13px;margin-bottom:10px;display:inline-block}.back:hover{color:var(--accent)}
+.simple{max-width:780px}.simple .card textarea{min-height:240px}
+.make{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.make.tools{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}.make.tools .card{padding:16px 16px}.make.tools .ic{margin-bottom:6px}
+.genre{position:relative}.genre .gname{font-size:34px;line-height:1.15;font-weight:700;color:var(--accent);margin-bottom:4px;font-family:"Nirmala UI","Mangal",serif}
+.genre.soon{opacity:.55}.genre.soon .gname{color:var(--muted)}.genre .pill{position:absolute;top:14px;right:14px;font-size:11px}
+.make .card{padding:22px 20px}
+.make .card h3{font-size:15.5px}
+.help ol,.help ul{margin:4px 0 4px 18px;padding:0;line-height:1.6}.help li{margin:4px 0}.help code{font-size:12.5px;background:var(--panel2);padding:1px 5px;border-radius:5px}
+.libbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.libbar .tabs{margin:0}.libbar input{max-width:240px}
+.eps{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}.ep{padding:0;overflow:hidden;display:flex;flex-direction:column}
+.epart{height:150px;background:var(--panel2) center/cover no-repeat;position:relative}.epart .play{position:absolute;inset:auto 12px 12px auto;width:42px;height:42px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:16px;cursor:pointer}
+.epbody{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px}.epbody small{color:var(--muted)}
+.chips2{display:flex;gap:6px;flex-wrap:wrap}.chips2 span{font-size:11.5px;padding:2px 8px;border-radius:20px;background:var(--panel2);color:var(--muted)}.chips2 span.ok{color:var(--ok)}
+.reelrow{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px}.btn.ghost{background:transparent;color:var(--muted)}.jx{margin-left:8px;color:var(--muted);cursor:pointer;font-weight:400}
+.chkrow{display:flex;gap:10px;align-items:flex-start;margin:8px 0;cursor:pointer;line-height:1.45}
+.chkrow input{appearance:auto;-webkit-appearance:checkbox;width:16px;height:16px;flex:0 0 16px;margin-top:3px;accent-color:var(--accent)}
+.motions{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;margin:6px 0 4px}
+.mtile{cursor:pointer;border:1px solid var(--line,#2a2a2a);border-radius:12px;padding:6px;text-align:center;font-size:12px;opacity:.85}
+.mtile video,.mtile .mixbox{width:100%;aspect-ratio:9/16;border-radius:8px;object-fit:cover;background:#000;display:block}
+.mtile .mixbox{display:flex;align-items:center;justify-content:center;font-size:34px;color:var(--accent)}
+.mtile span{display:block;margin-top:5px;line-height:1.25}
+.mtile.sel{outline:2px solid var(--accent);opacity:1}
+/* EXPERIMENTAL VISUAL REFRESH — presentation only; existing controls and pipeline remain intact. */
+:root{color-scheme:light;--bg:#f3f6f5;--panel:#fff;--panel2:#eef3f2;--line:#d9e3e1;--text:#183038;--muted:#5d747b;--accent:#147b73;--accent2:#345f9c;--ok:#21865e;--bad:#c63f43;--warn:#a76a14;--shadow:0 8px 24px rgba(25,55,60,.07);--r:16px}
+:root[data-theme="light"]{color-scheme:light;--bg:#f3f6f5;--panel:#fff;--panel2:#eef3f2;--line:#d9e3e1;--text:#183038;--muted:#5d747b;--accent:#147b73;--accent2:#345f9c;--shadow:0 8px 24px rgba(25,55,60,.07)}
+:root[data-theme="dark"]{color-scheme:dark;--bg:#11191b;--panel:#192326;--panel2:#202d30;--line:#314145;--text:#ecf4f3;--muted:#a6b9ba;--accent:#78c8bb;--accent2:#a1baff;--ok:#68d09e;--bad:#ff8787;--warn:#f0c16b;--shadow:0 10px 28px rgba(0,0,0,.2)}
+html,body{min-height:100%;letter-spacing:0;-webkit-font-smoothing:antialiased}
+.experiment-ribbon{min-height:48px;padding:7px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px;background:#183b3e;color:#f4fffd;border-bottom:1px solid #2d5c5b;font-size:12px}
+.experiment-ribbon>div{display:flex;align-items:center;gap:12px;min-width:0}.experiment-ribbon b{font-size:11px;letter-spacing:.12em;color:#9fe4d7;white-space:nowrap}.experiment-ribbon span{opacity:.9}.experiment-ribbon>a{color:#fff;font-weight:650;white-space:nowrap;text-decoration:none;border:1px solid #648985;border-radius:8px;padding:6px 10px}.experiment-ribbon>a:hover{background:#285557}
+.skip-link{position:fixed;z-index:100;left:12px;top:-60px;background:var(--panel);color:var(--text);padding:10px 14px;border-radius:8px}.skip-link:focus{top:8px}
+.app{height:calc(100vh - 48px);grid-template-columns:248px minmax(0,1fr)}
+aside{background:var(--panel);border-right:1px solid var(--line);padding:22px 14px}
+.brand{padding:4px 10px 22px}.brand .logo{width:38px;height:38px;border-radius:12px;background:linear-gradient(145deg,#9cddd2,#168176);color:#103d3a;font-size:16px}
+.brand b{font-size:16px;letter-spacing:-.02em}.brand small{font-size:12px;margin-top:2px}
+nav{display:grid;gap:4px}nav button{padding:10px 12px;border-radius:10px;font-size:14px;font-weight:560;color:var(--muted)}nav button svg{width:19px;height:19px}nav button:hover{background:var(--panel2);color:var(--text)}nav button.on{background:color-mix(in srgb,var(--accent) 12%,var(--panel));color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.side-status{padding:14px 10px;font-size:12px;line-height:1.6}
+main{padding:34px clamp(20px,4vw,60px) 130px}main>*{max-width:1320px}
+h1{font-size:clamp(25px,2.3vw,32px);line-height:1.2;font-weight:720;letter-spacing:-.035em;margin-bottom:8px}h2{font-size:18px;letter-spacing:-.015em;margin:28px 0 12px}h3{letter-spacing:-.01em}.sub{font-size:14px;line-height:1.65;margin-bottom:22px;max-width:780px}
+.card{border-radius:16px;padding:22px;box-shadow:var(--shadow)}.grid{gap:16px}.make{gap:14px}.make .card{padding:22px}.flow{transition:transform .16s,border-color .16s,box-shadow .16s}.flow:hover{transform:translateY(-2px);box-shadow:var(--shadow);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+label{font-size:12px;color:var(--text);letter-spacing:0;margin:14px 0 6px}input[type=text],input[type=number],textarea,select{border-radius:10px;border-color:var(--line);padding:11px 12px;min-height:44px;background:var(--panel2)}textarea{line-height:1.7}input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+.btn{min-height:40px;padding:9px 15px;border-radius:10px;transition:transform .14s,box-shadow .14s}.btn:hover{border-color:var(--accent);transform:translateY(-1px)}.btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 3px 8px color-mix(in srgb,var(--accent) 25%,transparent)}:root[data-theme="dark"] .btn.primary{color:#10201f}.btn.primary:hover{filter:brightness(1.06)}.chip{padding:8px 13px;border-radius:10px}.chip.on{background:color-mix(in srgb,var(--accent) 13%,var(--panel));color:var(--accent)}
+.hint{font-size:12.5px;line-height:1.55}.actions{gap:10px;margin-top:20px}.tabs{gap:10px}.tab{padding:10px 14px}.list .item{padding:14px 12px;align-items:flex-start}.badge{padding:3px 9px}.empty{padding:28px 18px}
+.jobs{grid-template-columns:minmax(260px,320px) minmax(0,1fr);gap:18px}.job{padding:12px}.log{border-radius:12px}.dock{left:248px;box-shadow:0 -6px 20px rgba(20,45,50,.08);backdrop-filter:blur(12px)}.dock .bar{padding:11px 18px}.toast{border-radius:12px}
+video.v{max-height:420px}.lightbox img,.lightbox video{border-radius:14px}.more{border-color:var(--line)}
+:focus-visible{outline:3px solid color-mix(in srgb,var(--accent) 65%,white);outline-offset:2px}button:disabled{cursor:not-allowed}
+@media(max-width:900px){.app{height:calc(100vh - 64px);grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}aside{display:flex;position:sticky;top:0;height:auto;z-index:8;flex-direction:row;align-items:center;gap:10px;padding:7px 10px;border-right:0;border-bottom:1px solid var(--line)}.brand{display:none}nav{display:flex;gap:4px;overflow-x:auto;min-width:0;scrollbar-width:none}nav button{width:auto;flex:0 0 auto;padding:8px 10px;font-size:12px}nav button.on{box-shadow:inset 0 -2px 0 var(--accent)}nav button svg{width:16px;height:16px}.side-status{display:none}main{padding:24px 16px 130px}.dock{left:0}.jobs{grid-template-columns:1fr;height:auto}.joblist{max-height:240px}.experiment-ribbon{min-height:64px;padding:7px 12px;align-items:flex-start}.experiment-ribbon>div{display:block}.experiment-ribbon b{display:block;margin-bottom:2px}.experiment-ribbon span{font-size:11px;line-height:1.35}.experiment-ribbon>a{font-size:11px;padding:6px 8px}}
+@media(max-width:480px){.experiment-ribbon{gap:8px}.experiment-ribbon span{max-width:240px}.row>*{min-width:100%}.card{padding:17px}.make{grid-template-columns:1fr}.g2,.g3{grid-template-columns:1fr}.simple .card textarea{min-height:200px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="experiment-ribbon"><div><b>EXPERIMENTAL MODE</b><span>Isolated workspace and UI changes. The regular HubGPT workspace stays separate.</span></div><div class="exp-links"><a href="/ui/experimental/EXPERIMENT_NOTES.md" target="_blank" rel="noopener">What changed</a><a href="/" aria-label="Return to regular HubGPT">Return to regular site</a></div></div>
+<div class="app">
+<aside>
+  <div class="brand"><div class="logo">م</div><div><b>HubGPT</b><small>stories, voice, and video</small></div></div>
+  <nav id="nav"></nav>
+  <div class="side-status" id="sideStatus">…</div>
+</aside>
+<main id="main"></main>
+</div>
+<div class="dock" id="dock"><div class="bar" id="dockBar"><span class="dot" id="dockDot"></span><span class="t" id="dockT">No job running</span><span class="pill" id="dockQ"></span><span id="dockArrow">▲ log</span></div><div class="log" id="dockLog"></div></div>
+<div class="lightbox" id="lb"><div style="display:grid;place-items:center;gap:10px"><div id="lbIn"></div><p id="lbP"></p></div></div>
+<div class="modal" id="modal"><div class="box" id="modalBox"></div></div>
+
+<script>
+window.HUB_EXPERIMENTAL_MODE=true;
+document.documentElement.dataset.experimentalMode="on";
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const media=p=>"/media?p="+encodeURIComponent(p), base=p=>String(p).split(/[\\/]/).pop(), join=(d,f)=>d+(d.includes("\\")?"\\":"/")+f;
+const api=async(u,o)=>{const r=await fetch(u,{headers:{"X-Hub-Experimental":"1",...(o?{"Content-Type":"application/json"}:{})},...(o?{method:"POST",body:JSON.stringify(o)}:{})});const j=await r.json().catch(()=>({error:"bad answer"}));if(!r.ok)throw new Error(j.error||r.status);return j};
+const store={get(k,d){try{return JSON.parse(localStorage.getItem("hub_"+k))??d}catch(e){return d}},set(k,v){try{localStorage.setItem("hub_"+k,JSON.stringify(v))}catch(e){}}};
+function toast(m,bad){const t=document.createElement("div");t.className="toast";if(bad)t.style.borderLeftColor="var(--bad)";t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),4500)}
+const I={home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+ voice:'<path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+ pics:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 17l-5-5-8 8"/>',
+ image:'<path d="M12 3l2.2 5.2L19 10l-4.8 1.8L12 17l-2.2-5.2L5 10l4.8-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
+ video:'<rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
+ script:'<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+ sound:'<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+ horror:'<path d="M12 3a7 7 0 0 0-7 7v10l2.3-1.6L9.7 20 12 18.4l2.3 1.6 2.4-1.6L19 20V10a7 7 0 0 0-7-7z"/><circle cx="9.5" cy="10.5" r="1"/><circle cx="14.5" cy="10.5" r="1"/>',
+ repair:'<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
+ reels:'<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M10 9l5 3-5 3z"/>',
+ experimental:'<path d="M9 3h6M10 3v6l-5.5 9.2A2 2 0 0 0 6.2 21h11.6a2 2 0 0 0 1.7-2.8L14 9V3"/><path d="M8 15h8"/>',
+ episode:'<path d="M4 4h16v4H4zM4 10h10v4H4zM4 16h7v4H4z"/><path d="M17 13l4 3.5-4 3.5z"/>',
+ lib:'<path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l4 1-3 14-4-1z"/>',
+ jobs:'<path d="M4 6h16M4 12h10M4 18h7"/><circle cx="18" cy="16" r="3"/>',
+ help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.5v.01"/>',
+ sys:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
+const svg=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+const PAGES=[["home","Create"],["experimental","Run review"],["lib","Library"],["jobs","Activity"],["sep"],["sys","Settings"],["help","Help"]];
+const GENRES=[{id:"sukoon",name:"सुकून",en:"Calming stories",about:"Sleep, healing, counselling — Hindi in your voice, or English.",page:"episode"},
+  {id:"bhay",name:"भय",en:"Horror",about:"Slow-burn Hindi horror: scenes, fog, sound effects.",page:"genre"},
+  {id:"kisse",name:"किस्से",en:"Emotional stories",about:"Stories that move you.",page:"genre"},
+  {id:"rahasya",name:"रहस्य",en:"Thriller & mystery",about:"Cases, secrets, twists.",page:"genre"},
+  {id:"romanch",name:"रोमांच",en:"Romance",about:"Closeness and longing (tasteful).",page:"genre"},
+  {id:"kareeb",name:"करीब",en:"ASMR",about:"Soft, close, whispered.",page:"genre"},
+  {id:"gyaan",name:"ज्ञान",en:"Knowledge",about:"One subject, explained simply.",page:"genre"}];
+// every tool works for every series: one row of series chips; the series sets the tool's defaults
+const SDEF={sukoon:{ex:.35,pause:1,drama:0,emo:0},bhay:{ex:.5,pause:.75,drama:1,emo:1},rahasya:{ex:.5,pause:.6,drama:1,emo:1},kisse:{ex:.55,pause:.65,drama:1,emo:1},
+  romanch:{ex:.5,pause:.75,drama:1,emo:1},kareeb:{ex:.3,pause:1,drama:1,emo:1},gyaan:{ex:.5,pause:.55,drama:1,emo:1}};
+const SPFX={bhay:"Bhay",rahasya:"Rahasya",kisse:"Kisse",romanch:"Romanch",kareeb:"Kareeb",gyaan:"Gyaan",sukoon:"Sukoon"};
+const serBar=(id,cur)=>`<label>Series</label>${chips(id,Object.fromEntries(GENRES.map(g=>[g.id,g.name+" · "+g.en])),cur)}`;
+function guessSer(n,fallback){const b=base(String(n||"")).toLowerCase();for(const g of GENRES){if(b.startsWith(SPFX[g.id].toLowerCase())||String(n||"").includes(g.name))return g.id}return fallback||store.get("toolSer","sukoon")}
+function setRange(id,v){const r=$("#"+id);if(r){r.value=v;r.dispatchEvent(new Event("input"))}}
+const serName=g=>(GENRES.find(x=>x.id==g)||{}).name||g;
+const GROUP={genre:"home",script:"home",sound:"home",horror:"home",voice:"home",pics:"home",video:"home",image:"home",episode:"home",reels:"home",repair:"home"};
+let P={presets:null,lib:null,status:null,page:"home",job:null,logNext:0,dockNext:0,dockJob:null,sel:{},known:{},preview:null};
+
+function nav(){const a=GROUP[P.page]||P.page;$("#nav").innerHTML=PAGES.map(p=>p[0]=="sep"?'<div class="sep"></div>':`<button class="${a==p[0]?"on":""}" onclick="go('${p[0]}')">${svg(p[0]=="home"?"image":p[0])}${p[1]}</button>`).join("")}
+function go(p,arg){P.page=p;store.set("page",p);nav();Promise.resolve(R[p](arg)).then(()=>{if(GROUP[p]&&P.page==p)(f=>f&&f.classList.contains("simple")?f:$("main"))($("main").firstElementChild).insertAdjacentHTML("afterbegin",'<button class="back" onclick="go(\'home\')">← Back to Create</button>')});$("main").scrollTop=0}
+const more=(title,html,open)=>`<details class="more" ${open?"open":""}><summary>${title}</summary>${html}</details>`;
+async function loadLib(){P.lib=await api("/api/library");return P.lib}
+async function pre(){if(!P.presets)P.presets=await api("/api/presets");return P.presets}
+const opt=(o,sel)=>Object.entries(o).map(([k,v])=>`<option value="${esc(k)}" ${k==sel?"selected":""}>${esc(v)}</option>`).join("");
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.round(s%60)).padStart(2,"0")}`;
+const ago=t=>{const s=(Date.now()/1000-t);return s<90?"just now":s<5400?Math.round(s/60)+" min ago":s<129600?Math.round(s/3600)+" h ago":Math.round(s/86400)+" days ago"};
+const narrOpts=sel=>`<option value="">— choose a narration —</option>`+(P.lib?.narrations||[]).map(n=>`<option value="${esc(n.dir)}" ${n.dir==sel?"selected":""}>${esc(n.name)} · ${fmt(n.seconds)}${n.flagged?` · ${n.flagged} to check`:""}</option>`).join("");
+function chips(id,obj,val){return `<div class="chips" id="${id}">`+Object.entries(obj).map(([k,v])=>`<button class="chip ${k==val?"on":""}" data-v="${esc(k)}">${esc(v)}</button>`).join("")+`</div>`}
+document.addEventListener("click",e=>{const c=e.target.closest(".chip");if(!c)return;c.parentNode.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");c.parentNode.dispatchEvent(new Event("change"))});
+const chipVal=id=>$("#"+id+" .chip.on")?.dataset.v;
+const setChip=(id,v)=>{const c=$("#"+id+` .chip[data-v="${v}"]`);if(!c)return;c.parentNode.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on")};
+const sw=(id,label,on)=>`<label class="switch"><input type="checkbox" id="${id}" ${on?"checked":""}>${esc(label)}</label>`;
+const range=(id,min,max,step,val,unit="")=>`<div class="range"><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${val}" oninput="$('#${id}L').textContent=this.value+'${unit}'"><span class="pill" id="${id}L">${val}${unit}</span></div>`;
+function readTxt(file,cb){const r=new FileReader();r.onload=()=>cb(r.result);r.readAsText(file,"utf-8")}
+function loadFile(id,nameId){const i=document.createElement("input");i.type="file";i.accept=".txt";i.onchange=()=>readTxt(i.files[0],t=>{$("#"+id).value=t;$("#"+id).dispatchEvent(new Event("input"));if(nameId&&!$("#"+nameId).value)$("#"+nameId).value=i.files[0].name.replace(/\.txt$/i,"")});i.click()}
+function dropTxt(id,nameId){const t=$("#"+id);t.addEventListener("dragover",e=>{e.preventDefault();t.classList.add("over")});t.addEventListener("dragleave",()=>t.classList.remove("over"));
+  t.addEventListener("drop",e=>{e.preventDefault();t.classList.remove("over");const f=e.dataTransfer.files[0];if(f)readTxt(f,x=>{t.value=x;t.dispatchEvent(new Event("input"));if(nameId&&!$("#"+nameId).value)$("#"+nameId).value=f.name.replace(/\.txt$/i,"")})})}
+async function upload(files){const out=[];for(const f of files){if(!/\.(png|jpe?g|webp)$/i.test(f.name)){toast(f.name+": only pictures",1);continue}
+  const data=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f)});try{out.push((await api("/api/upload",{name:f.name,data})).file)}catch(e){toast(e.message,1)}}
+  if(out.length){toast(`${out.length} picture(s) added`);await loadLib()}return out}
+function dropImg(el,after){el.addEventListener("dragover",e=>{e.preventDefault();el.classList.add("over")});el.addEventListener("dragleave",()=>el.classList.remove("over"));
+  el.addEventListener("drop",async e=>{e.preventDefault();el.classList.remove("over");const r=await upload([...e.dataTransfer.files]);after&&after(r)});
+  el.addEventListener("click",()=>{const i=document.createElement("input");i.type="file";i.accept="image/*";i.multiple=true;i.onchange=async()=>{const r=await upload([...i.files]);after&&after(r)};i.click()})}
+async function start(kind,body,btn){try{btn&&(btn.disabled=true);const r=await api("/api/jobs",{kind,...body,_experimental_mode:true});toast("Started — it waits its turn if another job is running");return r.id}catch(e){toast(e.message,1)}finally{btn&&(btn.disabled=false)}}
+async function startGo(kind,body,btn){const id=await start(kind,body,btn);if(id){P.job=id;go("jobs")}}
+function picker(id,groups,sel){let h="";for(const [title,list] of groups){if(!list.length)continue;h+=`<div class="hint" style="margin:10px 0 6px">${esc(title)}</div><div class="thumbs">`+list.map(f=>`<div class="thumb ${f==sel?"sel":""}" data-f="${esc(f)}" onclick="pick('${id}',this)"><img loading="lazy" src="${media(f)}"><span>${esc(base(f)).slice(0,22)}</span></div>`).join("")+`</div>`}
+  return `<div id="${id}">${h||'<div class="empty">No pictures yet.</div>'}</div>`}
+function pick(id,el){const was=el.classList.contains("sel");$$("#"+id+" .thumb").forEach(t=>t.classList.remove("sel"));if(!was)el.classList.add("sel");P.sel[id]=was?"":el.dataset.f}
+function lightbox(src,text,vid){$("#lbIn").innerHTML=vid?`<video src="${src}" controls autoplay></video>`:`<img src="${src}">`;$("#lbP").textContent=text||"";$("#lb").style.display="grid"}
+$("#lb").onclick=e=>{if(e.target.tagName!="VIDEO"){$("#lb").style.display="none";$("#lbIn").innerHTML=""}};
+function modal(html){$("#modalBox").innerHTML=html;$("#modal").classList.add("open")}
+function closeModal(){$("#modal").classList.remove("open")}
+$("#modal").onclick=e=>{if(e.target.id=="modal")closeModal()};
+const promptOf=async f=>{try{const r=await fetch(media(f.replace(/\.(png|jpe?g|webp)$/i,".prompt.txt")));return r.ok?await r.text():""}catch(e){return ""}};
+const fontsLoaded={};
+async function useFont(path,el){if(!path){el.style.fontFamily="";return}const fam="f_"+base(path).replace(/\W/g,"");
+  if(!fontsLoaded[fam]){try{const ff=new FontFace(fam,`url(${media(path)})`);await ff.load();document.fonts.add(ff);fontsLoaded[fam]=1}catch(e){}}el.style.fontFamily=`"${fam}",sans-serif`}
+function fontSel(id,val,def="HubGPT Video’s choice"){return `<select id="${id}"><option value="">${def}</option>${(P.presets.fonts||[]).map(f=>`<option value="${esc(f)}" ${f==val?"selected":""}>${esc(base(f).replace(/\.(ttf|otf|ttc)$/i,"").replace(/[-_]/g," "))}</option>`).join("")}</select>`}
+function musicSel(id){const m=P.presets.music||{};return `<select id="${id}"><option value="">Default (${esc(base(P.presets.music_default||"")||"HubGPT Voice setting")})</option><option value="none">No music</option>${Object.entries(m).map(([g,l])=>`<optgroup label="${esc(g)}">${l.map(f=>`<option value="${esc(f)}">${esc(base(f).replace(/\.(mp3|wav)$/i,""))}</option>`).join("")}</optgroup>`).join("")}</select>`}
+
+const R={};
+// ---------------- EXPERIMENTAL: unique run names, existing genre pipeline, separate feedback files
+R.experimental=async(name)=>{
+ const old=name||store.get("expName","");
+ $("main").innerHTML='<div class="simple"><h1>Experimental workflow</h1><p class="sub">Runs the existing script, voice, scenes, sound, pictures, video and reels stages under a unique EXP_ name. Review the video here and save what worked or needs fixing with the output.</p><div class="card"><div class="row"><div><label>Run label</label><input id="exLabel" placeholder="Optional description"></div><div><label>Series</label><select id="exGenre">'+GENRES.filter(x=>x.id!="sukoon").map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+' · '+esc(x.en)+'</option>').join("")+'</select></div></div><div class="row"><div><label>Topic</label><input id="exTopic" placeholder="Story or video subject"></div><div style="flex:0 0 150px"><label>Script length (min)</label><input id="exMin" type="number" min="1" max="40" value="2"></div></div><label>Prompt notes</label><textarea id="exNotes" placeholder="Style, details, constraints"></textarea><div class="actions"><button class="btn primary" id="exGo">Start experimental run</button><span class="hint">All generation stages are enabled.</span></div></div><div class="card" style="margin-top:14px"><h2>Review and feedback</h2><div class="row"><div><label>Run ID</label><input id="exId" value="'+esc(old)+'" placeholder="EXP_…"></div><div style="flex:0 0 auto;align-self:end"><button class="btn" id="exLoad">Load run</button></div></div><div id="exReview" class="hint">Load the run to play its video and add observations.</div></div></div>';
+ $("#exGenre").value=store.get("expGenre","bhay");
+ $("#exGo").onclick=async e=>{const id="EXP_"+Date.now().toString(36)+"_"+Math.random().toString(36).slice(2,7);store.set("expName",id);store.set("expGenre",$("#exGenre").value);const label=$("#exLabel").value.trim();const notes=(label?"[Experiment: "+label+"]\n":"")+$("#exNotes").value;const job=await start("experimental",{name:id,genre:$("#exGenre").value,topic:$("#exTopic").value,notes:notes,speech_min:+$("#exMin").value||2,stages:["script","voice","scenes","sound","pictures","video","reels"]},e.currentTarget);if(job){$("#exId").value=id;toast("Started isolated run: "+id);go("experimental",id)}};
+ $("#exLoad").onclick=loadExperimental;if(old)loadExperimental();
+};
+async function loadExperimental(){const id=$("#exId")?.value.trim();if(!id)return toast("Enter an EXP_ run ID",1);try{const d=await api("/api/experimental/"+encodeURIComponent(id));const rows=(d.entries||[]).map(e=>'<div class="item"><b>'+esc(e.result=="worked"?"✓ Worked":"⚠ Issue")+' · '+esc(e.stage)+' · '+esc(e.time)+'</b><div>'+esc(e.note)+'</div></div>').join("");const flagged=(d.lines||[]).filter(x=>x.why&&x.why.length);const takes=d.recordings||[];const cards=flagged.map(x=>{const mine=takes.filter(t=>t.line==x.n);return '<div class="item"><b>Line '+x.n+' · '+esc(x.text)+'</b><div class="hint">'+esc(x.why.join(", "))+' · '+Math.floor(x.start/60)+':'+String(Math.floor(x.start%60)).padStart(2,"0")+'</div><label>Replacement sentence (edit as needed)</label><textarea id="exSentence_'+x.n+'">'+esc(x.text)+'</textarea><div class="row"><div><label>Emotion / delivery cue</label><input id="exEmotion_'+x.n+'" value="'+esc(x.emotion||"")+'" placeholder="e.g. डर, दुख, राहत, फुसफुसाहट"></div><div style="flex:0 0 auto;align-self:end"><button class="btn expRec" data-line="'+x.n+'">🎙 Record replacement</button></div></div><div class="hint">Speak the cue yourself; it guides your performance and does not add emotion automatically.</div>'+mine.map(t=>'<audio controls preload="none" src="'+media(t.file)+'" style="width:100%"></audio><div class="hint">Take '+t.take+' · '+esc(t.time)+' · '+esc(t.emotion||"no cue")+'</div>').join("")+'</div>'}).join("");$("#exReview").innerHTML=(d.video?'<label>Generated video</label><video class="v" controls preload="metadata" src="'+media(d.video)+'"></video>':'<div class="hint">Video is not ready yet. Refresh after the job finishes.</div>')+'<details class="more"><summary>Generated script</summary><pre id="exScript" style="white-space:pre-wrap;max-height:380px;overflow:auto"></pre></details><h3>Flagged spoken lines</h3><div class="hint">Edit the suggested line if needed, perform its emotion cue, then record a replacement. Multiple takes are kept.</div><div class="list">'+(cards||'<div class="empty">No flagged spoken lines yet. Generate the voice, then refresh to run the checker.</div>')+'</div><div class="hint">Output report: '+esc(d.report)+'</div><div class="row"><div><label>Stage</label><select id="exStage"><option>script</option><option>voice / pronunciation</option><option>scenes / images</option><option>sound / music</option><option>video playback</option><option>reels</option><option>overall</option></select></div><div><label>Result</label><select id="exResult"><option value="issue">Needs fixing / did not work</option><option value="worked">Worked well</option></select></div></div><label>Observation</label><textarea id="exNote" placeholder="Example: script has an awkward line; or at 00:42 narration stutters and a word is mispronounced. Note what worked well too."></textarea><div class="actions"><button class="btn primary" id="exSave">Save observation</button><button class="btn" id="exRefresh">Refresh video, lines and notes</button></div><div class="list">'+(rows||'<div class="hint">No observations saved yet.</div>')+'</div>';fetch(media(d.script)).then(r=>r.ok?r.text():"Script not generated yet.").then(t=>{if($("#exScript"))$("#exScript").textContent=t});$$(".expRec").forEach(btn=>btn.onclick=async()=>{if(btn.dataset.recording=="1"){expRecorder&&expRecorder.stop();return}if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)return toast("This browser does not support microphone recording",1);try{expMicStream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=MediaRecorder.isTypeSupported("audio/webm;codecs=opus")?"audio/webm;codecs=opus":"audio/webm";expRecorder=new MediaRecorder(expMicStream,{mimeType:mime});const chunks=[];expRecorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};expRecorder.onstop=async()=>{expMicStream.getTracks().forEach(t=>t.stop());btn.dataset.recording="0";btn.textContent="🎙 Record replacement";btn.disabled=true;try{const blob=new Blob(chunks,{type:mime});const data=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(fr.result);fr.onerror=reject;fr.readAsDataURL(blob)});const n=+btn.dataset.line;const out=await api("/api/experimental/recording",{name:id,line:n,sentence:$("#exSentence_"+n).value,emotion:$("#exEmotion_"+n).value,data});toast("Saved WAV take "+out.take);await loadExperimental()}catch(err){toast(err.message,1)}finally{btn.disabled=false}};expRecorder.start();btn.dataset.recording="1";btn.textContent="■ Stop and save";toast("Recording — perform the emotion cue naturally")}catch(err){toast("Microphone unavailable: "+err.message,1)}});$("#exSave").onclick=async()=>{try{await api("/api/experimental/feedback",{name:id,stage:$("#exStage").value,result:$("#exResult").value,note:$("#exNote").value});toast("Observation saved to the output report");loadExperimental()}catch(e){toast(e.message,1)}};$("#exRefresh").onclick=loadExperimental}catch(e){toast(e.message,1)}}
+// ---------------- HOME
+R.home=async()=>{
+  const st=P.status&&P.status.engines&&(!P.status.engines.voice||!P.status.engines.studio);
+  $("main").innerHTML=`<h1>What do you want to make?</h1><p class="sub">Pick a series for a finished video, or a tool for one step. Extra settings sit in the folded sections (▸).</p>
+  ${st?`<div class="card" style="border-color:var(--warn);margin-bottom:14px"><b>One-time setup needed</b> — double-click <b>setup_hub.bat</b> in the hub folder.</div>`:""}
+  <h2 style="margin-top:6px">Series</h2>
+  <div class="make genres">${GENRES.map(g=>`<div class="card flow genre ${g.page?"":"soon"}" onclick="${g.page?`go('${g.page}'${g.page=="genre"?`,'${g.id}'`:""})`:`toast('${esc(g.name)} is coming - tick its recordings and train its voice in Settings first')`}">
+      <div class="gname">${esc(g.name)}</div><h3>${esc(g.en)}</h3><p>${esc(g.about)}</p>${g.page?"":`<span class="pill">soon</span>`}</div>`).join("")}</div>
+  <h2>Tools</h2>
+  <div class="make tools">${[["script","Script","Write one or many scripts for any series."],
+      ["voice","Voice","Your voice (or the English narrator) reads a script."],
+      ["sound","Sound","Music under a narration, shaped like your episodes."],
+      ["pics","Pictures","Paintings that follow a story."],
+      ["image","Image","Any picture from words."],
+      ["video","Video","From a voice + picture(s)."],
+      ["reels","Reels","9:16 reels from a finished episode."],
+      ["repair","Repair","Check a video or reel and fix it."]].map(([k,t,d])=>`<div class="card flow" onclick="go('${k}')"><div class="ic">${svg(k)}</div><h3>${t}</h3><p>${d}</p></div>`).join("")}</div>
+  <div id="upd"></div><div id="sugg"></div>
+  <h2>Recent</h2><div class="card list" id="homeLatest"><div class="empty">loading…</div></div>`;
+  drawSugg();
+  await loadLib();
+  const n=(P.lib.narrations||[]).slice(0,3).map(n=>`<div class="item"><div class="meta"><b>🎙 ${esc(n.name)}</b><small>${fmt(n.seconds)} · ${ago(n.time)}</small></div><audio controls preload="none" src="${media(n.music||n.voice)}"></audio></div>`);
+  const v=(P.lib.videos||[]).slice(0,2).map(v=>`<div class="item"><div class="meta"><b>🎬 ${esc(base(v.file))}</b><small>${v.kind} · ${ago(v.time)}</small></div><button class="btn small" onclick="lightbox('${media(v.file)}','',1)">Play</button></div>`);
+  $("#homeLatest").innerHTML=[...n,...v].join("")||'<div class="empty">Nothing yet.</div>';
+};
+async function drawSeries(r){const el=$("#serCard");if(!el)return;r=r||await api("/api/voice/series",{}).catch(()=>null);if(!r)return;P.ser=r;
+  const opts=sel=>`<option value="">—</option>`+r.series.map(x=>`<option value="${x.id}" ${x.id==sel?"selected":""}>${esc(x.name)}</option>`).join("");
+  el.innerHTML=`<div class="hint">Tell the hub which of your recordings belong to which series. Each series can then learn its own delivery from them (a graphics-card job, ~30-60 min). Your current सुकून voice stays as it is until you train a new one.</div>
+   <div class="list" style="margin-top:10px">${r.series.map(x=>`<div class="item"><div class="meta"><b>${esc(x.name)}</b><small>${esc(x.about)} · ${x.minutes} min of recordings${x.trained?` · trained: ${esc(x.trained)}`:" · not trained yet"}</small></div>
+     <button class="btn small ${x.minutes>=10?"primary":""}" onclick="trainSeries('${x.id}')" ${x.minutes<8?"disabled title='tick at least ~10 min of recordings below'":""}>Train</button></div>`).join("")}</div>
+   ${more("Recordings → series ("+r.recordings.length+")",`<div class="list">${r.recordings.map(e=>`<div class="item" style="padding:4px 0"><div class="meta"><b>${esc(e.name)}</b><small>${e.minutes} min</small></div><select class="serSel" data-ep="${esc(e.name)}" style="max-width:160px">${opts(e.series)}</select></div>`).join("")}</div>
+     <div class="actions"><button class="btn primary" onclick="saveSeries()">Save</button></div>
+     <div class="row" style="margin-top:12px"><div><input id="serNewId" type="text" placeholder="new series id, e.g. dard"></div><div><input id="serNewName" type="text" placeholder="name, e.g. दर्द"></div><div style="flex:0"><button class="btn" onclick="saveSeries(1)">Add series</button></div></div>`)}
+   <h2 style="margin-top:16px">Train from your Audacity projects</h2>
+   <div class="hint">Give a folder (on D: or E:). The hub finds every .aup3 in it, you set the series you know (leave the rest on “AI decides”), then let it run overnight: it reads every recording (no script needed — it hears the words), sorts the rest by what you say, and trains a voice for every series with at least 10 min. Projects are only read, never changed.</div>
+   <div class="row" style="margin-top:8px"><div><input id="vfDir" type="text" placeholder="e.g. D:\\Audacity\\Old projects" value="${esc(store.get("vfDir",""))}"></div><div style="flex:0"><button class="btn" onclick="scanVoice()">Find projects</button></div></div>
+   <div id="vfList"></div>
+   <div class="actions"><label class="switch"><input type="checkbox" id="vfSuk">also retrain सुकून (your current Sukoon voice is replaced by the new one)</label></div>
+   <div class="actions"><button class="btn primary" onclick="overnight()">Train overnight</button><span class="hint">one job: read recordings → sort → train each series (~45 min each)</span></div>`}
+async function scanVoice(){const f=$("#vfDir").value.trim();if(!f)return toast("type a folder",1);store.set("vfDir",f);$("#vfList").innerHTML='<div class="hint"><span class="spin"></span> looking…</div>';
+  try{const r=await api("/api/voice/scan",{folder:f});const opts=sel=>`<option value="">AI decides</option>`+P.ser.series.map(x=>`<option value="${x.id}" ${x.id==sel?"selected":""}>${esc(x.name)}</option>`).join("");
+    $("#vfList").innerHTML=`<div class="hint" style="margin:8px 0">${r.files.length} projects · ${r.files.filter(x=>x.imported).length} already read for training</div><div class="list" style="max-height:420px;overflow:auto">`+r.files.map(x=>`<div class="item" style="padding:4px 0"><div class="meta"><b>${esc(x.name)}</b><small>${x.mb} MB · ${x.imported?"✓ read":"new"} · ${esc(x.file)}</small></div><select class="serSel" data-ep="${esc(x.name)}" style="max-width:160px">${opts(x.series)}</select></div>`).join("")+`</div><div class="actions"><button class="btn" onclick="saveSeries().then(()=>scanVoice())">Save series</button></div>`}
+  catch(e){$("#vfList").innerHTML="";toast(e.message,1)}}
+async function overnight(){const f=$("#vfDir").value.trim();
+  if(f){try{const r=await api("/api/voice/folders",{folder:f});toast(r.folders.length+" folders will be read")}catch(e){return toast(e.message,1)}}
+  if($$(".serSel").length)await saveSeries();
+  if(!confirm("Start the overnight job now? It uses the graphics card for hours; other jobs wait (you can Stop it in Activity)."))return;
+  startGo("voice_overnight",{include_sukoon:$("#vfSuk").checked})}
+async function saveSeries(add){const eps={};$$(".serSel").forEach(s=>eps[s.dataset.ep]=s.value);
+  const body={episodes:eps};if(add){const id=$("#serNewId").value.trim(),nm=$("#serNewName").value.trim();if(!id||!nm)return toast("id and name",1);body.add={id,name:nm}}
+  try{drawSeries(await api("/api/voice/series",body));toast("Saved")}catch(e){toast(e.message,1)}}
+async function trainSeries(id){const x=(P.ser.series||[]).find(s=>s.id==id);if(!confirm(`Train your ${x.name} voice from ${x.minutes} min of recordings? It uses the graphics card for about 30-60 min (other jobs wait).`))return;
+  startGo("voice_train",{series:id})}
+async function restartHub(force){try{await api("/api/restart",{force:!!force})}catch(e){if(!force&&confirm(e.message))return restartHub(true);if(!force)return}
+  toast("Restarting - the page reloads in a few seconds");setTimeout(function w(){fetch("/api/status").then(r=>r.ok?location.reload():setTimeout(w,1500)).catch(()=>setTimeout(w,1500))},4000)}
+async function drawSugg(){try{const st=await (await fetch("/api/status")).json();const u=$("#upd");if(u)u.innerHTML=st.update_ready?`<div class="card" style="border-color:var(--acc,#e0a64a);margin:14px 0;display:flex;align-items:center;gap:12px"><div style="flex:1"><b>Updates are installed</b><div class="hint">restart the hub to use them (a running job continues afterwards)</div></div><button class="btn primary" onclick="restartHub()">Restart hub</button></div>`:""}catch(e){}
+  let L=[];try{L=await (await fetch("/api/suggestions")).json()}catch(e){}const el=$("#sugg");if(!el)return;P.sugg=L;
+  el.innerHTML=L.length?`<h2>Suggestions <span class="hint" style="font-weight:400">· nothing runs until you click</span></h2><div class="card list">`+L.map((x,i)=>`<div class="item"><div class="meta"><b>${esc(x.text)}</b><small>${esc(x.why)}</small></div>${x.action.none?"":`<button class="btn small primary" onclick="doSugg(${i})">${esc(x.button)}</button>`}<button class="btn small ghost" onclick="dropSugg(${i})">Not now</button></div>`).join("")+`</div>`:""}
+async function dropSugg(i){const x=P.sugg[i];try{await api("/api/suggestions/dismiss",{id:x.id})}catch(e){}drawSugg()}
+async function doSugg(i){const a=P.sugg[i].action;
+  if(a.kind){const id=await start(a.kind,a.body||{});if(id){toast("Started - see Activity");drawSugg()}return}
+  if(a.page=="episode"){go("episode");setTimeout(()=>{setChip("eSrc","ai");$("#eSrc").dispatchEvent(new Event("change"));$("#eTopic").value=a.topic||"";P.recipe=null},60);return}
+  if(a.page=="jobs"){go("jobs");setTimeout(()=>{try{selJob(a.job)}catch(e){}},300);return}
+  if(a.pick)P.pick=a.pick;go(a.page)}
+function renderStats(){const s=P.status;if(!s||!$("#homeStats"))return;const g=s.gpu,aiName="Ollama",aiUp=s.ollama;
+  $("#homeStats").innerHTML=`<div class="card stat"><small>Graphics card</small><b>${g?Math.round(g.mem_used/102.4)/10+" / "+Math.round(g.mem_total/1024)+" GB":"—"}</b><small>${g?esc(g.name)+" · "+g.util+"% busy":"not found"}</small></div>
+  <div class="card stat"><small>Job</small><b>${s.running?esc(s.running.title):"Idle"}</b><small>${s.running?`step ${s.running.step+1}/${s.running.n_steps} · ${esc(s.running.step_label)}`:""}${s.queued?` · ${s.queued} waiting`:""}</small></div>
+  ${s.engines&&(!s.engines.voice||!s.engines.studio)?`<div class="card stat" style="border-color:var(--warn)"><small>Setup</small><b>Run setup_hub.bat</b><small>${!s.engines.voice?"voice engine ":""}${!s.engines.studio?"video engine ":""}not set up yet</small></div>`:""}
+  <div class="card stat"><small>Services</small><b><span class="dot ${s.comfy?"ok":""}"></span>ComfyUI <span class="dot ${aiUp?"ok":""}" style="margin-left:10px"></span>${aiName}</b><small>${s.disk_free_gb??"?"} GB free on the media drive</small></div>`}
+
+// ---------------- VOICE
+function voiceForm(prefix){const pr=P.presets;return `
+   <div id="${prefix}SukV"><label>Voice</label><select id="${prefix}Voice">${opt(pr.voices,"v3")}</select></div><div class="hint" id="${prefix}SerV"></div>
+   <label>Quality</label>${chips(prefix+"Takes",{"3":"Best of 3 takes","1":"Fast draft"},"3")}
+   <label>Delivery — calm ↔ expressive</label>${range(prefix+"Ex",0.25,0.7,0.05,0.35)}
+   <label>Pauses — shorter ↔ longer</label>${range(prefix+"Pause",0.4,1.6,0.05,1.0,"×")}
+   <div>${sw(prefix+"Drama","Dramatic pauses — hold the silence after “लेकिन उसके बाद…”, before “तभी”, after a reveal",false)}</div>
+   <div>${sw(prefix+"Emo","Emotions — the AI marks each line [डर] [उदास] [फुसफुसाहट] … and your voice follows (gently, no pitch jumps)",false)}</div>
+   <div class="hint">Both are saved into the script, so you can edit them. Turning one on for an existing narration remakes all of it, not just a few lines.</div>
+   <div class="sec">Music & sound</div>
+   <div id="${prefix}SndBox" class="hidden">${chips(prefix+"Snd",{auto:"Auto: music + ambience + sound effects",music:"Music only (auto)",pick:"Choose a track",none:"No music"},"auto")}<div class="hint" id="${prefix}SndH"></div></div>
+   <div class="row" id="${prefix}MusRow"><div>${musicSel(prefix+"Music")}</div><div style="flex:0"><button class="btn small" onclick="audition('${prefix}Music')">▶ Listen</button></div></div>
+   <div id="${prefix}SukM">${(()=>{const A=P.presets.audio||{},S=A.shape;if(!S)return `<div class="hint">Build the music index in Settings to get “like my Sukoon episodes”.</div>`;
+     return `<div style="margin-top:10px">${sw(prefix+"Shape","Like my Sukoon episodes",true)}</div><div class="hint">from ${S.from_episodes} of your episodes: starts ${S.lead_s} s before you, about ${Math.abs(S.story_db)} dB under your voice, keeps playing after you stop${A.auto?" · default track: "+esc(A.auto):""}</div>
+     <label>Music after the story</label>${chips(prefix+"Tail",{"1min":"1 min","5min":"5 min","usual":"like my episodes (~"+Math.round(S.tail_s/60)+" min)"},prefix=="e"?"usual":"1min")}`})()}
+   <label>Music under the voice by (when not “like my episodes”)</label>${range(prefix+"Db",8,24,1,P.presets.music_under_db||14," dB")}</div><div id="${prefix}SerM" class="hidden">${chips(prefix+"STail",{"1min":"1 min","5min":"5 min"},"1min")}<label>Music after the story</label>${chips(prefix+"STail",{"1min":"1 min","5min":"5 min"},"1min")}</div>
+   <audio id="${prefix}Aud" class="hidden"></audio>`}
+const SMUS={bhay:"Dark, Tension, Eerie",rahasya:"Tension, Dark",kisse:"Sad, Love, Calm",romanch:"Love, Calm",kareeb:"Calm",gyaan:"Calm, Happy"};
+function voiceSeries(p,g){const d=SDEF[g]||SDEF.sukoon,suk=g=="sukoon";
+  const mo=$(`#${p}Music option[value=""]`);if(mo){mo.dataset.suk=mo.dataset.suk||mo.textContent;mo.textContent=suk?mo.dataset.suk:`Auto — a fresh track from the ${serName(g)} mood folders (${SMUS[g]}), least used first`}
+  $(`#${p}SukV`).classList.toggle("hidden",!suk);$(`#${p}SukM`).classList.toggle("hidden",!suk);$(`#${p}SerM`).classList.toggle("hidden",suk);
+  $(`#${p}SerV`).textContent=suk?"":`Your ${serName(g)} voice (trained for this series, or your plain voice until it is trained) · its own pace and pauses`;
+  $(`#${p}SndBox`).classList.toggle("hidden",suk);
+  const snd=()=>{const m=chipVal(p+"Snd")||"auto";$(`#${p}MusRow`).classList.toggle("hidden",!suk&&m!="pick");
+    $(`#${p}SndH`).textContent={auto:`The AI reads the story, picks ${serName(g)} music (${SMUS[g]}) and places ambience + sound effects scene by scene. The same plan is reused for pictures / video.`,
+      music:`A fresh track from the ${serName(g)} mood folders under your voice.`,pick:"Your track under your voice.",none:"Only your voice."}[m]||""};
+  if(!$(`#${p}Snd`).dataset.w){$(`#${p}Snd`).dataset.w=1;$(`#${p}Snd`).addEventListener("change",snd)}snd();
+  setRange(p+"Ex",d.ex);setRange(p+"Pause",d.pause);if($(`#${p}Drama`))$(`#${p}Drama`).checked=!!d.drama;if($(`#${p}Emo`))$(`#${p}Emo`).checked=!!d.emo}
+function voiceVals(p){return {voice:$(`#${p}Voice`).value,takes:+chipVal(p+"Takes"),exaggeration:+$(`#${p}Ex`).value,pause_scale:+$(`#${p}Pause`).value,music_track:$(`#${p}Music`).value,music_db:+$(`#${p}Db`).value,
+  music_shape:$(`#${p}Shape`)?$(`#${p}Shape`).checked:false,tail:chipVal(p+"Tail")||"1min",
+  dramatic:$(`#${p}Drama`)?$(`#${p}Drama`).checked:false,emotions:$(`#${p}Emo`)?$(`#${p}Emo`).checked:false}}
+function audition(id){const v=$("#"+id).value,a=$("#"+id.replace("Music","Aud"));if(!v||v=="none"){a.pause();return toast("choose a track")}if(!a.paused&&a.dataset.f==v){a.pause();return}a.dataset.f=v;a.src=media(v);a.currentTime=20;a.play()}
+R.voice=async(preN)=>{await loadLib();await pre();
+  $("main").innerHTML=`<div class="simple"><h1>Voice</h1><p class="sub">Paste or drop a script — your voice reads it.</p>
+  <div class="card">
+   ${serBar("vSer",guessSer(preN))}
+   <div class="row"><div><label>Name</label><input id="vName" type="text" placeholder="e.g. Sukoon 10.10"></div><div style="flex:0"><button class="btn" onclick="loadFile('vScript','vName')">Open .txt</button></div></div>
+   <label id="vScriptL">Script</label><textarea id="vScript" placeholder="अब उस चाय के मग को...&#10;(...)&#10;बहुत प्यार से... अपने साइड में रख दीजिए।"></textarea>
+   <div id="vTrBox" class="hidden actions"><button class="btn" id="vTr">Translate now to check it</button><span class="hint" id="vTrH">or just start — it translates first</span></div>
+   <div id="vHiBox" class="hidden"><label>Hindi (edit before voicing)</label><textarea id="vHi" style="min-height:200px"></textarea></div>
+   <div class="actions"><button class="btn primary" id="vGo">${svg("voice")} Read it in my voice</button><span class="hint" id="vCount"></span></div>
+   <div id="vLangBox">${more("Language",`${chips("vLang",{hi:"Hindi script",en:"English → Hindi (AI translates)",nar:"English · the English narrator reads it"},"hi")}<div class="hint">One phrase per line · (...) long pause · ... soft ending · blank line = paragraph.</div>`)}</div>
+   ${more("Voice & music",voiceForm("v"))}
+   ${more("Try one line first",`<div class="row"><div><input id="pvLine" type="text" placeholder="a line to hear in ~1 minute"></div><div style="flex:0"><button class="btn" id="pvGo">Preview</button></div></div><div id="pvOut" class="hint"></div>`)}
+   ${more("Fix phrases in a narration",`<select id="rNar">${narrOpts(preN)}</select><div class="row"><div><input id="rNums" type="text" placeholder="phrase numbers, e.g. 9, 18"></div><div style="flex:0;display:flex;gap:8px"><button class="btn" id="rGo">Remake</button><button class="btn small" id="rRep">Report</button></div></div><div class="hint" id="rOut"></div>`,!!preN)}
+  </div></div>`;
+  dropTxt("vScript","vName");
+  const upd=()=>{const t=$("#vScript").value,w=t.split(/\s+/).filter(Boolean).length;$("#vCount").textContent=w?`${w} words · about ${Math.max(1,Math.round(w/190))} min of speech · ~${Math.max(1,Math.round(w/190*5.5))} min of PC time`:""};$("#vScript").oninput=upd;
+  $("#vLang").addEventListener("change",()=>{const en=chipVal("vLang")=="en",nar=chipVal("vLang")=="nar";$("#vGo").lastChild.textContent=nar?" Let the English narrator read it":" Read it in my voice";$("#vTrBox").classList.toggle("hidden",!en);$("#vScriptL").textContent=en?"English script":"Script";if(!en)$("#vHiBox").classList.add("hidden")});
+  $("#vTr").onclick=async e=>{const b=e.currentTarget;b.disabled=true;$("#vTrH").innerHTML='<span class="spin"></span> translating with '+esc(P.presets.llm)+' …';
+    try{const r=await api("/api/translate",{text:$("#vScript").value});$("#vHi").value=r.text;$("#vHiBox").classList.remove("hidden");$("#vTrH").textContent="done — check the Hindi below"}catch(x){toast(x.message,1);$("#vTrH").textContent=""}b.disabled=false};
+  const vser=()=>chipVal("vSer")||"sukoon";
+  const vApply=()=>{const g=vser();store.set("toolSer",g);voiceSeries("v",g);$("#vLangBox").classList.toggle("hidden",g!="sukoon");$("#vName").placeholder=SPFX[g]+" - …"};
+  $("#vSer").addEventListener("change",vApply);vApply();
+  $("#vName").addEventListener("change",()=>{const g=guessSer($("#vName").value,vser());if(g!=vser()){setChip("vSer",g);vApply()}});
+  $("#vGo").onclick=e=>{if(vser()!="sukoon"){const g=vser(),t=$("#vScript").value.trim();if(!t)return toast("Paste or open a script",1);
+      const sm=chipVal("vSnd")||"auto";
+      return startGo("genre",{genre:g,stages:sm=="none"?["script","voice"]:sm=="auto"?["script","voice","scenes","sound"]:["script","voice","sound"],name:$("#vName").value||(SPFX[g]+" - "+new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")),script:t,
+        takes:+chipVal("vTakes"),exaggeration:+$("#vEx").value,pause_scale:+$("#vPause").value,dramatic:$("#vDrama").checked,emotions:$("#vEmo").checked,
+        music_track:chipVal("vSnd")=="pick"&&$("#vMusic").value!="none"?$("#vMusic").value:"",tail:chipVal("vSTail")||"1min"},e.currentTarget)}
+    const en=chipVal("vLang")=="en",hi=$("#vHi").value.trim();const useHi=en&&hi&&!$("#vHiBox").classList.contains("hidden");
+    const nar=chipVal("vLang")=="nar";
+    startGo("voice",{name:$("#vName").value,script:useHi?hi:$("#vScript").value,lang:en&&!useHi?"en":"hi",language:nar?"en":"hi",...voiceVals("v")},e.currentTarget)};
+  $("#pvGo").onclick=async e=>{const l=$("#pvLine").value.trim();if(!l)return toast("write a line",1);const id=await start("voice",{script:l,preview:true,...voiceVals("v")},e.currentTarget);if(id){P.preview=id;$("#pvOut").innerHTML='<span class="spin"></span> making the preview (waits if a job is running)…'}};
+  if($("#rNar"))$("#rNar").insertAdjacentHTML("afterend",`<div class="actions"><button class="btn small" onclick='go("fix",$("#rNar").value)'>Open the phrase list (listen + tick)</button></div>`);
+  $("#rGo").onclick=e=>{const d=$("#rNar").value;if(!d)return toast("choose a narration",1);if(!$("#rNums").value.trim())return toast("which phrase numbers?",1);startGo("voice",{name:base(d),redo:$("#rNums").value,...voiceVals("v")},e.currentTarget)};
+  $("#rRep").onclick=async()=>{const d=$("#rNar").value;if(!d)return;try{const t=await (await fetch(media(join(d,"report.txt")))).text();$("#rOut").innerHTML=`<pre style="white-space:pre-wrap;margin:8px 0 0">${esc(t)}</pre>`}catch(e){}};
+};
+async function checkPreview(jobs){if(!P.preview)return;const j=jobs.find(x=>x.id==P.preview);if(!j||!["done","failed","stopped"].includes(j.status))return;
+  const el=$("#pvOut");P.preview=null;if(!el)return;if(j.status!="done"){el.textContent="the preview did not work — see Jobs & logs";return}
+  el.innerHTML=`<audio controls autoplay src="${media(join(j.outputs[0],"narration.wav"))}"></audio>`}
+
+// ---------------- PICTURES (from a narration)
+function imgOpts(p,size="16:9"){const pr=P.presets;return `
+   <label>Look</label>${chips(p+"Style",pr.styles,store.get(p+"style",pr.styles.sukoon_theme?"sukoon_theme":"sukoon_night"))}
+   <label>Size</label>${chips(p+"Size",pr.sizes,size)}`}
+function imgAdv(p){const pr=P.presets;return more("Model & quality",`
+   <div class="row"><div><label>Model</label><select id="${p}Eng">${pr.engines.map(e=>`<option>${e}</option>`).join("")}</select></div><div><label>Quality steps</label>${range(p+"Steps",4,30,1,8)}</div><div><label>Seed</label><input id="${p}Seed" type="number" placeholder="random"></div></div>
+   <label>Avoid (used by DreamShaper; Z-Image ignores it)</label><input id="${p}Neg" type="text" placeholder="text, watermark, blurry, extra people">`)}
+const imgVals=p=>{store.set(p+"style",chipVal(p+"Style"));return {style:chipVal(p+"Style"),size:chipVal(p+"Size"),engine:$(`#${p}Eng`).value,steps:+$(`#${p}Steps`).value,seed:$(`#${p}Seed`).value,negative:$(`#${p}Neg`).value}};
+R.pics=async(preN)=>{await loadLib();await pre();
+  $("main").innerHTML=`<div class="simple"><h1>Pictures for a voice</h1><p class="sub">The AI reads the story part by part and paints one picture for each.</p>
+  <div class="card">
+   <label>Narration</label><select id="pNar">${narrOpts(preN)}</select>
+   ${serBar("pSer",guessSer(preN))}<div class="hint" id="pSerH"></div>
+   <div class="row"><div><label>How many pictures</label><input id="pN" type="number" min="1" max="40" value="6"></div><div><label>Set name</label><input id="pName" type="text" placeholder="same as the narration"></div></div>
+   ${imgOpts("p")}
+   <div class="actions"><button class="btn primary" id="pGo">${svg("pics")} Paint the pictures</button></div>
+   ${more("Your idea / use a script instead",`<label>Your idea for the look</label><input id="pIdea" type="text" placeholder="e.g. a small village house by a lake, rainy night"><label>Script (only if no narration is chosen)</label><textarea id="pScript" style="min-height:120px"></textarea>`)}
+   ${imgAdv("p")}
+  </div></div>`;
+  dropTxt("pScript");
+  $("#pNar").onchange=()=>{if(!$("#pName").value)$("#pName").value=base($("#pNar").value)};if(preN)$("#pNar").onchange();
+  const pser=()=>chipVal("pSer")||"sukoon";
+  const pApply=()=>{const g=pser(),suk=g=="sukoon";store.set("toolSer",g);$("#pSerH").textContent=suk?"":`${serName(g)} look: the AI plans the scenes of the story (pictures + sounds), ComfyUI paints them in the series' style. 0 pictures = about one per 70 s.`;
+    $$("main .card details.more").forEach(d=>d.style.display=suk?"":"none");["pStyle","pSize"].forEach(i=>{const x=$("#"+i);x.style.display=x.previousElementSibling.style.display=suk?"":"none"});if(!suk&&+$("#pN").value==6)$("#pN").value=0};
+  $("#pSer").addEventListener("change",pApply);$("#pNar").addEventListener("change",()=>{setChip("pSer",guessSer($("#pNar").value,pser()));pApply()});pApply();
+  $("#pGo").onclick=e=>pser()!="sukoon"?($("#pNar").value?startGo("genre",{genre:pser(),stages:["scenes","pictures"],name:base($("#pNar").value),scenes:+$("#pN").value||0},e.currentTarget):toast("choose a narration",1)):startGo("pictures",{narration:$("#pNar").value,script:$("#pScript").value,name:$("#pName").value||base($("#pNar").value)||"pictures",count:+$("#pN").value,idea:$("#pIdea").value,...imgVals("p")},e.currentTarget);
+};
+
+// ---------------- IMAGE STUDIO
+R.image=async(varOf)=>{await loadLib();await pre();
+  $("main").innerHTML=`<div class="simple"><h1>Image</h1><p class="sub">Describe it — it gets painted.</p>
+  <div class="card">
+   <label style="margin-top:0">Main subject</label>
+   <textarea id="iPrompt" style="min-height:96px" placeholder="an old man reading a letter under a street lamp"></textarea>
+   <div style="margin-top:8px">${sw("iSil","Subject as a silhouette",true)}</div>
+   <label>Inspired by</label>
+   <div class="row" style="align-items:center"><div id="iRefBox"><button class="btn" onclick="pickRef()">Pick one of my thumbnails</button> <span class="hint">${P.presets.index.count?P.presets.index.count+" indexed":"index them once in Settings"}</span></div></div>
+   <div id="iRefClose" class="hidden"><label>How close to it</label>${range("iDen",0.45,0.9,0.05,0.7)}<div class="hint">left = keeps its layout and colours closely · right = only its colours and light</div></div>
+   ${imgOpts("i")}
+   <div class="actions"><button class="btn primary" id="iGo">${svg("image")} Paint</button><span class="hint">2 pictures</span></div>
+   ${more("More",`<div class="row"><div><label>How many</label><input id="iN" type="number" min="1" max="8" value="2"></div></div><div style="margin-top:10px">${sw("iBatch","one prompt per line (batch)")}</div><label>Add your own pictures</label><div class="drop" id="iDrop">Drop pictures here or click</div>`)}
+   ${imgAdv("i")}
+  </div>
+  <h2>Recent</h2><div class="thumbs" id="iGal"></div></div>`;
+  $("#iGal").innerHTML=(P.lib.images||[]).map(f=>thumbAct(f,["View","Variations","Use as artwork"])).join("")||'<div class="empty">No pictures yet.</div>';
+  dropImg($("#iDrop"),()=>R.image());
+  $("#iGo").onclick=e=>startGo("image",{prompt:$("#iPrompt").value,batch:$("#iBatch").checked,count:+$("#iN").value,silhouette:$("#iSil").checked,
+     ref:P.ref||"",denoise:P.ref?+$("#iDen").value:null,...imgVals("i")},e.currentTarget);
+  showRef();
+};
+function thumbAct(f,acts,extra=""){const F=esc(JSON.stringify(f));return `<div class="thumb" ${extra}><img loading="lazy" src="${media(f)}" onclick='showImg(${F})'><div class="acts">${acts.map(a=>`<button onclick='act(${JSON.stringify(a)},${F},this)'>${a}</button>`).join("")}</div></div>`}
+async function act(a,f,el){if(a=="Remove")return removeItem(f,"picture "+base(f));
+  if(a=="View")return showImg(f);
+  if(a=="Variations"){const n=prompt("How many variations?","4");if(!n)return;return startGo("image",{variations_of:f,count:+n,size:sizeOf(el)})}
+  if(a=="Use as artwork"){P.sel.sArt=f;go("video");return}
+  if(a=="Repaint"){const set=el.closest("[data-set]").dataset.set;const p=(await promptOf(f)).split("\n\n")[0];
+    modal(`<h2 style="margin-top:0">Repaint ${esc(base(f))}</h2><img src="${media(f)}"><label>Prompt (change it, or keep it for just a new seed)</label><textarea id="rpP" style="min-height:120px">${esc(p)}</textarea>
+     <div class="actions"><button class="btn primary" id="rpGo">Repaint</button><button class="btn" onclick="closeModal()">Cancel</button><span class="hint">the old picture is kept as _old_…</span></div>`);
+    $("#rpGo").onclick=async e=>{await start("repaint",{set,file:base(f),prompt:$("#rpP").value},e.currentTarget);closeModal()}}}
+function sizeOf(el){const i=el.closest(".thumb").querySelector("img");if(!i.naturalWidth)return "16:9";const r=i.naturalWidth/i.naturalHeight;return r>1.4?"16:9":r<0.65?"9:16":r<0.9?"4:5":"1:1"}
+function pickRef(){const T=P.presets.index.thumbs||[];if(!T.length)return toast("index your thumbnails first (Settings)",1);
+  const grp=s=>T.filter(t=>t.series==s).map(t=>`<div class="thumb" onclick='setRef(${esc(JSON.stringify(t.file))})' title="${esc(t.look)}"><img loading="lazy" src="${media(t.thumb)}"><span>${esc(t.name).slice(0,24)}</span></div>`).join("");
+  modal(`<h2 style="margin-top:0">Inspired by…</h2><p class="hint">The new picture keeps this one's colours, light and feel; your subject replaces its subject.</p>
+   <div class="sec">Sukoon</div><div class="thumbs">${grp("sukoon")||'<div class="empty">none</div>'}</div><div class="sec">Kisse</div><div class="thumbs">${grp("kisse")||'<div class="empty">none</div>'}</div>
+   <div class="actions"><button class="btn" onclick="setRef('')">No reference</button><button class="btn" onclick="closeModal()">Close</button></div>`)}
+function setRef(f){P.ref=f;closeModal();showRef()}
+function showRef(){const b=$("#iRefBox");if(!b)return;const t=(P.presets.index.thumbs||[]).find(x=>x.file==P.ref);
+  $("#iRefClose").classList.toggle("hidden",!t);
+  b.innerHTML=t?`<div style="display:flex;gap:12px;align-items:center"><img src="${media(t.thumb)}" style="width:150px;border-radius:8px"><div><b>${esc(t.name)}</b><div class="hint">${esc(t.look).slice(0,140)}…</div><div style="margin-top:6px"><button class="btn small" onclick="pickRef()">Change</button> <button class="btn small" onclick="setRef('')">Remove</button></div></div></div>`
+   :`<button class="btn" onclick="pickRef()">Pick one of my thumbnails</button> <span class="hint">${P.presets.index.count?P.presets.index.count+" indexed":"index them once in Settings"}</span>`}
+async function showImg(f){lightbox(media(f),await promptOf(f))}
+
+// ---------------- VIDEO
+R.video=async(preN)=>{await loadLib();await pre();const L=P.lib,pr=P.presets,tab=store.get("vtab","st");
+  $("main").innerHTML=`<h1>Video</h1><p class="sub">Choose the series: सुकून = one picture → a calm video with reels (or a slideshow). Any other series = its own video: scenes that follow the story, camera moves, light, sound effects, subtitles.</p>
+  <div class="simple" style="margin:0 0 14px"><div class="card">${serBar("wSer",guessSer(preN))}</div></div>
+  <div id="wSerBox" class="simple hidden" style="margin:0"><div class="card">
+   <label>Narration</label><select id="wNar">${narrOpts(preN)}</select>
+   <div class="row"><div><label>Title on the video</label><input id="wTitle" type="text" placeholder="(the story's title)"></div><div style="flex:0 0 130px"><label>Scenes</label><input id="wScenes" type="number" min="0" max="24" value="0" title="0 = about one per 70 s"></div></div>
+   <div class="row"><div style="flex:0 0 130px"><label>Reels (9:16)</label><input id="wReels" type="number" min="0" max="6" value="2"></div><div style="flex:0 0 150px"><label>Reel length (s)</label><input id="wReelLen" type="number" min="15" max="60" value="30"></div></div>
+   <div class="actions"><button class="btn primary" id="wGo">${svg("video")} Make the video</button><span class="hint">scenes are planned once; pictures already painted are kept</span></div></div></div>
+  <div id="wSukBox">
+  <div class="tabs"><button class="tab ${tab=="st"?"on":""}" data-t="st">One picture</button><button class="tab ${tab=="ss"?"on":""}" data-t="ss">Many pictures</button></div>
+  <div id="tst" class="simple ${tab=="st"?"":"hidden"}" style="margin:0"><div class="card">
+   <label>Narration</label><select id="sNar">${narrOpts(preN)}</select>
+   <div class="row"><div><label>Episode name</label><input id="sName" type="text" placeholder="same as the narration"></div><div><label>Title on the video</label><input id="sTitle" type="text" placeholder="Sleep Hypnosis"></div></div>
+   <div class="row"><div><label>Reels (~30 s)</label><input id="sReels" type="number" min="0" max="8" value="3"></div></div>
+   <div class="actions"><button class="btn primary" id="sGo">${svg("video")} Make the Sukoon video</button></div>
+   ${more("Typography & look",`
+   <label>Style</label>${chips("sTypo",pr.typos,"mukhtalif")}
+   <label>Font</label>${fontSel("sFont","")}<div class="fontprev" id="sFontP">सुकून की एक शांत रात · a calm night</div>
+   <div class="row"><div><label>Words on screen</label>${chips("sCap",{hi:"Hindi",en:"English"},"hi")}</div><div><label>Max key lines</label><input id="sMax" type="number" min="3" max="40" value="20"></div></div>
+   <label>Sound light</label>${chips("sViz",pr.viz,"line")}
+   <div style="margin-top:10px">${sw("sBrand","Branding",true)}${sw("sTitleC","Opening title",true)}${sw("sDim","Dim the last third",true)}</div>`)}
+   ${more("Extras",`<div class="row"><div><label>Badge</label><input id="sLabel" type="text" placeholder="e.g. Sukoon 10.10 (auto)"></div><div><label>Short clips</label><input id="sClips" type="number" min="0" max="8" value="0"></div><div><label>Preview (s, 0 = full)</label><input id="sPrev" type="number" min="0" value="0"></div></div>`)}
+   ${more("Artwork"+(P.sel.sArt?" · chosen":" — HubGPT Video picks one if you don't"),`<div class="drop" id="sDrop" style="margin-bottom:6px">Drop your own artwork here or click</div>
+   ${picker("sArt",[["Your picture sets",(L.picture_sets||[]).flatMap(s=>s.images.slice(0,4))],["Image studio & uploads",L.images||[]],["D:\\Audio asset\\Images",L.artwork||[]]],P.sel.sArt||"")}`,!!P.sel.sArt)}
+  </div></div>
+  <div id="tss" class="${tab=="ss"?"":"hidden"}"><div class="grid g2"><div class="card">
+   <label>Narration</label><select id="xNar">${narrOpts(preN)}</select>
+   <label>Picture set</label><select id="xSet"><option value="">— choose —</option>${(L.picture_sets||[]).map(s=>`<option value="${esc(s.dir)}">${esc(s.name)} · ${s.images.length} pictures</option>`).join("")}</select>
+   <div class="row"><div><label>Video name</label><input id="xName" type="text"></div><div><label>Shape</label>${chips("xSize",{"16:9":"16:9 YouTube","9:16":"9:16 Reel"},"16:9")}</div></div>
+   <div class="sec">Pictures — drag to reorder · ✕ to remove · seconds (empty = automatic)</div>
+   <div class="timeline" id="xTl"></div><audio id="xAud" controls preload="none" style="width:100%;max-width:none"></audio>
+   <div class="editor" id="xEd"><div class="empty">choose a picture set</div></div>
+   <div class="actions"><button class="btn small" id="xReset">Back to the story's order & timing</button></div>
+  </div><div class="card">
+   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px"><div class="sec" style="margin:0">Captions</div>${sw("cOn","show the spoken words",true)}</div>
+   <div class="capprev" id="cPrev"><div class="t" id="cPrevT">अब उस चाय के मग को <span class="em">प्यार</span> से रख दीजिए</div></div>
+   ${more("Caption style",`<label>Font</label>${fontSel("cFont","","Nirmala UI (Windows)")}
+   <label>Size</label>${range("cSize",30,90,2,54)}
+   <div class="colors" style="margin-top:12px"><label>Text <input type="color" id="cCol" value="#ffffff"></label><label>Emphasis <input type="color" id="cHi" value="#e0a75e"></label>${sw("cOut","Outline",true)}${sw("cBold","Bold",false)}</div>
+   <label>Position</label>${chips("cPos",{bottom:"Bottom",center:"Center",top:"Top"},"bottom")}
+   <label>Emphasise these words (comma separated)</label><input id="cWords" type="text" placeholder="सुकून, प्यार, आराम">
+   <div style="margin-top:8px">${sw("cAuto","Emphasise the last word of every line",false)}</div>`)}
+   <div class="actions"><button class="btn primary" id="xGo">${svg("video")} Make the slideshow</button></div>
+  </div></div></div></div>`;
+  const wser=()=>chipVal("wSer")||"sukoon";
+  const wApply=()=>{const g=wser(),suk=g=="sukoon";store.set("toolSer",g);$("#wSerBox").classList.toggle("hidden",suk);$("#wSukBox").classList.toggle("hidden",!suk);$("#wGo").lastChild.textContent=" Make the "+serName(g)+" video"};
+  $("#wSer").addEventListener("change",wApply);$("#wNar").addEventListener("change",()=>{setChip("wSer",guessSer($("#wNar").value,wser()));wApply()});wApply();
+  $("#wGo").onclick=e=>{const n=$("#wNar").value;if(!n)return toast("choose a narration",1);
+    startGo("genre",{genre:wser(),stages:["scenes","sound","pictures","video","reels"],name:base(n),title_text:$("#wTitle").value,scenes:+$("#wScenes").value||0,reels:+$("#wReels").value,reel_len:+$("#wReelLen").value},e.currentTarget)};
+  $$(".tab").forEach(t=>t.onclick=()=>{store.set("vtab",t.dataset.t);$$(".tab").forEach(x=>x.classList.toggle("on",x==t));$("#tst").classList.toggle("hidden",t.dataset.t!="st");$("#tss").classList.toggle("hidden",t.dataset.t!="ss")});
+  $("#sFont").onchange=()=>useFont($("#sFont").value,$("#sFontP"));
+  dropImg($("#sDrop"),r=>{if(r[0]){P.sel.sArt=r[0];R.video(preN)}});
+  if(preN){$("#xNar").value=preN}
+  $("#sGo").onclick=e=>{const n=$("#sNar").value;if(!n)return toast("choose a narration",1);
+    startGo("studio",{audio:n,name:$("#sName").value||base(n),title_text:$("#sTitle").value,label:$("#sLabel").value,reels:+$("#sReels").value,clips:+$("#sClips").value,preview:+$("#sPrev").value,artwork:P.sel.sArt||"",
+      typo:chipVal("sTypo"),font:$("#sFont").value?base($("#sFont").value):"",cap_lang:chipVal("sCap"),viz:chipVal("sViz"),max_lines:+$("#sMax").value,brand:$("#sBrand").checked,title_card:$("#sTitleC").checked,dim:$("#sDim").checked},e.currentTarget)};
+  // slideshow editor
+  let ED=[],dragI=null;
+  const setObj=()=>(L.picture_sets||[]).find(x=>x.dir==$("#xSet").value);
+  const resetEd=()=>{const s=setObj();if(!s){ED=[];drawEd();return}const sh={};(s.shots||[]).forEach(x=>sh[x.file]=x);ED=s.images.map(f=>({file:base(f),path:f,secs:"",text:(sh[base(f)]||{}).text||"",auto:(sh[base(f)]?.end!=null&&sh[base(f)]?.start!=null)?(sh[base(f)].end-sh[base(f)].start):null}));drawEd()};
+  function drawEd(){const ed=$("#xEd");if(!ED.length){ed.innerHTML='<div class="empty">choose a picture set</div>';$("#xTl").innerHTML="";return}
+    ed.innerHTML=ED.map((x,i)=>`<div class="ed" draggable="true" data-i="${i}"><b style="width:18px;text-align:right;color:var(--muted)">${i+1}</b><img src="${media(x.path)}"><div class="tx">${esc(x.text||x.file)}</div><input type="number" min="1" step="0.5" placeholder="${x.auto?x.auto.toFixed(1):"auto"}" value="${x.secs}" data-i="${i}" title="seconds"><button class="x" data-i="${i}" title="remove">✕</button></div>`).join("");
+    const tot=ED.reduce((a,x)=>a+(+x.secs||x.auto||5),0);$("#xTl").innerHTML=ED.map((x,i)=>`<div style="flex:${(+x.secs||x.auto||5)/tot};background-image:url('${media(x.path)}')" title="${i+1}"><span>${i+1}</span></div>`).join("");
+    $$("#xEd input").forEach(n=>n.oninput=()=>{ED[n.dataset.i].secs=n.value;const t=ED.reduce((a,x)=>a+(+x.secs||x.auto||5),0);$$("#xTl div").forEach((d,i)=>d.style.flex=(+ED[i].secs||ED[i].auto||5)/t)});
+    $$("#xEd .x").forEach(b=>b.onclick=()=>{ED.splice(+b.dataset.i,1);drawEd()});
+    $$("#xEd .ed").forEach(r=>{r.ondragstart=()=>{dragI=+r.dataset.i;r.classList.add("drag")};r.ondragend=()=>r.classList.remove("drag");r.ondragover=e=>{e.preventDefault();r.classList.add("over")};r.ondragleave=()=>r.classList.remove("over");
+      r.ondrop=e=>{e.preventDefault();r.classList.remove("over");const to=+r.dataset.i;if(dragI==null||dragI==to)return;const [m]=ED.splice(dragI,1);ED.splice(to,0,m);dragI=null;drawEd()}});
+    if(ED[0])$("#cPrev").style.backgroundImage=`url('${media(ED[0].path)}')`}
+  $("#xSet").onchange=()=>{resetEd();const s=setObj();if(s&&!$("#xName").value)$("#xName").value=s.name;if(s&&!$("#xNar").value){const n=(L.narrations||[]).find(n=>n.name==s.name);if(n){$("#xNar").value=n.dir;$("#xNar").onchange()}}};
+  $("#xNar").onchange=()=>{const d=$("#xNar").value;$("#xAud").src=d?media(join(d,"narration_music.wav")):""};if(preN)$("#xNar").onchange();
+  $("#xReset").onclick=resetEd;
+  const capUpd=()=>{const t=$("#cPrevT"),pos=chipVal("cPos");t.style.color=$("#cCol").value;t.style.fontSize=($("#cSize").value*0.45)+"px";t.style.fontWeight=$("#cBold").checked?700:400;
+    t.style.top=pos=="top"?"8%":pos=="center"?"42%":"";t.style.bottom=pos=="bottom"?"8%":"";t.style.webkitTextStroke=$("#cOut").checked?"0":"0";t.style.textShadow=$("#cOut").checked?"0 0 3px #000,0 0 3px #000,0 2px 6px #000":"none";
+    t.querySelectorAll(".em").forEach(e=>{e.style.color=$("#cHi").value;e.style.fontWeight=700});$("#cPrev").style.opacity=$("#cOn").checked?1:.4;$("#cPrev").style.aspectRatio=chipVal("xSize")=="9:16"?"9/16":"16/9";$("#cPrev").style.maxHeight="340px"};
+  ["cCol","cHi","cSize","cOut","cBold","cOn"].forEach(i=>$("#"+i).addEventListener("input",capUpd));$("#cPos").addEventListener("change",capUpd);$("#xSize").addEventListener("change",capUpd);
+  $("#cFont").onchange=()=>useFont($("#cFont").value,$("#cPrevT"));capUpd();
+  if(P.sel.xs){$("#xSet").value=P.sel.xs;P.sel.xs=null;$("#xSet").onchange()}
+  $("#xGo").onclick=e=>{if(!$("#xNar").value||!$("#xSet").value)return toast("choose a narration and a picture set",1);
+    startGo("slideshow",{audio:$("#xNar").value,pictures:$("#xSet").value,name:$("#xName").value||"slideshow",size:chipVal("xSize"),order:ED.map(x=>({file:x.file,secs:+x.secs||null})),
+      captions:{on:$("#cOn").checked,font:$("#cFont").value?base($("#cFont").value):"",size:+$("#cSize").value,color:$("#cCol").value,highlight:$("#cHi").value,outline:$("#cOut").checked,bold:$("#cBold").checked,position:chipVal("cPos"),words:$("#cWords").value,auto_emph:$("#cAuto").checked}},e.currentTarget)};
+};
+
+// ---------------- WHOLE EPISODE
+R.episode=async()=>{await loadLib();await pre();const L=P.lib,pr=P.presets;
+  $("main").innerHTML=`<div class="simple"><h1>सुकून · Calming story</h1><p class="sub">Script or topic in — voice, artwork, living video and reels out.</p>
+  <div class="card">
+   <label>Language</label>${chips("eLng",{hi:"Hindi · your voice",en:"English · narrator voice"},store.get("eLng","hi"))}
+   <div class="row"><div><label>Episode name</label><input id="eName" type="text" placeholder="e.g. Sukoon 11.0"></div><div style="flex:0"><button class="btn" onclick="loadFile('eScript','eName')">Open .txt</button></div></div>
+   <label>Script</label>${chips("eSrc",{mine:"I have a script",ai:"Let the AI write it"},"mine")}
+   <div id="srcMine">
+   <textarea id="eScript" placeholder="Paste your script here, open a .txt, or pick one below"></textarea>
+   <div class="row" style="align-items:center"><div><select id="ePick"><option value="">…or pick a written script</option></select></div><div style="flex:0 0 auto"><span class="hint" id="eEst"></span></div></div>
+   </div>
+   <div id="srcAi" style="display:none">
+   <label>Kind of episode</label>${chips("eCat",Object.assign({"":"Any (varies)"},pr.categories||{}),"")}
+   <label>Topic</label><input id="eTopic" type="text" placeholder="e.g. exam pressure — it's okay, you are more than your marks">
+   <div class="actions" style="margin-top:8px"><button class="btn" id="eIdeas">3 fresh ideas</button><button class="btn" id="eCopy">Copy prompt for a chat site</button>${sw("eAuto","Let the hub choose the topic",false)}</div>
+   <div id="eIdeaList"></div>
+   <div class="row"><div><label>Writer</label>${chips("eWriter",{auto:"Gemini (local if no key)",local:"Local only (offline)"},"auto")}</div><div style="flex:0 0 160px"><label>Speech (min)</label><input id="eSpeech" type="number" min="2" max="60" value="12"></div></div>
+   <div class="actions" style="margin-top:14px;align-items:center"><button class="btn" id="eBatchGo">Only write scripts</button><input id="eBatch" type="number" min="1" max="20" value="5" style="width:72px" title="how many"><span class="hint">how many · each a different topic and recipe, never repeating · pick one later under “I have a script” · several topics: separate with ;</span></div>
+   </div>
+   <h2 style="margin-top:18px">Video length</h2>
+   <div class="row" style="align-items:end"><div style="flex:0 0 160px"><label>Whole video (min)</label><input id="eTotal" type="number" min="0" max="180" value="30"></div><div>${sw("eFit","If the speech is longer, let the AI shorten the script (story kept)",true)}</div></div>
+   <div class="hint" id="eFitHint"></div>
+   <div class="actions"><button class="btn primary" id="eGo">${svg("episode")} Make the whole episode</button></div>
+   ${more("Title, reels & language",`<div class="row"><div><label>Title on the video</label><input id="eTitle" type="text" placeholder="Sleep Hypnosis"></div><div><label>Reels</label><input id="eReels" type="number" min="0" max="8" value="3"></div></div><div id="eLangHi"><label>Script language</label>${chips("eLang",{hi:"Hindi script",en:"English → Hindi (translate, your voice)"},"hi")}</div><div id="eSpk"><label>English narrator</label>${chips("eSpeaker",{Ryan:"Ryan (deep, warm)",Aiden:"Aiden (lighter)"},"Ryan")}</div>`)}
+   ${more("Artwork",`<div class="hint">The AI reads the whole script, paints a few versions and the vision AI keeps the one that fits best (the others stay in the folder).</div><label>Style if the AI paints it</label>${chips("eStyle",pr.styles,pr.styles.sukoon_theme?"sukoon_theme":"sukoon_night")}<label>Versions to choose from</label><input id="eArtN" type="number" min="1" max="4" value="3" style="width:80px"><label>Your idea for it</label><input id="eIdea" type="text" placeholder="e.g. a lantern on a window sill, rain outside"><label>…or pick your own</label>${picker("eArt",[["Image studio & uploads",L.images||[]],["D:\\\\Audio asset\\\\Images",L.artwork||[]]],"")}`)}
+   ${more("Voice, music & typography",voiceForm("e")+`<div class="row"><div><label>Typography</label><select id="eTypo">${opt(pr.typos,"mukhtalif")}</select></div><div><label>Font</label>${fontSel("eFont","")}</div></div>`)}
+  </div></div>`;
+  dropTxt("eScript","eName");
+  const mine=()=>(chipVal("eSrc")||"mine")=="mine";
+  const lng=()=>chipVal("eLng")||"hi";
+  const lngUi=()=>{const en=lng()=="en";store.set("eLng",lng());$("#eLangHi").style.display=en?"none":"";$("#eSpk").style.display=en?"":"none";
+    $("#eTitle").placeholder=en?"(the AI's English title)":"(the AI's title)";if($("#eScript").value.trim())$("#eScript").oninput()};
+  $("#eLng").addEventListener("change",lngUi);
+  $("#eSrc").addEventListener("change",()=>{$("#srcMine").style.display=mine()?"":"none";$("#srcAi").style.display=mine()?"none":"";fitHint()});
+  const fitHint=()=>{const T=+$("#eTotal").value||0,sp=mine()?P.estMin||0:+$("#eSpeech").value||0,cap=Math.max(0,T-1.5);
+    $("#eFitHint").textContent=!T?"Video = speech + the usual music after it":sp>cap+0.2?($("#eFit").checked?`Speech ≈ ${sp} min is longer than ${cap.toFixed(1)} min (video minus music at the end) → the AI shortens the script to fit, keeping the story. The full script is kept.`:`Speech ≈ ${sp} min is longer than the video - turn shortening on, or choose a longer video`):`Speech ≈ ${sp} min + music → ${T} min video`};
+  let estT;$("#eScript").oninput=()=>{clearTimeout(estT);estT=setTimeout(async()=>{const t=$("#eScript").value;if(!t.trim()){$("#eEst").textContent="";P.estMin=0;fitHint();return}
+    try{const e=await api("/api/story/estimate",{text:t,language:lng()});P.estMin=e.minutes;$("#eEst").textContent=`≈ ${e.minutes} min ${lng()=="en"?"read by the narrator":"of your voice"} · ${e.words} words · ${e.wpm} words/min`}catch(x){}fitHint()},400)};
+  ["#eTotal","#eSpeech"].forEach(id=>$(id).oninput=fitHint);$("#eFit").onchange=fitHint;fitHint();lngUi();
+  api("/api/story/scripts",{}).then(r=>{P.scripts=r.scripts;$("#ePick").innerHTML=`<option value="">…or pick a script (${r.scripts.filter(x=>x.state=="new").length} new · ${r.scripts.filter(x=>x.state=="made").length} already made)</option>`+r.scripts.map((x,i)=>`<option value="${i}">${{new:"✎ new",voice:"🎙 voice made",made:"✓ episode made"}[x.state]||""} · ${x.lang=="en"?"EN · ":""}${esc(x.name)} · ${x.minutes} min${x.category?" · "+esc((pr.categories||{})[x.category]||x.category):""}${x.title?" · "+esc(x.title):""}</option>`).join("")}).catch(()=>{});
+  $("#ePick").onchange=()=>{const x=(P.scripts||[])[+$("#ePick").value];if(!x)return;if(x.state=="made")toast("This script was already made into an episode - making it again gives a second video",1);$("#eScript").value=x.text;if(!$("#eName").value)$("#eName").value=x.name;
+    if(x.lang&&x.lang!=lng()){setChip("eLng",x.lang);lngUi();toast(x.lang=="en"?"English script - the English narrator will read it":"Hindi script - your voice will read it")}$("#eScript").oninput()};
+  $("#eIdeas").onclick=async e=>{const b=e.currentTarget;b.disabled=true;b.textContent="thinking…";try{const r=await api("/api/story/ideas",{topic:$("#eTopic").value,writer:chipVal("eWriter"),category:chipVal("eCat")||"",language:lng()});
+    $("#eIdeaList").innerHTML=r.ideas.map((x,i)=>`<div class="card idea" data-i="${i}" style="cursor:pointer;margin-top:8px"><b>${esc(x.title_hi||"")}</b> <span class="hint">${esc(x.title_en||"")}</span><div class="hint">${esc((pr.categories||{})[x.recipe.category]||"")} · ${esc(x.recipe.topic)} · ${esc(x.recipe.image)} · ${esc(x.recipe.place)}</div><div>${esc(x.idea||"")}</div></div>`).join("");
+    $$("#eIdeaList .idea").forEach(c=>c.onclick=()=>{const x=r.ideas[+c.dataset.i];P.recipe=x.recipe;P.ideaNote=x.idea||"";$("#eTopic").value=x.recipe.topic;if(!$("#eName").value&&x.title_en)$("#eName").value=(lng()=="en"?"Sukoon EN - ":"Sukoon - ")+x.title_en;$$("#eIdeaList .idea").forEach(d=>d.style.outline="");c.style.outline="2px solid var(--acc, #8ab4f8)";toast("Idea chosen")})}
+   catch(err){toast(err.message,1)}finally{b.disabled=false;b.textContent="3 fresh ideas"}};
+  $("#eCopy").onclick=async()=>{try{const r=await api("/api/story/prompt",{topic:$("#eTopic").value,minutes:+$("#eSpeech").value,recipe:P.recipe||null,category:chipVal("eCat")||"",language:lng()});P.recipe=r.recipe;await navigator.clipboard.writeText(r.prompt);toast("Prompt copied - paste it in ChatGPT / Gemini / Claude, then paste the answer into Script")}catch(err){toast(err.message,1)}};
+  $("#eTopic").oninput=()=>{P.recipe=null};
+  $("#eBatchGo").onclick=e=>{const w=chipVal("eWriter");startGo(w=="local"?"stories_local":"stories",{n:+$("#eBatch").value,topic:$("#eTopic").value,speech_min:+$("#eSpeech").value,writer:w,category:chipVal("eCat")||"",language:lng()},e.currentTarget)};
+  $("#eGo").onclick=e=>{if(mine()&&!$("#eScript").value.trim())return toast("Paste or pick a script - or choose “Let the AI write it”",1);
+    if(!mine()&&!$("#eTopic").value.trim()&&!$("#eAuto").checked)return toast("Give a topic, pick one of the 3 ideas, or let the hub choose",1);
+    startGo("episode",{name:$("#eName").value,script:mine()?$("#eScript").value:"",topic:mine()?"":$("#eTopic").value,recipe:mine()?null:(P.recipe||null),notes:mine()?"":(P.ideaNote||""),writer:chipVal("eWriter"),auto_topic:!mine()&&$("#eAuto").checked,category:chipVal("eCat")||"",fit:$("#eFit").checked,speech_min:+$("#eSpeech").value,total_min:+$("#eTotal").value||0,lang:lng()=="en"?"":chipVal("eLang"),language:lng(),en_speaker:chipVal("eSpeaker"),title_text:$("#eTitle").value,reels:+$("#eReels").value,...voiceVals("e"),
+    typo:$("#eTypo").value,font:$("#eFont").value?base($("#eFont").value):"",style:chipVal("eStyle"),art_choices:+$("#eArtN").value||3,idea:$("#eIdea").value,artwork:P.sel.eArt||""},e.currentTarget)};
+};
+
+// ---------------- SCRIPT (any series)
+R.script=async()=>{await pre();const pr=P.presets;
+  $("main").innerHTML=`<div class="simple"><h1>Script</h1><p class="sub">The AI writes fresh scripts — different topics, never repeating your earlier ones. Pick one later in its series page.</p>
+  <div class="card">
+   <label>Series</label>${chips("sGen",{sukoon:"सुकून · Hindi",sukoon_en:"सुकून · English",bhay:"भय",rahasya:"रहस्य",kisse:"किस्से",romanch:"रोमांच",kareeb:"करीब",gyaan:"ज्ञान"},store.get("sGen","sukoon"))}
+   <label>Topic / story seed (optional; several: separate with ;)</label><input id="sTopic" type="text" placeholder="leave empty: the hub picks fresh ones">
+   <div class="row"><div style="flex:0 0 150px"><label>How many</label><input id="sN" type="number" min="1" max="20" value="3"></div><div style="flex:0 0 170px"><label>Length (min of speech)</label><input id="sMin" type="number" min="2" max="40" value="12"></div>
+     <div><label>Writer</label>${chips("sWriter",{auto:"Gemini (local if busy)",local:"Local only"},"auto")}</div></div>
+   <label>Content (series)</label>${chips("sLevel",{standard:"Standard",mature:"Mature (18+)"},"standard")}
+   <div id="sCatBox"><label>Kind (सुकून)</label>${chips("sCat",Object.assign({"":"Any (varies)"},pr.categories||{}),"")}</div>
+   <div class="actions"><button class="btn primary" id="sGo">${svg("script")} Write them</button><span class="hint">no graphics card - runs beside other jobs</span></div>
+  </div>
+  <h2>Written scripts</h2><div class="card list" id="sList"><div class="empty">loading…</div></div></div>`;
+  const gen=()=>chipVal("sGen")||"sukoon";
+  const ser=()=>!["sukoon","sukoon_en"].includes(gen());
+  const upd=()=>{store.set("sGen",gen());$("#sCatBox").style.display=ser()?"none":"";$("#sMin").value=gen()=="bhay"?15:12};
+  $("#sGen").addEventListener("change",upd);upd();
+  $("#sGo").onclick=e=>{const g=gen(),w=chipVal("sWriter");
+    if(ser())return startGo("horror_stories",{genre:g,level:chipVal("sLevel"),n:+$("#sN").value,topic:$("#sTopic").value,speech_min:+$("#sMin").value,writer:w},e.currentTarget);
+    startGo(w=="local"?"stories_local":"stories",{n:+$("#sN").value,topic:$("#sTopic").value,speech_min:+$("#sMin").value,writer:w,category:chipVal("sCat")||"",language:g=="sukoon_en"?"en":"hi"},e.currentTarget)};
+  try{const r=await api("/api/story/scripts",{});const G={horror:"भय",rahasya:"रहस्य",kisse:"किस्से",romanch:"रोमांच",kareeb:"करीब",gyaan:"ज्ञान",en:"सुकून EN",hi:"सुकून"};
+    $("#sList").innerHTML=r.scripts.slice(0,40).map((x,i)=>`<div class="item"><div class="meta"><b>${esc(x.name)}</b><small>${G[x.genre||x.lang]||G[x.lang]||""} · ${x.minutes} min · ${{new:"✎ not used yet",voice:"🎙 voice made",made:"✓ video made"}[x.state]||""}${x.title?" · "+esc(x.title):""}</small></div>
+      <button class="btn small" onclick="openScript(${i})">Open</button></div>`).join("")||'<div class="empty">No scripts yet.</div>';P.sl=r.scripts}catch(e){}
+};
+function openScript(i){const x=P.sl[i];if(x.genre){P.openText={name:x.name,text:x.text};go("genre",x.genre=="horror"?"bhay":x.genre);return}
+  go("episode");setTimeout(()=>{if(x.lang=="en"){setChip("eLng","en");$("#eLng").dispatchEvent(new Event("change"))}$("#eName").value=x.name;$("#eScript").value=x.text;$("#eScript").oninput()},120)}
+
+// ---------------- SOUND (music under a narration)
+R.sound=async(preN)=>{await loadLib();await pre();
+  $("main").innerHTML=`<div class="simple"><h1>Sound</h1><p class="sub">Music under a narration — it starts before you, sits under your voice and plays on after you stop, like your episodes.</p>
+  <div class="card"><label>Narration</label><select id="oNar">${narrOpts(preN)}</select>
+   ${serBar("oSer",guessSer(preN))}<div class="hint" id="oSerH"></div>
+   <label>Music</label>${chips("oKind",{sukoon:"The series' own music",pick:"Choose a track"},"sukoon")}
+   <div id="oPick" style="display:none">${musicSel("oMusic")}</div>
+   <label>After the story</label>${chips("oTail",{"1min":"1 min","5min":"5 min","usual":"like my episodes"},"1min")}
+   <label>Music under the voice by</label>${range("oDb",8,24,1,P.presets.music_under_db||14," dB")}
+   <div class="actions"><button class="btn primary" id="oGo">${svg("sound")} Make the sound</button><span class="hint">→ narration_music.wav in the narration folder</span></div></div></div>`;
+  $("#oKind").addEventListener("change",()=>$("#oPick").style.display=chipVal("oKind")=="pick"?"":"none");
+  const oser=()=>chipVal("oSer")||"sukoon";
+  const oApply=()=>{const g=oser();store.set("toolSer",g);$("#oSerH").textContent=g=="sukoon"?"Calm music shaped like your Sukoon episodes.":`${serName(g)}: music from its mood folders + ambience and sound effects for every scene (once the scenes are planned).`;
+    $("#oDb").closest(".range").previousElementSibling.style.display=$("#oDb").closest(".range").style.display=g=="sukoon"?"":"none"};
+  $("#oSer").addEventListener("change",oApply);$("#oNar").addEventListener("change",()=>{setChip("oSer",guessSer($("#oNar").value,oser()));oApply()});oApply();
+  $("#oGo").onclick=e=>{const d=$("#oNar").value;if(!d)return toast("choose a narration",1);
+    if(oser()!="sukoon")return startGo("genre",{genre:oser(),stages:["sound"],name:base(d),music_track:chipVal("oKind")=="pick"?$("#oMusic").value:"",tail:chipVal("oTail")=="usual"?"5min":chipVal("oTail")},e.currentTarget);
+    startGo("sound",{name:base(d),kind_music:chipVal("oKind"),music_track:chipVal("oKind")=="pick"?$("#oMusic").value:"",tail:chipVal("oTail"),music_db:+$("#oDb").value},e.currentTarget)};
+};
+
+// ---------------- भय (HORROR)
+R.horror=()=>R.genre("bhay");
+R.genre=async(gid)=>{await pre();gid=gid||store.get("gid","bhay");store.set("gid",gid);const G=GENRES.find(x=>x.id==gid)||GENRES[1];
+  const VS={bhay:"burarikand",rahasya:"walkingcorpse",kisse:"aarav",romanch:"pehlapyar",kareeb:"hypnosis",gyaan:"psychology"}[gid]||"reference";
+  const PFX={bhay:"Bhay",rahasya:"Rahasya",kisse:"Kisse",romanch:"Romanch",kareeb:"Kareeb",gyaan:"Gyaan"}[gid]||gid;
+  $("main").innerHTML=`<div class="simple"><h1>${esc(G.name)} · ${esc(G.en)}</h1><p class="sub">${esc(G.about)} Script → your voice → scenes that follow the story → music + sounds → video with subtitles.</p>
+  <div class="card">
+   <div class="row"><div><label>Story name</label><input id="hName" type="text" placeholder="e.g. ${PFX} - ..."></div><div style="flex:0"><button class="btn" onclick="loadFile('hScript','hName')">Open .txt</button></div></div>
+   <label>Story</label>${chips("hSrc",{ai:"Let the AI write it",mine:"I have a script"},"ai")}
+   <div id="hAi"><label>Story seed (optional)</label><input id="hTopic" type="text" placeholder="leave empty: the hub picks a fresh topic (never repeating)">
+     <div class="actions" style="margin-top:8px"><button class="btn" id="hIdeas">3 story ideas</button></div><div id="hIdeaList"></div></div>
+   ${["bhay","rahasya","romanch","kisse"].includes(gid)?`<label>Content</label>${chips("hLevel",{standard:"Standard",mature:"Mature (18+)"},store.get("lvl_"+gid,"standard"))}<div class="hint">Mature: stronger, adult content for this series. Experimental rules: D:\\HubGPT\\Library\\genre_rules.json (edit freely).</div>`:""}
+   <div id="hMine" style="display:none"><textarea id="hScript" placeholder="Paste your Hindi story - one phrase per line, (...) for a long pause"></textarea></div>
+   <div class="row"><div style="flex:0 0 170px"><label>Story length (min)</label><input id="hMin" type="number" min="5" max="40" value="15"></div>
+     <div><label>Your voice in the tone of</label><select id="hStyle"><option>${VS}</option></select></div></div>
+   <div class="row" style="align-items:end"><div style="flex:0 0 170px"><label>Whole video (min)</label><input id="hTotal" type="number" min="0" max="120" value="0" title="0 = story + 1 min music"></div><div>${sw("hFit","If the story is longer, let the AI shorten it (story kept)",true)}</div></div>
+   <div class="actions"><button class="btn primary" id="hGo">${svg("episode")} Make the ${esc(G.name)} video</button><span class="hint">script → your voice → scenes + sound → pictures → video (about an hour of PC time for 15 min)</span></div>
+   ${more("Writer, reels & title",`<label>Writer</label>${chips("hWriter",{auto:"Gemini (local if busy)",local:"Local model only"},"auto")}
+     <div class="row"><div style="flex:0 0 150px"><label>Reels (9:16)</label><input id="hReels" type="number" min="0" max="6" value="2"></div><div style="flex:0 0 170px"><label>Reel length (s)</label><input id="hReelLen" type="number" min="15" max="60" value="30"></div><div style="flex:0 0 150px"><label>Scenes</label><input id="hScenes" type="number" min="0" max="24" value="0" title="0 = about one per 70 s"></div></div>
+     <label>Title on the video</label><input id="hTitle" type="text" placeholder="(the AI's Hindi title)">
+     <div style="margin-top:8px">${sw("hBest","Best pictures: 2 versions of every scene, the AI keeps the better one (+5-8 min). Off = each scene checked once, only bad ones repainted (+1-2 min)",false)}</div>`)}
+   ${more("Voice & music",`<div class="hint" id="hVoiceNote"></div><label>Delivery — calm ↔ expressive</label>${range("hEx",0.25,0.7,0.05,{bhay:.5,rahasya:.5,kisse:.55,romanch:.5,kareeb:.3,gyaan:.5}[gid]||.5)}
+     <label>Pauses — shorter ↔ longer</label>${range("hPause",0.4,1.4,0.05,{bhay:.75,rahasya:.6,kisse:.65,romanch:.75,kareeb:1,gyaan:.55}[gid]||.7,"×")}
+     <div>${sw("hDrama","Dramatic pauses — hold the silence after “लेकिन उसके बाद…”, before “तभी”, after a reveal (saved into the script as (... 1.8))",true)}</div>
+     <div>${sw("hEmo","Emotions — the AI marks each line [डर] [उदास] [फुसफुसाहट] … and your voice follows gently (saved into the script)",true)}</div>
+     <label>Quality</label>${chips("hTakes",{"3":"Best of 3 takes","1":"Fast draft"},"3")}
+     <label>Music</label>${musicSel("hMusic").replace(/Default \([^)]*\)/,"Default: the "+G.name+" mood folders")}`)}
+  </div></div>`;
+  dropTxt("hScript","hName");
+  api("/api/voice/styles",{}).then(r=>{const pref=[VS,"burarikand","walkingcorpse","nightshift","hospital","aarav","psychology"];
+    const L=[...pref.filter(x=>r.styles.includes(x)),...r.styles.filter(x=>!pref.includes(x))];if(L.length)$("#hStyle").innerHTML=L.map(x=>`<option>${esc(x)}</option>`).join("")}).catch(()=>{});
+  const mine=()=>chipVal("hSrc")=="mine";
+  $("#hSrc").addEventListener("change",()=>{$("#hAi").style.display=mine()?"none":"";$("#hMine").style.display=mine()?"":"none"});
+  $("#hTopic").oninput=()=>{P.hRecipe=null};
+  $("#hIdeas").onclick=async e=>{const b=e.currentTarget;b.disabled=true;b.textContent="thinking…";try{const r=await api("/api/horror/ideas",{topic:$("#hTopic").value,genre:gid});
+    $("#hIdeaList").innerHTML=r.ideas.map((x,i)=>`<div class="card idea" data-i="${i}" style="cursor:pointer;margin-top:8px"><b>${esc(x.title_hi||"")}</b> <span class="hint">${esc(x.title_en||"")}</span><div class="hint">${esc(x.recipe.topic)}${x.recipe.fear?" · "+esc(x.recipe.fear):""}</div><div>${esc(x.idea||"")}</div></div>`).join("");
+    $$("#hIdeaList .idea").forEach(c=>c.onclick=()=>{const x=r.ideas[+c.dataset.i];P.hRecipe=x.recipe;P.hNote=x.idea||"";$("#hTopic").value=x.recipe.topic;if(!$("#hName").value&&x.title_en)$("#hName").value=PFX+" - "+x.title_en;$$("#hIdeaList .idea").forEach(d=>d.style.outline="");c.style.outline="2px solid var(--acc, #8ab4f8)"})}
+   catch(err){toast(err.message,1)}finally{b.disabled=false;b.textContent="3 story ideas"}};
+  $("#hGo").onclick=e=>{if(mine()&&!$("#hScript").value.trim())return toast("Paste your story, or let the AI write it",1);
+    startGo("genre",{genre:gid,name:$("#hName").value||(PFX+" - "+new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")),script:mine()?$("#hScript").value:"",topic:mine()?"":$("#hTopic").value,
+      recipe:mine()?null:(P.hRecipe||null),notes:mine()?"":(P.hNote||""),speech_min:+$("#hMin").value,voice_style:$("#hStyle").value,
+      title_text:$("#hTitle").value,scenes:+$("#hScenes").value||0,exaggeration:+$("#hEx").value,pause_scale:+$("#hPause").value,
+      takes:+chipVal("hTakes"),music_track:($("#hMusic").value&&$("#hMusic").value!="none")?$("#hMusic").value:"",writer:chipVal("hWriter"),
+      reels:+$("#hReels").value,reel_len:+$("#hReelLen").value,total_min:+$("#hTotal").value||0,fit:$("#hFit").checked,
+      level:chipVal("hLevel")||"standard",dramatic:$("#hDrama").checked,emotions:$("#hEmo").checked,best_pictures:$("#hBest").checked},e.currentTarget)};
+  if($("#hLevel"))$("#hLevel").addEventListener("change",()=>store.set("lvl_"+gid,chipVal("hLevel")));
+  api("/api/voice/series",{}).then(r=>{const x=r.series.find(x=>x.id==gid);if(x&&$("#hVoiceNote"))$("#hVoiceNote").textContent=x.trained?`Your ${x.name} voice: ${x.trained}`:`No ${x.name} voice trained yet - your plain voice is used (Settings > Your voice per series)`}).catch(()=>{});
+  if(P.openText){setChip("hSrc","mine");$("#hSrc").dispatchEvent(new Event("change"));$("#hName").value=P.openText.name;$("#hScript").value=P.openText.text;P.openText=null}
+};
+
+// ---------------- REELS
+R.reels=async()=>{await loadLib();const V=(P.lib.videos||[]).filter(v=>v.kind=="episode"&&!/_preview/.test(v.file));
+  $("main").innerHTML=`<div class="simple"><h1>Reels</h1><p class="sub">New Instagram reels (9:16) from an episode you already made — hook line, your words on screen, the living artwork.</p>
+  <div class="card">
+   <label>Episode video</label><select id="rVid">${V.map(v=>`<option value="${esc(v.file)}">${esc(base(v.file))} · ${ago(v.time)}</option>`).join("")||'<option value="">no episode videos yet</option>'}</select>
+   <div class="hint" id="rHave"></div>
+   <label>Which moments</label>${chips("rMode",{new:"New moments (not used in a reel yet)",best:"Best moments (make them again)",at:"At times I choose"},"new")}
+   <div id="rAtBox" style="display:none"><label>Start times</label><input id="rAt" type="text" placeholder="e.g. 2:03, 5:16, 11:40 (it starts at the nearest sentence)"></div>
+   <label>Camera motion</label><div id="rMotions" class="motions"><div class="hint">loading…</div></div>
+   <div class="row"><div id="rCountBox"><label>How many</label><input id="rCount" type="number" min="1" max="10" value="3"></div><div><label>Length of each</label>${chips("rLen",{"20":"~20 s","30":"~30 s","45":"~45 s","60":"~60 s"},"30")}</div></div>
+   <div class="actions"><button class="btn primary" id="rGo">${svg("reels")} Make reels</button></div>
+   <div class="hint">Old reels are never overwritten; new ones are numbered after them in the episode's Output\\reels folder, each with a ready caption.</div>
+  </div></div>`;
+  const have=()=>{const f=$("#rVid").value;const R=(P.lib.videos||[]).filter(v=>v.kind=="reel"&&f&&v.file.startsWith(f.replace(/[^\\\/]+$/,"")));$("#rHave").innerHTML=R.length?`${R.length} reel(s) made from it already: `+R.map(r=>`<a href="#" onclick="lightbox('${media(r.file)}','',1);return false">${esc(base(r.file))}</a>`).join(" · "):"no reels from it yet"};
+  P.motion=P.motion||"mix";
+  const drawMotions=async()=>{let names={};try{names=await (await fetch("/ui/motions/motions.json")).json()}catch(e){}
+    const tile=(id,label,file)=>`<div class="mtile ${P.motion==id?"sel":""}" data-m="${id}">${file?`<video src="${file}" autoplay loop muted playsinline></video>`:`<div class="mixbox">↻</div>`}<span>${esc(label)}</span></div>`;
+    $("#rMotions").innerHTML=tile("mix","Mix – a different one per reel","")+Object.entries(names).map(([id,l])=>tile(id,l,`/ui/motions/${id}.mp4`)).join("");
+    $$("#rMotions .mtile").forEach(t=>t.onclick=()=>{P.motion=t.dataset.m;$$("#rMotions .mtile").forEach(x=>x.classList.toggle("sel",x===t))})};
+  if(P.pick&&[...$("#rVid").options].some(o=>o.value==P.pick)){$("#rVid").value=P.pick}P.pick=null;
+  $("#rVid").onchange=have;have();drawMotions();
+  $("#rMode").addEventListener("change",()=>{const at=chipVal("rMode")=="at";$("#rAtBox").style.display=at?"":"none";$("#rCountBox").style.display=at?"none":""});
+  $("#rGo").onclick=e=>{if(!$("#rVid").value)return toast("No episode video yet",1);startGo("reels",{video:$("#rVid").value,mode:chipVal("rMode"),at:$("#rAt").value,count:+$("#rCount").value,length:+chipVal("rLen"),motion:P.motion||"mix"},e.currentTarget)};
+};
+
+// ---------------- HELP
+R.help=()=>{const S=(t,b)=>`<h2>${t}</h2><div class="card help">${b}</div>`;
+  $("main").innerHTML=`<div class="simple"><h1>How to use the hub</h1><p class="sub">Everything runs on this PC. One graphics-card job at a time; script writing, element fetching and checks run beside it. Nothing is ever deleted – old files go to <b>_old</b>.</p>
+  ${S("Make a whole Sukoon episode",`<ol>
+   <li><b>Create → Sukoon episode.</b> Give it a name.</li>
+   <li><b>Script:</b> choose <b>I have a script</b> (paste, Open .txt, or pick one – ✎ new · 🎙 voice made · ✓ episode made) – you see the speech time in your own voice. Or choose <b>Let the AI write it</b>: pick a kind of episode, type a topic or press <b>3 fresh ideas</b> and click one. <i>Only write scripts</i> writes several to choose from later.</li>
+   <li><b>Video length:</b> e.g. 30 min. If the speech is longer, the AI shortens the script and keeps the story (the full script is kept).</li>
+   <li>Optional: <b>Artwork</b> (style, your idea, or your own picture), <b>Voice, music & typography</b>, <b>Title, reels & language</b>.</li>
+   <li><b>Make the whole episode</b> → follow it in <b>Activity</b>. Result: <code>D:\\HubGPT\\Series\\&lt;series&gt;\\Episodes\\&lt;name&gt;\\Output</code> + 3 reels.</li></ol>`)}
+  ${S("Reels from a finished episode",`<b>Create → Reels</b>: pick the episode, choose <b>New moments</b> (not used before), <b>Best moments</b>, or <b>At times I choose</b> (e.g. <code>2:03, 5:16</code>), the length (20–60 s) and a <b>camera motion</b> (watch the previews, or Mix). Old reels are never overwritten.`)}
+  ${S("Something looks or sounds wrong → Repair",`<b>Create → Repair</b>: pick a video or reel → <b>Check it</b>. You get the voice lines with stutters / wrong words (▶ plays that moment), the subtitle rhythm, and any jumps, freezes or loop pops. Tick what to fix → <b>Repair what is ticked</b>. Only the ticked lines are re-spoken; the music and video are made again; the old file goes to <code>_old</code>. New reels and videos are already checked automatically after they are made.`)}
+  ${S("The other Create pages",`<b>Voice</b> – your voice reads any script (best takes, calm ↔ expressive, pauses, music, “Fix phrases”). <b>Pictures</b> – paintings that follow a narration. <b>Video</b> – a Sukoon video from a voice and one or more pictures (typography, fonts, captions). <b>Image</b> – any picture from words, or inspired by one of your thumbnails.`)}
+  ${S("Settings you set once",`<ul><li><b>Gemini key</b> (Google AI Studio) – fast, better Hindi scripts. Without it the local model writes.</li>
+   <li><b>Pixabay key</b> – the hub fetches missing moving elements (steam, candles, rain …) in the background: only free-for-commercial-use, no credit, each clip in <code>ELEMENTS_INDEX.csv</code> with its source and where it is used.</li>
+   <li><b>Your music</b> – Build / update once (the music shape of your episodes). <b>Thumbnail style guide</b> – Build / update once.</li>
+   <li><b>Topic bank</b> – add your own topics, images, places. <b>Ledger</b> – every script written (so nothing repeats).</li></ul>`)}
+  ${S("Good to know",`<ul><li>A word your voice says wrong: add it to <code>engines\\voice\\say_as.json</code> with a respelling – the captions keep the real spelling.</li>
+   <li>After an update: <b>restart_hub.bat</b> (it asks if a job is running), then reload this page (F5).</li>
+   <li>Each step in Activity shows how long it took.</li>
+   <li>Full details: <code>README.txt</code> in the hub folder; for the next developer: <code>HANDOFF_HUB.txt</code>.</li></ul>`)}
+  </div>`};
+
+// ---------------- REPAIR
+R.repair=async()=>{await loadLib();const V=(P.lib.videos||[]).filter(v=>(v.kind=="episode"||v.kind=="reel")&&!/_preview|_motions/.test(v.file));
+  $("main").innerHTML=`<div class="simple"><h1>Repair</h1><p class="sub">The repair man looks at a finished video or reel, lists what is wrong, and fixes what you tick. The old one is always kept.</p>
+  <div class="card"><label>Video or reel</label><select id="xVid">${V.map(v=>`<option value="${esc(v.file)}">${v.kind=="reel"?"📱 ":"🎬 "}${esc(base(v.file))} · ${ago(v.time)}</option>`).join("")||'<option value="">no videos yet</option>'}</select>
+   <div class="actions"><button class="btn primary" id="xCheck">Check it</button><span class="hint" id="xState"></span></div>
+   <div id="xRep"></div></div></div>`;
+  const ts=t=>`${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,"0")}`;
+  const play=(f,t)=>`<a href="#" onclick="lightbox('${media(f)}#t=${Math.max(0,t-2)}','',1);return false">▶ ${ts(t)}</a>`;
+  const show=async()=>{const v=$("#xVid").value;if(!v)return;const r=await api("/api/repair/report",{video:v}).catch(()=>({}));
+    if(!r.checked){$("#xRep").innerHTML=`<div class="hint" style="margin-top:10px">Not checked yet.</div>`;return false}
+    const reel=r.parts&&r.parts.is_reel,vo=r.voice||[],mo=r.motion||[],su=r.subtitles||{};
+    $("#xState").textContent="checked "+r.checked;
+    if(r.auto&&!reel){$("#xRep").innerHTML=`<div class="hint" style="margin-top:10px">Only the motion was checked automatically when the video was made (${(r.motion||[]).length?(r.motion.length+" place(s)"):"smooth"}). Press <b>Check it</b> for voice + subtitles too.</div>`;return true}
+    $("#xRep").innerHTML=(reel?"":`<h2>Voice ${vo.length?`· ${vo.length} line(s)`:"· all fine"}</h2>${vo.map(x=>`<label class="chkrow"><input type="checkbox" class="xLine" value="${x.line}" checked><span><b>line ${x.line}</b> ${esc(x.text)} <span class="hint">— ${esc(x.why.join(", "))}</span> ${play(v,x.at)}</span></label>`).join("")}
+      <div class="hint">Another line sounds wrong? <a href="#" onclick='go("fix",((P.lib.episodes||[]).find(e=>e.video==${esc(JSON.stringify(v))})||{}).narration||"");return false'>Open all phrases (listen + tick any line)</a></div>
+      <h2>Subtitles</h2><div class="hint">${su.count||0} on-screen lines · ${esc(su.note||"")}${su.mean_gap_s?` · about every ${su.mean_gap_s} s`:""}</div>${sw("xSubs","Choose them again: split by meaning, timed by the content",!!su.even)}`)+
+      `<h2>Motion ${mo.length?`· ${mo.length} place(s)`:"· smooth"}</h2>${mo.map(x=>`<div class="item" style="padding:4px 0"><span>${esc(x.kind)}</span> <span class="hint">${esc(x.why)}</span> ${play(v,x.at)}</div>`).join("")}
+      ${reel?sw("xRemake","Make this reel again (same moment)",mo.length>0):sw("xLoop","Make the living artwork loop again (for loop pops)",mo.some(x=>x.kind=="loop pop"))}
+      ${reel?"":sw("xQuick","Quick fix for voice lines: the new lines go into the same places, the picture is kept - only the sound is new (a few minutes instead of a whole render)",true)}
+      <div class="actions"><button class="btn primary" id="xFix">Repair what is ticked</button><span class="hint">${reel?"":"subtitles / loop ticked → the video is drawn again; your reels stay"}</span></div>`;
+    $("#xFix").onclick=e=>{const lines=$$(".xLine").filter(c=>c.checked).map(c=>+c.value);
+      if(reel){if(!$("#xRemake").checked)return toast("Nothing ticked",1);return startGo("repair",{video:v},e.currentTarget)}
+      const subs=$("#xSubs").checked,loop=$("#xLoop").checked;
+      if(!lines.length&&!subs&&!loop&&!mo.length)return toast("Nothing ticked",1);
+      store.set("xVid",v);startGo("repair",{video:v,voice_lines:lines,subtitles:subs,motion:loop,quick:$("#xQuick").checked},e.currentTarget)};return true};
+  const want=P.pick||store.get("xVid","");if(want&&[...$("#xVid").options].some(o=>o.value==want)){$("#xVid").value=want}P.pick=null;
+  const running=()=>(JOBS||[]).find(j=>["queued","running"].includes(j.status)&&/^(Check|Repair)/.test(j.title)&&j.title.includes(base($("#xVid").value)));
+  let poll;const watch=()=>{const v=$("#xVid").value;clearInterval(poll);const j=running();if(!j)return;
+    $("#xState").innerHTML=`<span class="spin"></span> ${esc(j.title.split(":")[0].toLowerCase())} is ${j.status=="queued"?"waiting its turn":"running"} — results appear here`;
+    poll=setInterval(async()=>{if(!$("#xVid")||$("#xVid").value!=v){clearInterval(poll);return}if(!running()){clearInterval(poll);$("#xState").textContent="";show()}},3000)};
+  $("#xVid").onchange=()=>{store.set("xVid",$("#xVid").value);$("#xState").textContent="";show().then(watch)};show().then(watch);
+  $("#xCheck").onclick=async e=>{const v=$("#xVid").value;if(!v)return;const before=(await api("/api/repair/report",{video:v}).catch(()=>({}))).checked;
+    store.set("xVid",v);await start("check_video",{video:v},e.currentTarget);$("#xState").textContent="checking… (a 30-min video takes a few minutes) - you can leave this page, the result waits here";clearInterval(poll);
+    poll=setInterval(async()=>{if(!$("#xVid")){clearInterval(poll);return}const r=await api("/api/repair/report",{video:v}).catch(()=>({}));if(r.checked&&r.checked!==before){clearInterval(poll);show()}},4000)};
+};
+
+// ---------------- FIX (phrases of one narration: listen, tick, remake - no numbers to type)
+R.fix=async(dir)=>{dir=dir||store.get("fixDir","");store.set("fixDir",dir);
+  const r=await api("/api/narration/lines",{dir}).catch(e=>({lines:[],err:e.message}));const L=r.lines||[],bad=L.filter(x=>x.why.length);
+  $("main").innerHTML=`<div class="simple"><h1>Fix: ${esc(base(dir))}</h1><p class="sub">Listen, tick the phrases that sound wrong, press <b>Remake</b>. Only those phrases are spoken again${r.video?" and put back into the video in the same places (the picture is kept)":""}. The old voice is always kept.</p>
+  <div class="card">${r.audio?`<audio id="fxAud" controls preload="metadata" src="${media(r.audio)}" style="width:100%"></audio>`:""}
+   <div class="row" style="align-items:center;margin-top:8px"><div class="hint" style="flex:1">${L.length} phrases · ${bad.length?`<b style="color:var(--warn)">${bad.length} sound off</b> (already ticked)`:"none flagged by the checker"} · ▶ plays a phrase</div>
+    ${sw("fxAll","Show all phrases",!bad.length)}</div>
+   <div id="fxList" style="max-height:52vh;overflow:auto;margin-top:6px"></div>
+   ${r.video?sw("fxVid","Also fix the video (quick: only the sound is new)",true):`<div class="hint">No video made from this voice yet — only the voice is fixed.</div>`}
+   <div class="actions"><button class="btn primary" id="fxGo">Remake ticked phrases</button><span class="hint" id="fxN"></span></div></div></div>`;
+  const ts=t=>`${Math.floor(t/60)}:${String(Math.floor(t%60)).padStart(2,"0")}`,tick=new Set(bad.map(x=>x.n));
+  const draw=()=>{const all=$("#fxAll").checked;$("#fxList").innerHTML=L.filter(x=>all||x.why.length||tick.has(x.n)).map(x=>`<label class="chkrow"><input type="checkbox" class="fxL" value="${x.n}" ${tick.has(x.n)?"checked":""}><span><b>${x.n}</b> ${esc(x.text)}${x.why.length?` <span class="hint" style="color:var(--warn)">— ${esc(x.why.join(", "))}</span>`:""} <a href="#" data-t="${x.start}" class="fxP">▶ ${ts(x.start)}</a></span></label>`).join("")||'<div class="empty">nothing flagged — switch on “Show all phrases”</div>';
+    $$(".fxL").forEach(c=>c.onchange=()=>{c.checked?tick.add(+c.value):tick.delete(+c.value);cnt()});
+    $$(".fxP").forEach(a=>a.onclick=e=>{e.preventDefault();const au=$("#fxAud");if(au){au.currentTime=Math.max(0,+a.dataset.t-0.3);au.play()}})};
+  const cnt=()=>{$("#fxN").textContent=tick.size?`${tick.size} phrase(s): ${[...tick].sort((a,b)=>a-b).join(", ")}`:"nothing ticked"};
+  $("#fxAll").addEventListener("change",draw);draw();cnt();
+  $("#fxGo").onclick=e=>{if(!tick.size)return toast("Tick the phrases that sound wrong",1);const nums=[...tick].sort((a,b)=>a-b);
+    if(r.video&&$("#fxVid").checked)return startGo("repair",{video:r.video,voice_lines:nums,quick:true},e.currentTarget);
+    startGo("voice",{name:base(dir),redo:nums.join(","),takes:3},e.currentTarget)};
+};
+
+// ---------------- LIBRARY
+R.lib=async(tab)=>{await loadLib();const L=P.lib;tab=tab||store.get("libtab","e");if(tab=="n")tab="voices";
+  const tabs=[["e","Episodes"],["s","Scripts"],["voices","Voices"],["p","Pictures"],["v","Videos & reels"]];
+  $("main").innerHTML=`<h1>Library</h1><p class="sub">Everything you made, newest first. <b>Remove</b> moves a thing to an <code>_old</code> folder next to it – nothing is deleted.</p>
+  <div class="libbar"><div class="tabs">${tabs.map(([k,t])=>`<button class="tab ${k==tab?"on":""}" onclick="store.set('libtab','${k}');R.lib('${k}')">${t}</button>`).join("")}</div>
+   <input id="libQ" type="search" placeholder="Search…" value="${esc(P.libQ||"")}"></div><div id="libBody"></div>`;
+  const B=$("#libBody"),J=x=>esc(JSON.stringify(x)),q=(P.libQ||"").toLowerCase(),hit=n=>!q||String(n).toLowerCase().includes(q);
+  const rm=(path,label)=>`<button class="btn small ghost" title="Move to _old" onclick='removeItem(${J(path)},${J(label)})'>Remove</button>`;
+  if(tab=="e")B.innerHTML=`<div class="eps">`+((L.episodes||[]).filter(e=>hit(e.name)).map(e=>`<div class="card ep">
+      <div class="epart" ${e.art?`style="background-image:url('${media(e.art)}')"`:""}>${e.video?`<button class="play" onclick="lightbox('${media(e.video)}','',1)">▶</button>`:""}</div>
+      <div class="epbody"><b>${esc(e.name)}</b><small>${ago(e.time)}</small>
+       <div class="chips2">${e.lang=="en"?'<span class="ok">English</span>':""}${e.script?'<span class="ok">script</span>':'<span>script</span>'}${e.narration?'<span class="ok">voice</span>':'<span>voice</span>'}${e.video?'<span class="ok">video</span>':'<span>video</span>'}<span class="${e.reels.length?"ok":""}">${e.reels.length} reels</span>${e.checked?'<span class="ok">checked</span>':""}</div>
+       ${e.reels.length?`<div class="reelrow">${e.reels.map(r=>`<a href="#" onclick="lightbox('${media(r)}','',1);return false">${esc(base(r).replace(/\.mp4$/,""))}</a>`).join("")}</div>`:""}
+       <div class="actions">${e.video?`<button class="btn small" onclick='P.pick=${J(e.video)};go("reels")'>Reels</button><button class="btn small" onclick='P.pick=${J(e.video)};go("repair")'>Repair</button>`:""}${e.narration?`<button class="btn small" onclick='go("fix",${J(e.narration)})'>Fix voice</button>`:""}<button class="btn small" onclick='openP(${J(e.dir)})'>Folder</button>${rm(e.dir,"episode "+e.name)}</div></div></div>`).join("")||'<div class="empty">No episodes yet – Create → Sukoon episode.</div>')+`</div>`;
+  if(tab=="s")B.innerHTML=`<div class="card list">`+((L.scripts||[]).filter(x=>hit(x.name+" "+x.preview)).map(x=>`<div class="item"><div class="meta"><b>${esc(x.name)}</b><small>${ago(x.time)} · ${esc(x.preview)}…</small></div>
+      <button class="btn small" onclick='useScriptFile(${J(x.name)},${J(x.file)})'>Use</button>${rm(x.file,"script "+x.name)}</div>`).join("")||'<div class="empty">No scripts yet.</div>')+`</div>`;
+  if(tab=="voices")B.innerHTML=`<div class="card list">`+((L.narrations||[]).filter(n=>hit(n.name)).map(n=>`<div class="item"><div class="meta"><b>${esc(n.name)}</b><small>${fmt(n.seconds)} · ${ago(n.time)}${n.flagged?` · <span style="color:var(--warn)">${n.flagged} lines to listen to</span>`:""}</small></div>
+      <audio controls preload="none" src="${media(n.music||n.voice)}"></audio>
+      <button class="btn small" onclick='go("fix",${J(n.dir)})'>Fix</button><button class="btn small" onclick='go("pics",${J(n.dir)})'>Pictures</button><button class="btn small" onclick='go("video",${J(n.dir)})'>Video</button>${rm(n.dir,"voice "+n.name)}</div>`).join("")||'<div class="empty">No voices yet.</div>')+`</div>`;
+  if(tab=="p")B.innerHTML=(L.picture_sets||[]).filter(x=>hit(x.name)).map(x=>`<div class="card" style="margin-bottom:14px" data-set="${esc(x.dir)}"><div class="row" style="align-items:center"><b>${esc(x.name)}</b><span class="hint" style="flex:1">${x.images.length} pictures · ${ago(x.time)}</span>${rm(x.dir,"picture set "+x.name)}</div>
+      <div class="thumbs" style="margin-top:10px">${x.images.map(f=>thumbAct(f,["View","Repaint","Variations","Remove"])).join("")}</div></div>`).join("")
+     +`<div class="card"><div class="row" style="align-items:center"><b>Image studio & uploads</b></div><div class="thumbs" style="margin-top:10px">${(L.images||[]).filter(f=>hit(base(f))).map(f=>thumbAct(f,["View","Variations","Use as artwork","Remove"])).join("")||'<div class="empty">none</div>'}</div></div>`;
+  if(tab=="v")B.innerHTML=`<div class="grid g3">`+((L.videos||[]).filter(v=>hit(base(v.file))).map(v=>`<div class="card"><video class="v" preload="none" controls src="${media(v.file)}"></video><div style="margin-top:8px"><b style="font-size:13px">${esc(base(v.file))}</b><div class="hint">${v.kind} · ${ago(v.time)}</div><div class="actions" style="margin-top:6px"><button class="btn small" onclick='openP(${J(v.file)})'>Show</button>${rm(v.file,v.kind+" "+base(v.file))}</div></div></div>`).join("")||'<div class="empty">No videos yet.</div>')+`</div>`;
+  $("#libQ").oninput=e=>{P.libQ=e.target.value;clearTimeout(P.libT);P.libT=setTimeout(()=>{R.lib(tab).then(()=>{const i=$("#libQ");i.focus();i.setSelectionRange(i.value.length,i.value.length)})},250)};
+};
+async function removeItem(path,label){if(!confirm(`Remove ${label}?\n\nIt is moved to an _old folder next to it (not deleted).`))return;
+  try{await api("/api/remove",{path});toast("Moved to _old: "+label);P.lib=null;R[P.page]&&R[P.page]()}catch(e){toast(e.message,1)}}
+async function useScriptFile(name,file){try{const t=await (await fetch(media(file))).text();useScript(name,t)}catch(e){toast(e.message,1)}}
+function useScript(n,t){go("voice");setTimeout(()=>{$("#vName").value=n;$("#vScript").value=t;$("#vScript").oninput()},80)}
+async function openP(p){try{await api("/api/open",{path:p})}catch(e){toast(e.message,1)}}
+
+// ---------------- JOBS
+R.jobs=async()=>{
+  $("main").innerHTML=`<h1>Jobs & logs</h1><p class="sub">One graphics-card job runs at a time; the rest wait in line. Logs are live.</p>
+  <div class="actions" style="margin-bottom:10px"><button class="btn small" onclick="clearJobs()">Clear finished jobs</button><span class="hint">they stay in jobs_archive.json</span></div>
+  <div class="jobs"><div class="card joblist" id="jl"></div><div class="card logbox"><div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><b id="jt">Choose a job</b><div class="hint" id="js"></div></div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small" id="jOut">Open result</button><button class="btn small" id="jAgain">Run again</button><button class="btn small danger" id="jStop">Stop</button></div></div>
+   <div class="progress"><i id="jp"></i></div><div class="log" id="jlog"></div>
+   <section style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px" aria-labelledby="jobNotesTitle">
+    <h2 id="jobNotesTitle" style="margin:0 0 6px">Run notes</h2><p class="hint">Record things the video or audio cannot show: delays, missing files, confusing steps, settings that worked, or anything else about this run.</p>
+    <div id="jobNoteStatus" class="hint" role="status" aria-live="polite" style="margin:10px 0">Choose an activity to view or add notes for that run.</div>
+    <div id="jobNoteList" style="margin:10px 0"></div>
+    <div class="row" style="gap:8px;align-items:center;margin:8px 0"><select id="jobNoteStage" aria-label="Note category" style="max-width:220px"><option>General</option><option>Generation speed</option><option>Workflow / settings</option><option>Script</option><option>Voice / audio</option><option>Images / video</option><option>Files / output</option><option>Error / failure</option></select><select id="jobNoteResult" aria-label="Was it an issue or did it work?" style="max-width:150px"><option value="issue">Issue</option><option value="worked">Worked</option></select></div>
+    <textarea id="jobNoteText" rows="3" maxlength="5000" placeholder="What happened? Include details that cannot be seen or heard…" style="width:100%;box-sizing:border-box"></textarea>
+    <div class="actions"><button class="btn primary" id="jobNoteSave" disabled>Save note to selected activity</button></div>
+   </section></div></div>`;
+  drawJobs();if(P.job)selJob(P.job)};
+let JOBS=[];
+function drawJobs(){const el=$("#jl");if(!el)return;const key=JOBS.map(j=>`${j.id}:${j.status}:${j.step}:${j.title}`).join("|")+"|selected:"+P.job;if(el.dataset.renderKey===key)return;el.dataset.renderKey=key;el.innerHTML=JOBS.map(j=>`<div class="job ${j.id==P.job?"on":""}" data-id="${j.id}" onclick="selJob('${j.id}')"><b>${esc(j.title)}<span class="badge ${j.status}">${j.status}</span>${["done","failed","stopped"].includes(j.status)?`<span class="jx" title="Remove from the list" onclick="event.stopPropagation();clearJobs(['${j.id}'])">✕</span>`:""}</b><small>${new Date(j.created*1000).toLocaleString()}${j.status=="running"?` · step ${j.step+1}/${j.n_steps}`:""}</small></div>`).join("")||'<div class="empty">No jobs yet.</div>'}
+async function clearJobs(ids){const r=await api("/api/jobs/clear",{ids:ids||[]});toast(`${r.cleared} job(s) cleared`);if(ids&&ids.includes(P.job))P.job=null;await refreshJobs();if(P.page=="jobs")R.jobs()}
+function colorLog(t){return esc(t).replace(/^(?!\s*&gt; )(.*(!!|Traceback|\bError\b|finished with code|did not succeed).*)$/gm,'<span class="e">$1</span>').replace(/^(\[\d+\/\d+\].*)$/gm,'<span class="s">$1</span>').replace(/^(DONE.*)$/gm,'<span class="d">$1</span>')}
+function appendLog(el,text,scroll=true){if(!el||!text)return;const atEnd=el.scrollTop+el.clientHeight>=el.scrollHeight-30;el.insertAdjacentHTML("beforeend",colorLog(text));if(el.textContent.length>350000){el.textContent="[Earlier log lines trimmed in viewer]\n"+el.textContent.slice(-240000)}if(scroll&&atEnd)el.scrollTop=el.scrollHeight}
+async function selJob(id){P.job=id;P.logNext=0;$("#jlog")&&($("#jlog").innerHTML="");$$(".job").forEach(e=>e.classList.toggle("on",e.dataset.id==id));await pollJob(true);await loadJobNotes(id)}
+async function loadJobNotes(id){const list=$("#jobNoteList"),save=$("#jobNoteSave"),status=$("#jobNoteStatus");if(!list||!save||!status)return;const job=JOBS.find(x=>x.id===id);const activity=job?`${job.title} (${id})`:id;status.textContent=`Loading notes for ${activity}…`;list.innerHTML="";save.disabled=true;save.textContent="Save note to selected activity";save.onclick=async()=>{if(P.job!==id)return;const note=$("#jobNoteText").value.trim();if(!note){status.textContent="Write a note first; nothing was saved.";return}save.disabled=true;status.textContent=`Saving note to ${activity}…`;try{const out=await api(`/api/jobs/${encodeURIComponent(id)}/notes`,{note,stage:$("#jobNoteStage").value,result:$("#jobNoteResult").value});if(P.job!==id)return;$("#jobNoteText").value="";await loadJobNotes(id);status.textContent=`Saved to ${activity} at ${out.entry.time}. This note is attached only to this activity.`;toast("Activity note saved")}catch(e){if(P.job===id){save.disabled=false;status.textContent=`Could not save to ${activity}: ${e.message}`;toast(e.message,1)}}};try{const r=await api(`/api/jobs/${encodeURIComponent(id)}/notes`);if(P.job!==id)return;const notes=r.notes||[];status.textContent=`Notes for ${activity} · ${notes.length} saved`;list.innerHTML=notes.map(n=>`<div style="padding:8px 0;border-bottom:1px solid var(--line)"><b>${esc(n.stage)} · ${n.result==="worked"?"Worked":"Issue"}</b><small style="margin-left:8px">${esc(n.time||"")}</small><div style="white-space:pre-wrap;margin-top:4px">${esc(n.note)}</div></div>`).join("")||'<span class="hint">No notes saved for this activity yet.</span>';save.disabled=false}catch(e){if(P.job===id){status.textContent=`Could not load notes for ${activity}: ${e.message}`;list.textContent=""}}}
+async function pollJob(first){if(P.page!="jobs"||!P.job||!$("#jlog"))return;const j=JOBS.find(x=>x.id==P.job);
+  try{const r=await api(`/api/jobs/${P.job}/log?from=${P.logNext}`);const L=$("#jlog");
+   if(r.text){if(r.trimmed)L.textContent="[Earlier log lines omitted; showing the latest output]\n";appendLog(L,r.text,first!==false)}P.logNext=r.next;
+   $("#jt").textContent=j?j.title:P.job;$("#js").textContent=`${r.status}${r.step_label?" · "+r.step_label:""}`;
+   $("#jp").style.width=(r.status=="done"?100:Math.round(100*(r.step||0)/Math.max(1,r.n_steps)))+"%";
+   $("#jStop").onclick=async()=>{const r=await api(`/api/jobs/${P.job}/stop`,{});toast(r.ok?"Stop requested…":"This job is no longer running",!r.ok)};
+   $("#jAgain").onclick=async()=>{const k=await api(`/api/jobs/${P.job}/again`,{});P.job=k.id;await refreshJobs();selJob(k.id)};
+   $("#jOut").onclick=()=>j&&j.outputs&&j.outputs[0]?openP(j.outputs[0]):toast("no result yet",1);
+  }catch(e){}}
+async function refreshJobs(){const js=await api("/api/jobs");
+  for(const j of js){const was=P.known[j.id];if(was&&was!=j.status&&["done","failed","stopped"].includes(j.status)&&!j.title.startsWith("Preview")){toast((j.status=="done"?"✓ Finished: ":"✕ "+j.status+": ")+j.title,j.status!="done");P.lib=null;if(["style_index","audio_index"].includes(j.kind))P.presets=null;if(["lib","home"].includes(P.page))R[P.page]()}P.known[j.id]=j.status}
+  JOBS=js;checkPreview(js);drawJobs()}
+
+// ---------------- SYSTEM
+async function rackCard(body){const r=await api("/api/voice/rack",body||{}).catch(()=>({words:[]}));const W=r.words||[];
+  $("#rackCard").innerHTML=`<div class="hint">After every narration the checker notes words it could not hear in ANY take. A word noted twice or more is said another way in new scripts (your alternative below, else the AI rewrites the line with the same meaning and feeling). To fix the voice itself: make a practice story, record it, tag it to its series, train again, then press <b>Retrained</b>.</div>
+   ${W.length?`<div style="max-height:40vh;overflow:auto;margin-top:8px">${W.map(x=>`<div class="item" style="padding:6px 0"><div class="meta"><b>${esc(x.word)}</b> <small>${x.count}× · ${x.solved_on?"retrained "+esc(x.solved_on)+" · ":""}${esc((x.examples||[]).slice(-1)[0]||"")}</small></div>
+     <input type="text" class="rkAlt" data-w="${esc(x.word)}" value="${esc(x.alt||"")}" placeholder="your alternative" style="max-width:180px"><label class="switch" style="margin-left:8px"><input type="checkbox" class="rkSol" data-w="${esc(x.word)}">Retrained</label></div>`).join("")}</div>`:'<div class="empty">No words yet — they appear after narrations.</div>'}
+   <div class="actions"><button class="btn primary" id="rkSave">Save</button><button class="btn" onclick='startGo("practice_story",{minutes:3})'>Make a practice story (3 min)</button></div>`;
+  $("#rkSave").onclick=()=>rackCard({alt:Object.fromEntries($$(".rkAlt").map(i=>[i.dataset.w,i.value])),solved:$$(".rkSol").filter(c=>c.checked).map(c=>c.dataset.w)}).then(()=>toast("Saved"))}
+R.sys=async()=>{await pre();
+  $("main").innerHTML=`<h1>System</h1><p class="sub">Services, the graphics card, and your other project windows.</p>
+  <div class="grid g3" id="homeStats"></div>
+  <div class="actions"><button class="btn" onclick="sysA('start_comfy')">Start ComfyUI</button><button class="btn" onclick="sysA('free_gpu')">Free GPU for TTS</button><button class="btn" onclick="toggleTheme()">Light / dark</button><button class="btn" onclick="restartHub()">Restart hub</button></div>
+  <h2>Your voice per series</h2><div class="card" id="serCard"><div class="hint">loading…</div></div>
+  <h2>Words your voice stumbles on</h2><div class="card" id="rackCard"><div class="hint">loading…</div></div>
+  <h2>Script writing</h2><div class="card" id="storyCard"><div class="hint">loading…</div></div>
+  <h2>Local AI model (when Gemini is busy / offline)</h2><div class="card" id="llmCard"><div class="hint">loading…</div></div>
+  <h2>Moving elements (steam, candles, rain …)</h2><div class="card" id="elemCard"><div class="hint">loading…</div></div>
+  <h2>Your music</h2><div class="card"><div class="row" style="align-items:center"><div><b>${P.presets.audio.tracks} tracks · ${P.presets.audio.episodes} Sukoon projects read</b><div class="hint">${P.presets.audio.built?"last built "+esc(P.presets.audio.built):"not built yet"} · measures every BGM / SFX file once and learns from your Sukoon .aup3 projects (read-only) how the music starts, sits under you and plays on after you</div>
+   ${P.presets.audio.shape?`<div class="hint" style="margin-top:6px">Your shape: music alone ${P.presets.audio.shape.lead_s} s · under the story ${P.presets.audio.shape.story_db} dB · after you ${P.presets.audio.shape.outro_db} dB for ~${Math.round(P.presets.audio.shape.tail_s/60)} min</div>`:""}</div>
+   <div style="flex:0;display:flex;gap:8px"><button class="btn primary" onclick='startGo("audio_index",{})'>Build / update</button><button class="btn small" onclick='startGo("audio_index",{rebuild:true})'>Rebuild all</button></div></div></div>
+  <h2>Your thumbnail style guide</h2><div class="card"><div class="row" style="align-items:center"><div><b>${P.presets.index.count} of ${P.presets.index.found} thumbnails indexed</b><div class="hint">${P.presets.index.built?"last built "+esc(P.presets.index.built):"not built yet"} · the vision AI looks at each once; new pictures make the “Sukoon thumbnails” / “Kisse thumbnails” looks and the “Inspired by” picker</div></div>
+   <div style="flex:0;display:flex;gap:8px"><button class="btn primary" onclick='startGo("style_index",{})'>Build / update</button><button class="btn small" onclick='startGo("style_index",{rebuild:true})'>Rebuild all</button></div></div></div>
+  <h2>Open another project's own window</h2><div class="actions">${Object.entries(P.presets.other_windows).map(([k,v])=>`<button class="btn" onclick='openP(${esc(JSON.stringify(v))})'>${esc(k)}</button>`).join("")}</div>
+  ${(()=>{const L=P.presets.locations||{};return `<h2>Where things are</h2><div class="card"><div class="hint">Experimental workspace: ${esc(L.experimental_root||"")} · Stable Hub output: ${esc(L.hub||"")} · HubGPT Voice data: ${esc(L.voice_data||"")} · Voice models: ${esc(L.voice_models||"")} · Model copy: ${esc(L.voice_model_copy||"")}</div></div>`})()}`;
+  renderStats();storyCard();drawSeries();drawLlm();rackCard()};
+async function drawLlm(r){const el=$("#llmCard");if(!el)return;r=r||await api("/api/llm",{}).catch(e=>({error:e.message,models:[]}));
+  if(r.error&&!r.models.length){el.innerHTML=`<div class="hint">${esc(r.error)} — start ${esc(r.backend||"local AI")}.</div>`;return}
+  el.innerHTML=`<div class="hint">Models served by ${esc(r.backend||"local AI")} are used for scripts when Gemini can't answer, picture ideas, moments and titles.</div>
+   <div class="list" style="margin-top:8px">${r.models.slice(0,3).map((m,i)=>`<label class="item" style="cursor:pointer"><div class="meta"><b>${i==0?"★ ":""}${esc(m.name)}</b></div><input type="radio" name="llmPick" value="${esc(m.name)}" ${m.name==r.current?"checked":""}></label>`).join("")}</div>
+   <label>…or any installed model</label><select id="llmAny">${r.models.map(m=>`<option ${m.name==r.current?"selected":""}>${esc(m.name)}</option>`).join("")}</select>
+   <div class="actions"><button class="btn primary" onclick="setLlm()">Use it</button><span class="hint">now: ${esc(r.current||"")}</span></div>`;
+  $$('input[name=llmPick]').forEach(x=>x.onchange=()=>{$("#llmAny").value=x.value})}
+async function setLlm(){try{drawLlm(await api("/api/llm",{llm:$("#llmAny").value}));toast("Local model saved")}catch(e){toast(e.message,1)}}
+async function storyCard(){const S=await api("/api/story/status"),models=S.local_models||[],chosen=models.includes(S.local)?S.local:(models[0]||S.local);$("#storyCard").innerHTML=`<div class="row" style="align-items:center"><div><b>${S.gemini?"Gemini key saved ✓":"No Gemini key yet"}</b> · model ${esc(S.gemini_model)} · local fallback ${esc(S.local)} · ${S.ledger} scripts remembered (no repeats)<div class="hint">The key stays on this PC (secrets.json in the hub folder) and is never shown here again. Free tier: Google may use prompts to improve its products.</div></div></div>
+   <div class="row"><div><label>Local model for stories</label><select id="localStoryModel">${models.map(m=>'<option value="'+esc(m)+'" '+(m===chosen?"selected":"") +'>'+esc(m)+'</option>').join("")}</select></div><div><label>Story writer mode</label><select id="storyEngine"><option value="auto" ${S.story_engine!=="local"?"selected":""}>Auto (Gemini, then local)</option><option value="local" ${S.story_engine==="local"?"selected":""}>Local only</option></select></div></div>
+   <div class="row"><div><label>Gemini API key (Google AI Studio)</label><input id="gKey" type="password" placeholder="${S.gemini?"saved - paste a new one to replace":"paste your key"}" autocomplete="off"></div><div><label>Model</label><input id="gModel" type="text" value="${esc(S.gemini_model)}"></div></div>
+   <div class="actions"><button class="btn primary" id="gSave">Save</button><button class="btn" onclick='openP(${esc(JSON.stringify(S.bank))})'>Edit topic bank</button><button class="btn" onclick='openP(${esc(JSON.stringify(S.ledger_file))})'>Ledger</button>${S.gemini?'<button class="btn small" id="gForget">Remove key</button>':""}</div>`;
+  $("#gSave").onclick=async()=>{await api("/api/story/settings",{gemini_key:$("#gKey").value,gemini_model:$("#gModel").value,local_model:$("#localStoryModel").value,story_engine:$("#storyEngine").value});toast("Saved");storyCard()};
+  if($("#gForget"))$("#gForget").onclick=async()=>{await api("/api/story/settings",{forget_key:true});toast("Key removed");storyCard()};
+  $("#elemCard").innerHTML=`<div><b>${S.pixabay?"Pixabay key saved ✓":"No Pixabay key yet"}</b><div class="hint">When a script or picture needs steam, candles, rain, fireflies, snow, fog ... and the library has fewer than 3 clips of it, the hub finds a few on Pixabay in the background (no graphics card): Pixabay Content License only (commercial use, no credit), real names, every clip in the register D:\\Audio asset\\Elements\\ELEMENTS_INDEX.csv with source, licence and where it is used. Search results come from Pixabay.</div></div>
+   <div class="row"><div><label>Pixabay API key (free, pixabay.com/api/docs)</label><input id="pKey" type="password" autocomplete="off" placeholder="${S.pixabay?"saved - paste a new one to replace":"paste your key"}"></div></div>
+   <div class="actions"><button class="btn primary" id="pSave">Save</button><button class="btn" onclick='startGo("elements_fetch",{})'>Check the library now</button><button class="btn" onclick='openP("D:\\Audio asset\\Elements")'>Open the library</button>${S.pixabay?'<button class="btn small" id="pForget">Remove key</button>':""}</div>`;
+  $("#pSave").onclick=async()=>{await api("/api/story/settings",{pixabay_key:$("#pKey").value});toast("Saved");storyCard()};
+  if($("#pForget"))$("#pForget").onclick=async()=>{await api("/api/story/settings",{forget_pixabay:true});toast("Key removed");storyCard()};
+  $("#elemCard").insertAdjacentHTML("beforeend",`<div style="margin-top:16px"><b>${S.freesound?"Freesound key saved ✓":"Sound effects: no Freesound key yet"}</b><div class="hint">For भय, रहस्य, किस्से … the hub fills D:\\Audio asset\\SFX\\&lt;kind&gt;\\ (door_knock, footsteps, rain, train …) with sounds from Freesound — ONLY “Creative Commons 0” (public domain: commercial use, no credit). Every file is in SFX_INDEX.csv with its page, author, licence and the videos it is used in. Only what is missing is fetched, when a series video is made.</div>
+   <div class="row"><div><label>Freesound API key (free: freesound.org/apiv2/apply)</label><input id="fsKey" type="password" autocomplete="off" placeholder="${S.freesound?"saved - paste a new one to replace":"paste your key"}"></div></div>
+   <div class="actions"><button class="btn primary" id="fsSave">Save</button><button class="btn" onclick='startGo("sfx_fetch",{})'>Fill the library now (all series)</button><button class="btn" onclick='openP("D:\\Audio asset\\SFX")'>Open the library</button></div></div>`);
+  $("#fsSave").onclick=async()=>{await api("/api/story/settings",{freesound_key:$("#fsKey").value});toast("Saved");storyCard()}}
+async function sysA(a){const r=await api("/api/system",{action:a});toast(r.msg,!r.ok)}
+function toggleTheme(){const t=document.documentElement.dataset.theme=="light"?"dark":"light";document.documentElement.dataset.theme=t;store.set("theme",t)}
+
+// ---------------- live status + dock
+async function tick(){try{P.status=await api("/api/status")}catch(e){$("#sideStatus").innerHTML='<span class="dot bad"></span>hub not reachable';return}
+  const s=P.status,aiName="Ollama",aiUp=s.ollama;$("#sideStatus").innerHTML=`<div><span class="dot ${s.running?"run":"ok"}"></span>${s.running?"working":"idle"}${s.queued?` · ${s.queued} waiting`:""}</div><div><span class="dot ${s.comfy?"ok":""}"></span>ComfyUI · <span class="dot ${aiUp?"ok":""}"></span>${aiName}</div>${s.gpu?`<div>GPU ${Math.round(s.gpu.mem_used/102.4)/10} GB · ${s.gpu.util}%</div>`:""}`;
+  $("#dockDot").className="dot "+(s.running?"run":"ok");$("#dockQ").textContent=s.queued?`${s.queued} waiting`:"";
+  $("#dockT").textContent=s.running?`${s.running.title} — step ${s.running.step+1}/${s.running.n_steps}: ${s.running.step_label}`:"No job running";
+  try{await refreshJobs()}catch(e){}
+  if(!s.running&&!P.dockJob&&JOBS[0])P.dockJob=JOBS[0].id;
+  const id=s.running?.id||P.dockJob;if(id&&id!=P.dockJob){P.dockJob=id;P.dockNext=0;$("#dockLog").innerHTML=""}
+  if(P.dockJob&&$("#dock").classList.contains("open")){try{const r=await api(`/api/jobs/${P.dockJob}/log?from=${P.dockNext}`);if(r.text){const L=$("#dockLog");if(r.trimmed)L.textContent="[Earlier log lines omitted; showing the latest output]\n";appendLog(L,r.text)}P.dockNext=r.next}catch(e){}}
+  if(P.page=="jobs")await pollJob();if(P.page=="home"||P.page=="sys")renderStats();
+  if(!P.stampAt||Date.now()-P.stampAt>8000){P.stampAt=Date.now();                 // new things made? show them without a restart
+    try{const st=(await api("/api/library/stamp")).stamp;if(P.stamp&&st!==P.stamp){P.lib=null;
+      const playing=[...document.querySelectorAll("video,audio")].some(m=>!m.paused);
+      if(["lib","home"].includes(P.page)&&!playing&&!document.activeElement.matches?.("input,textarea,select"))R[P.page]();
+      else if(["reels","repair","episode"].includes(P.page))toast("New items made - they are in the lists next time you open this page")}
+     P.stamp=st}catch(e){}}}
+$("#dockBar").onclick=()=>{$("#dock").classList.toggle("open");$("#dockArrow").textContent=$("#dock").classList.contains("open")?"▼ log":"▲ log"};
+document.documentElement.dataset.theme=store.get("theme","light");
+(async()=>{try{await pre()}catch(e){}nav();go(store.get("page","home"));tick();setInterval(tick,1500)})();
+</script>
+</body>
+</html>

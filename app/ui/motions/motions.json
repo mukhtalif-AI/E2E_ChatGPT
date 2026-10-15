@@ -1,0 +1,10 @@
+{
+ "sentence": "New framing at each sentence",
+ "push_in": "Slow push-in",
+ "pull_back": "Pull-back reveal",
+ "pan_lr": "Pan left to right",
+ "pan_rl": "Pan right to left",
+ "tilt_up": "Tilt up to the sky",
+ "breathing": "Breathing (still, gentle pulse)",
+ "drift": "Floating drift"
+}

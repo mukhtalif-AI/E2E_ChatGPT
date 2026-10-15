@@ -1,0 +1,237 @@
+"""Experimental-only storage layout for HubGPT jobs.
+
+The stable HubGPT paths remain configured in config.json. Experimental jobs
+get a per-episode workspace under the dedicated HubGPT root instead.
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import time
+
+
+def layout(cfg, key, default):
+    return (cfg.get("layout") or {}).get(key, default)
+
+
+def root(cfg):
+    return os.path.abspath(cfg.get("experimental_root") or r"D:\HubGPT")
+
+
+def initialize(cfg):
+    base = root(cfg)
+    for path in (f"{layout(cfg, 'experimental_library', 'Library')}/{layout(cfg, 'experimental_scripts', 'Scripts')}",
+                 f"{layout(cfg, 'experimental_library', 'Library')}/{layout(cfg, 'experimental_assets', 'Assets')}",
+                 f"{layout(cfg, 'experimental_activity', 'Activity')}/{layout(cfg, 'logs', 'Logs')}",
+                 f"{layout(cfg, 'experimental_activity', 'Activity')}/{layout(cfg, 'experimental_reports', 'Reports')}",
+                 layout(cfg, 'experimental_series', 'Series'), layout(cfg, 'experimental_work', '_work')):
+        os.makedirs(os.path.join(base, *path.split("/")), exist_ok=True)
+    return base
+
+
+def _safe(value, fallback="Other"):
+    value = re.sub(r"[^A-Za-z0-9_-]+", "_", str(value or "")).strip("_-")
+    return value[:60] or fallback
+
+
+def prepare(kind, body, cfg, job_id):
+    """Build an isolated job config and plan without changing the stable CFG."""
+    from tools import plan, slug
+
+    b = dict(body)
+    base = initialize(cfg)
+    L = cfg.get("layout") or {}
+    series = slug(b.get("genre") or b.get("series") or ("sukoon" if kind == "episode" else "Other"))
+    episode_kinds = {"episode", "genre", "horror", "experimental", "voice", "pictures", "image", "slideshow", "studio"}
+    episode_dir = ""
+    if kind in episode_kinds:
+        original = b.get("name") or b.get("title") or b.get("topic") or kind
+        short = slug(original)
+        # The job id makes every run its own durable episode folder.
+        episode_name = short if kind == "experimental" else f"{job_id}_{short}"
+        b["name"] = episode_name
+        episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), episode_name)
+        for path in (L.get("experimental_input", "00_Input"), L.get("experimental_script", "01_Script"), L.get("experimental_narration", "02_Narration"), L.get("experimental_artwork", "03_Artwork"), L.get("episode_output", "Output")):
+            os.makedirs(os.path.join(episode_dir, path), exist_ok=True)
+        with open(os.path.join(episode_dir, L.get("experimental_input", "00_Input"), "input.json"), "w", encoding="utf-8") as f:
+            json.dump({"job_id": job_id, "kind": kind, "series": series, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+                       "request": {k: v for k, v in b.items() if k not in ("data",)}}, f, ensure_ascii=False, indent=2)
+
+    job_cfg = dict(cfg)
+    job_cfg["experimental_mode"] = True
+    job_cfg["experimental_root"] = base
+    job_cfg["media_dir"] = os.path.join(base, L.get("experimental_library", "Library"))
+    job_cfg["episodes_dir"] = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes")) if episode_dir else os.path.join(base, L.get("experimental_series", "Series"), "_Loose")
+    job_cfg["sukoonvoice_media"] = os.path.join(episode_dir, L.get("experimental_narration", "02_Narration")) if episode_dir else os.path.join(base, "Library", "Narration")
+    os.makedirs(job_cfg["media_dir"], exist_ok=True)
+    job_cfg["layout"] = L
+    for alias, key in (("scripts_dir", "scripts"), ("pictures_dir", "pictures"), ("videos_dir", "videos"), ("images_dir", "images"), ("temporary_dir", "temporary")):
+        job_cfg[alias] = os.path.join(job_cfg["media_dir"], L.get(key, {"temporary": "_tmp"}.get(key, key)))
+    for name in (L.get("scripts", "scripts"), L.get("pictures", "pictures"), L.get("videos", "videos"), L.get("images", "images"), L.get("temporary", "_tmp")):
+        os.makedirs(os.path.join(job_cfg["media_dir"], name), exist_ok=True)
+
+    plan = plan(kind, b, job_cfg)
+    if episode_dir:
+        # Route generated cover art and scene assets into the episode workspace.
+        old = job_cfg["pictures_dir"]
+        new = os.path.join(episode_dir, L.get("experimental_artwork", "03_Artwork"))
+        plan = _replace_paths(plan, old, new)
+        old_runs = os.path.join(job_cfg["media_dir"], "experimental_runs")
+        run_store = os.path.join(episode_dir, L.get("experimental_input", "00_Input"), "ExperimentalRun")
+        plan = _replace_paths(plan, old_runs, run_store)
+        if kind == "image":
+            art_dir = os.path.join(episode_dir, L.get("experimental_artwork", "03_Artwork"))
+            for step in plan.get("steps", []):
+                args = step.get("args") or {}
+                if args.get("out"):
+                    args["out"] = art_dir
+            plan["outputs"] = [art_dir]
+        elif kind == "slideshow":
+            old_video = job_cfg["videos_dir"]
+            out_dir = os.path.join(episode_dir, L.get("episode_output", "Output"))
+            plan = _replace_paths(plan, old_video, out_dir)
+            plan["outputs"] = [out_dir]
+        plan["outputs"] = [new if p == old else p for p in plan.get("outputs", [])]
+    metadata = {"root": base, "series": series, "episode_dir": episode_dir,
+                "media_dir": job_cfg["media_dir"], "sukoonvoice_media": job_cfg["sukoonvoice_media"], "layout": L,
+                "log": os.path.join(base, L.get("experimental_activity", "Activity"), L.get("logs", "Logs"), f"job_{job_id}.log")}
+    b["_experimental_workspace"] = metadata
+    job_cfg["_experimental_workspace"] = metadata
+    return plan, b, job_cfg
+
+
+def _replace_paths(value, old, new):
+    if isinstance(value, str):
+        return value.replace(old, new)
+    if isinstance(value, list):
+        return [_replace_paths(v, old, new) for v in value]
+    if isinstance(value, dict):
+        return {k: _replace_paths(v, old, new) for k, v in value.items()}
+    return value
+
+
+def job_config(cfg, params):
+    meta = (params or {}).get("_experimental_workspace") or {}
+    if not meta:
+        return cfg, None
+    out = dict(cfg)
+    out.update({"experimental_mode": True, "experimental_root": meta.get("root"),
+                "media_dir": meta.get("media_dir"), "sukoonvoice_media": meta.get("sukoonvoice_media"),
+                "layout": meta.get("layout") or cfg.get("layout", {})})
+    for alias, key in (("scripts_dir", "scripts"), ("pictures_dir", "pictures"), ("videos_dir", "videos"),
+                       ("images_dir", "images"), ("temporary_dir", "temporary")):
+        out[alias] = os.path.join(out["media_dir"], layout(out, key, "_tmp" if key == "temporary" else key))
+    if meta.get("episode_dir"):
+        out["episodes_dir"] = os.path.dirname(meta["episode_dir"])
+    return out, meta.get("media_dir")
+
+
+def organize(job):
+    meta = (job.get("params") or {}).get("_experimental_workspace") or {}
+    L = meta.get("layout") or {}
+    ep = meta.get("episode_dir")
+    if not ep or not os.path.isdir(ep):
+        return
+    name = os.path.basename(ep)
+    candidates = [os.path.join(meta.get("media_dir", ""), L.get("scripts", "scripts"), name + ".txt")]
+    script = next((p for p in candidates if os.path.isfile(p)), "")
+    if script:
+        os.makedirs(os.path.join(ep, L.get("experimental_script", "01_Script")), exist_ok=True)
+        shutil.copy2(script, os.path.join(ep, L.get("experimental_script", "01_Script"), "script.txt"))
+        meta_path = os.path.splitext(script)[0] + ".story.json"
+        if os.path.isfile(meta_path):
+            shutil.copy2(meta_path, os.path.join(ep, L.get("experimental_script", "01_Script"), "story.json"))
+    # The configured episode output directory remains the final video/reel destination.
+    with open(os.path.join(ep, L.get("experimental_input", "00_Input"), "activity.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": job.get("id"), "title": job.get("title"), "status": job.get("status"),
+                   "created": job.get("created"), "ended": job.get("ended"), "outputs": job.get("outputs", []),
+                   "notes": job.get("notes", [])}, f, ensure_ascii=False, indent=2)
+
+
+def sync_jobs(jobs, cfg):
+    base = initialize(cfg)
+    selected = [j for j in jobs if (j.get("params") or {}).get("_experimental_workspace")]
+    path = os.path.join(base, layout(cfg, "experimental_activity", "Activity"), "jobs.json")
+    tmp = path + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump([{k: v for k, v in j.items() if k != "steps"} for j in selected[-300:]], f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def is_experimental(job):
+    return bool((job.get("params") or {}).get("_experimental_workspace"))
+
+
+def find_run(name, jobs, cfg):
+    for job in jobs:
+        meta = (job.get("params") or {}).get("_experimental_workspace") or {}
+        ep = meta.get("episode_dir") or ""
+        if os.path.basename(ep).casefold() == str(name).casefold():
+            return meta
+    base = root(cfg)
+    for ep in glob.glob(os.path.join(base, layout(cfg, "experimental_series", "Series"), "*", layout(cfg, "experimental_episode_collection", "Episodes"), "*")):
+        if os.path.basename(ep).casefold() == str(name).casefold():
+            return {"episode_dir": ep, "root": base, "media_dir": os.path.join(base, layout(cfg, "experimental_library", "Library")),
+                    "sukoonvoice_media": os.path.join(ep, layout(cfg, "experimental_narration", "02_Narration"))}
+    return {}
+
+
+def library(cfg):
+    """Return the library shape consumed by the Experimental page from its own workspace."""
+    base = initialize(cfg)
+    L = cfg.get("layout") or {}
+    scripts, narrations, pictures, videos, episodes = [], [], [], [], []
+    script_paths = set(glob.glob(os.path.join(base, layout(cfg, "experimental_library", "Library"), layout(cfg, "experimental_scripts", "Scripts"), "*.txt")))
+    for ep in glob.glob(os.path.join(base, layout(cfg, "experimental_series", "Series"), "*", layout(cfg, "experimental_episode_collection", "Episodes"), "*")):
+        if not os.path.isdir(ep):
+            continue
+        n = os.path.basename(ep)
+        script = os.path.join(ep, L.get("experimental_script", "01_Script"), "script.txt")
+        if not os.path.isfile(script):
+            script = os.path.join(ep, layout(cfg, "scripts", "scripts"), n + ".txt")
+        if os.path.isfile(script):
+            script_paths.add(script)
+        nar_parent = os.path.join(ep, layout(cfg, "experimental_narration", "02_Narration"), layout(cfg, "narrations", "narrations"))
+        for nd in glob.glob(os.path.join(nar_parent, "*")):
+            voice = os.path.join(nd, "narration.wav")
+            if os.path.isfile(voice):
+                narrations.append({"name": os.path.basename(nd), "dir": nd, "voice": voice,
+                                   "music": os.path.join(nd, "narration_music.wav") if os.path.isfile(os.path.join(nd, "narration_music.wav")) else "",
+                                   "seconds": 0, "time": os.path.getmtime(voice), "flagged": 0,
+                                   "lang": "hi", "script": os.path.join(nd, "script.txt")})
+        art = os.path.join(ep, layout(cfg, "experimental_artwork", "03_Artwork"))
+        ims = sorted(glob.glob(os.path.join(art, "**", "*.png"), recursive=True))
+        if ims:
+            pictures.append({"name": n, "dir": art, "images": ims[:60], "time": max(os.path.getmtime(p) for p in ims), "shots": []})
+        output = os.path.join(ep, layout(cfg, "episode_output", "Output"))
+        vids = [p for p in glob.glob(os.path.join(output, "*.mp4")) if not p.endswith(".part.mp4")]
+        reels = glob.glob(os.path.join(output, layout(cfg, "episode_reels", "reels"), "*.mp4"))
+        cover = next(iter(glob.glob(os.path.join(ep, layout(cfg, "experimental_artwork", "03_Artwork"), "*.*"))), "")
+        for p in vids:
+            videos.append({"file": p, "kind": "episode", "time": os.path.getmtime(p)})
+        for p in reels:
+            videos.append({"file": p, "kind": "reel", "time": os.path.getmtime(p)})
+        episodes.append({"name": n, "dir": ep, "video": vids[0] if vids else "", "reels": reels, "art": cover,
+                         "narration": os.path.join(ep, layout(cfg, "experimental_narration", "02_Narration"), layout(cfg, "narrations", "narrations"), n),
+                         "script": script if os.path.isfile(script) else "", "checked": False,
+                         "lang": "hi", "time": max([os.path.getmtime(p) for p in vids + reels] or [os.path.getmtime(ep)])})
+    for f in sorted(script_paths, key=os.path.getmtime, reverse=True)[:300]:
+        with open(f, encoding="utf-8", errors="replace") as src:
+            head = src.read(600)
+        scripts.append({"name": os.path.basename(f)[:-4], "file": f, "time": os.path.getmtime(f),
+                        "preview": " ".join(x for x in head.splitlines() if x.strip())[:160]})
+    loose_images = glob.glob(os.path.join(base, layout(cfg, "experimental_library", "Library"), layout(cfg, "images", "images"), "*", "*"))
+    return {"scripts": scripts, "narrations": sorted(narrations, key=lambda x: -x["time"]),
+            "picture_sets": sorted(pictures, key=lambda x: -x["time"]),
+            "images": loose_images[:120], "artwork": [], "videos": sorted(videos, key=lambda x: -x["time"]),
+            "episodes": sorted(episodes, key=lambda x: -x["time"])}
+
+
+def library_stamp(cfg):
+    base = initialize(cfg)
+    files = glob.glob(os.path.join(base, layout(cfg, "experimental_series", "Series"), "*", layout(cfg, "experimental_episode_collection", "Episodes"), "**", "*"), recursive=True)
+    files += glob.glob(os.path.join(base, layout(cfg, "experimental_library", "Library"), layout(cfg, "experimental_scripts", "Scripts"), "*.txt"))
+    valid = [p for p in files if os.path.isfile(p)]
+    latest = max((os.path.getmtime(p) for p in valid), default=0)
+    return {"stamp": f"{len(valid)}-{int(latest)}"}

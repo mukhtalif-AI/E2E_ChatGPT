@@ -1,0 +1,6 @@
+# libraries every part of the project uses (installed into libs\common\ by setup)
+soundfile
+cffi
+pycparser
+pyloudnorm
+scipy

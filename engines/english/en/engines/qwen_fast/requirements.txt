@@ -1,0 +1,32 @@
+# faster-qwen3-tts (MIT): the same Qwen3-TTS models with CUDA graphs - native Windows, several times faster.
+# It needs NEWER libraries than engine "qwen" (transformers 5.15+, qwen-tts-hf) - that is why every engine
+# has its own folder (libs\qwen_fast); the plain "qwen" engine keeps transformers 4.57.3.
+faster-qwen3-tts==0.5.4
+qwen-tts-hf>=0.1.1.post1,<0.2
+transformers>=5.15.1,<6
+huggingface-hub>=1.5.0,<2
+tokenizers
+safetensors
+accelerate
+regex
+einops
+soundfile
+librosa
+audioread
+soxr
+lazy-loader
+pooch
+numba
+llvmlite
+msgpack
+decorator
+joblib
+scikit-learn
+threadpoolctl
+psutil
+pyyaml
+cloudpickle
+narwhals
+platformdirs
+onnxruntime
+sox

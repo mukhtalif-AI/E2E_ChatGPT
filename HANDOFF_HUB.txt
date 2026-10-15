@@ -1,0 +1,202 @@
+HUBGPT - notes for the next session / any AI                        (15 Oct 2026, v4.3)
+==========================================================================================
+WHAT  One browser app (stdlib Python server + one-file UI) that streamlines the user's projects:
+      script -> HubGPT Voice -> pictures (ComfyUI) -> HubGPT Video (slideshow),
+      + image studio, library, live job logs. Read README.txt for folders and features.
+USER RULES  D: media, E: code, never C:; ask before install/delete (move to _old, never delete); every project
+      standalone with its own setup (shared: ComfyUI, Ollama models, FFmpeg, D: media); keep him posted with
+      short hints; spend his Claude usage carefully; ONE GPU job at a time.
+
+CURRENT LAYOUT / CONFIGURATION (15 Oct 2026)
+  HubGPT is in E:\Projects\hub_chatgpt. Voice and Video are engines within HubGPT: engines\voice and engines\video.
+  Their code and local video venv stay in this codebase. Trained voice checkpoints stay in engines\voice\models,
+  with a copy in the configured backup directory. Root config.json is the source of machine-specific paths (paths)
+  and folder names (layout); update it instead of scattering machine paths through code/docs.
+  Default Experimental root is D:\HubGPT (configured by paths.experimental_root): Library\ for scripts/uploads; Series\<series>\Episodes\<episode>\ for
+  00_Input, 01_Script, 02_Narration, 03_Artwork, and Output; Activity\ for logs, jobs.json, and job archives.
+  Voice datasets/recordings use configured paths.voice_data_root (default D:\SukoonVoice); Experimental narration outputs are isolated per episode.
+  Shared server changes should stay narrowly gated by X-Hub-Experimental and be described in
+  app\ui\experimental\EXPERIMENT_NOTES.md. No HubGPT server was listening on port 8781 when last checked on
+  14 Oct, so restart hub.bat after server changes before live browser verification.
+
+LOCAL AI AND GPU HANDOFF (15 Oct 2026)
+  HubGPT uses Ollama only. Gemma (gemma3:12b) writes stories and Hindi; Qwen (qwen3:8b) creates image prompts and handles
+  reasoning-heavy video choices; qwen2.5vl:7b reviews images. These role defaults are in config.json and may be changed
+  in System settings. Ollama stays running, while HubGPT unloads used models before ComfyUI and GPU video rendering.
+HISTORY
+  The entries below are chronological development notes. References to engines\studio, Mukhtalif Studio and old
+  machine-specific paths describe the historical standalone layout; current code is engines\video and current paths
+  are in root config.json.
+  v1 (04:40)  server.py + tools.py + ui; called the other projects' folders directly.
+  v2 (05:00)  options: English->Hindi (Ollama gemma3:12b), pauses / music / level, line preview, fix phrases;
+              images: negative, steps, batch, variations, repaint (old kept _old_HHMMSS_), uploads;
+              video: Studio typography (--typo --font --lang --viz --no-brand --no-title --no-dim --label
+              --max-lines), slideshow editor (order / remove / seconds) + ASS captions (font family read from
+              the ttf, emphasis colour, outline, bold, position, auto last-word emphasis; ffmpeg ass filter, cwd=tmp).
+  v3 (05:15)  STANDALONE: engines\voice = copy of E:\Projects\SukoonVoice (run.py, voice\, config.json with
+              import_transcripts_from -> engines\studio\work, setup.bat; libs\cb copied = 334 MB);
+              engines\studio = copy of E:\Projects\MukhtalifStudio (engine\, assets\, studio_config.json ->
+              venv_python engines\studio\.venv, made by setup_hub.bat). app\ folder; comfy.py split out;
+              setup_hub.py; refined lighter UI (Segoe UI Variable, calmer palette, no shadows, fade-in).
+              Earlier versions in _old\v1.
+
+  v3.1 (09:25) simpler UI: 4 menu items (Create, Library, Activity, Settings), one-column forms, everything
+              optional folded into "More options" (<details>).
+  v3.2 (09:50) thumbnail style guide: style_index job (qwen2.5vl per thumbnail -> style_index.json, gemma3 sums up
+              a common Sukoon / Kisse look), looks "sukoon_theme" / "kisse_theme", Image page "Inspired by" =
+              ComfyUI img2img from the chosen thumbnail (comfy.upload_image + with_init_image: LoadImage ->
+              ImageScale -> VAEEncode -> KSampler denoise) + "Subject as a silhouette".
+
+  v3.3 (10:10) Studio unicode fix in the hub copy (compose.py etc. open(..., encoding="utf-8"); jobs run with
+              PYTHONUTF8=1) - the original MukhtalifStudio has the same bug (cp1252 concat list with a Hindi name).
+              Audio index (app/audio_index.py, job "audio_index"): every BGM/SFX file measured (loudness, dynamics,
+              brightness, busyness, bpm, loopable, calm); every Sukoon .aup3 (D:\Audacity + episodes, read-only via
+              the Studio aup3 readers) -> music vs voice level curve; median = the Sukoon music SHAPE
+              (measured on the VM on 10 real projects: music starts 3.5 s before the voice, ~18 dB under the voice
+              during the story, ~18 dB after, plays on ~21 min, fade-out ~3.7 min; most used track Drifting at 432 Hz).
+              shape_mix step: voice + music the same way (lead, ramps, tail 1 min / 5 min / usual), streams 1-min
+              chunks, loudnorm -16 LUFS; music_shape.json (lead_s) -> slideshow captions shift by the lead.
+
+STATE
+  Tested end to end on a Linux test bed with dummy SukoonVoice / Studio / ComfyUI / Ollama (all job kinds,
+  captions burned for real, UI screens in Chromium, no JS errors). On the PC: v1 started fine (python 3.13.11);
+  v3 not yet run there. Video engine .venv NOT made yet -> user runs setup_hub.bat (asks before pip).
+  Voice engine python = ComfyUI's (engines\voice\python.txt); model = run_20261013_0319_sukoon_flow_lr3e-05 (V3).
+
+HISTORICAL SYNC NOTES
+  Improve SukoonVoice / Studio in their own folders, then copy their code again into engines\ (run.py, voice\*.py,
+  engine\*.py, assets\). Keep engines\voice\config.json's import_transcripts_from + engines\studio\studio_config.json.
+
+NEXT IDEAS  music shape like his Sukoon episodes (lower before story, raise after); EQ matching + phrase-end
+  take selection (his ideas, see SukoonVoice HANDOFF); per-picture camera moves in the slideshow.
+
+  v3.4 (13 Oct) LIVING ELEMENTS: engines\studio\engine\elements.py - vision AI (qwen2.5vl) finds lamp / candle / cup /
+              painted steam / moon once per picture (<loop>.elements.json, editable; no Ollama -> light finder).
+              Lamps breathe with a soft glow + light on the room; painted steam is lifted off and sways/flows upward
+              + faint extra wisps; indoor pictures get no stars/fireflies/mist/moon halo. artloop.py uses it;
+              sleep_pipeline names loops *_alive.mp4 (old loops kept). Old files: _old\studio_engine_before_alive.
+
+  v3.5 (13 Oct) ELEMENTS LIBRARY: get_elements.bat -> app\elements_get.py downloads the clips listed in
+              app\elements_wanted.json (only licences with commercial use + NO credit) to D:\Audio asset\Elements\<kind>\
+              under their real Pixabay names; register ELEMENTS_INDEX.json/.csv (page, author, original link, licence,
+              date, sha256, used_in); licence text in _licences\. Then engine\elements_prep.py makes ready\ grey seamless
+              loops (+ anchor json). elements.py ClipSteam puts a real steam clip on the cup (painted steam lifted off),
+              note_use() writes every loop + video that uses a clip into the register. tools.py no_steam(): new pictures
+              with tea/cup get no painted steam. smokesim.py = own fluid-sim fallback (not used now).
+              Hand-checked element list for the bachpan picture: engines\studio\loops\art_001_s811_40s_alive.mp4.elements.json
+
+  v3.6 (13 Oct) SCRIPTS: app\story.py - Gemini writer (key in secrets.json, Settings) with local fallback; recipe
+              (kind of episode, telling, central image, place, closing) least-recently-used; ledger D:\MukhtalifGPT\story_ledger.json
+              (seeded from earlier episodes); topic bank story_bank.json; check pass; 3 ideas; copy prompt; batch 'stories' jobs
+              (light lane = 2nd worker, no GPU); speech estimate from YOUR voice (words/min measured on narrations);
+              fit_script: video shorter than speech -> AI shortens (full kept as *_full.txt). Voice: say_as.json, fairer
+              checker (asr.py). Elements: elements_auto.py fetches missing kinds from Pixabay (key in Settings), register.
+
+  v3.7 (13 Oct) REELS page (new / best / at-times moments, reels_made.json, never overwrite; 8 camera MOTIONS in reels.py +
+              motion_previews -> Output\reels\_motions); subtitles by meaning (kinetic.split_meaning: pauses, punctuation,
+              conjunctions, no cut before postpositions; pick_moments timed by content, min 12 s, <=2/min);
+              REPAIR page (app\repair.py): check voice (_lines.json), subtitles rhythm, motion (frame diffs: jumps, frozen,
+              loop pops) -> fix: voice --redo lines + music (same track/length) + re-render (--redo-transcript/--redo-captions,
+              old video to Output\_old, loop again if ticked), reel remade at same start. restart_hub.bat asks if a job runs.
+
+  v3.8 (13 Oct) Hindi text: engines\studio\engine\hbtext.py (uharfbuzz + freetype-py, installed by install_text_shaping.bat /
+              setup_hub) used by kinetic.word_mask + overlay.text_mask (ffmpeg drawtext joined च्च wrongly: बच्चे -> 'बज्जे').
+              Quality gate: reels.motion_problems after every reel (remake once with drift), sleep_pipeline checks the
+              final video (redraw once, loop again on pops) -> <video>.check.json. Reel default motion = mix; 'sentence'
+              gentler. Safe area (overlay SAFE_TOP/SAFE_BOTTOM 118/962). Motion previews shipped in app\ui\motions.
+              Speed: voice smart takes (excellent first take kept), clean voice.wav (+lead) into work\ for word timing,
+              per-step timings in job logs. Help page in the app; README rewritten.
+
+v3.9  13 Oct 2026 (20:20)  backups: _old\before_library_v2, _old\before_v39_english
+  Library v2: Episodes tab (episodes() in tools), Remove -> sibling _old, /api/library/stamp polled every 8 s,
+    Activity: clear finished (/api/jobs/clear -> D:\MukhtalifGPT\jobs_archive.json).
+  English episodes: story.py lang="en" (RULES_EN, CHECK_EN, clean_en, build_prompt_en, wpm per language from
+    narrations' lang.txt, default 110). engines\english = Qwen3-TTS narrator (run.py speak/test/setup; en\speak.py
+    writes the same narration layout + lang.txt=en; retakes by length). tools: en_speak, en_setup, en_test, job kind
+    "english_setup". Episode/Voice plans use body "language":"en" (old "lang":"en" = English->Hindi translation).
+    Studio: sleep_pipeline --language english -> EN mode (English prompts, STOP_EN, no Hindi gap-fill/spelling fix,
+    label "Sukoon", goodnight "Good night", work\lang.txt for reels); overlay.BRAND_WORD; script_align keeps
+    apostrophes + lowercases.
+  Artwork: art_prompt (whole script sample + recipe -> prompt + must-show list, 3 candidates cand_N.png) ->
+    comfy_images -> pick_art (qwen2.5vl scores, best copied to 001.png). default_style = sukoon_theme if indexed.
+  Suggestions: tools.suggestions + /api/suggestions (+/dismiss, 30 days). Only actions on click.
+  Resume: on start, running/queued jobs are re-queued from their step (pid of the cut engine killed if python);
+    >3 restarts -> stopped.
+  Speed: voice model.py smart takes (good-after-two, short lines no checker retakes), asr digits -> Hindi number
+    words; artloop renders frames in a thread pool (ARTLOOP_THREADS, default min(6, cpus-1)).
+  Measured before (A Letter to Myself, 7.6 min voice): voice 33 min (2.9 takes/line), studio 18.4 min
+    (loop 5.6, video 5.1, reels ~4).
+  NOT yet run on the PC: English narrator (needs "Set it up" suggestion / setup_hub.bat), artwork picking, threads.
+
+v4.0  13 Oct 2026 (23:00)  backups: _old\before_v39b_pacing .. before_v41_series
+  Pacing: voice speak.py slow_counts (one number per phrase, pause_count 2.4 s) + gentle_ending (-5 dB, long
+    pauses) - only for NEW narrations (plan_version.txt = 2), old ones keep their line numbers.
+  Quick repair: repair.save_voice -> speak --redo -> repair.patch_voice (new line in the old slot, nothing moves)
+    -> shape_mix -> new_soundtrack (picture copied); falls back to a full render if a line doesn't fit.
+  Hub restarts itself: /api/restart (+ banner when app\*.py changed, button in Settings); new hub.bat window,
+    --wait-port. Media files served with ETag + no-cache (remade pictures show at once).
+  Gemini: gemini_models() lists the key's models daily (2.0 / 2.5-flash are retired for new users -> 404),
+    busy models skipped 10 min, short asks 60 s / scripts 180 s, then the local model.
+  भय (Bhay) horror: story.write_horror (HORROR_BANK in D:\MukhtalifGPT\horror_bank.json, genre "horror" in the
+    ledger) -> sv_speak --style burarikand (or a trained bhay/rahasya series voice) -> horror_scenes (LLM: one
+    look + per-part prompt, ambience, hit, lightning; SFX names from D:\Audio asset\SFX) -> horror_sound (dark
+    BGM least-used + ambience/hits, 48 kHz) -> comfy_images style "bhay" (silhouettes) -> engines\studio\engine\
+    horror_video.py (PIL affine camera moves, dissolve through black, fog, flicker, lightning, grain, भय title +
+    badge, HarfBuzz subtitles; 6 threads; ~3 min per 4 min of video). Output D:\MukhtalifGPT\Episodes\<name>\Output.
+    Tested: "Bhay - Test Night Shift" (4 min) OK.
+  Voice per series: D:\SukoonVoice\series.json (recording -> series), voice\series.py, train --profile
+    series_<id> (that series' lines + flow clips, needs ~10 min), runs named *_series_<id> are never "best";
+    hub: Settings card, job kind voice_train, sukoon/horror use their series voice once trained.
+  NOTE for whoever deploys: device_commit_files may reuse an earlier upload of the same staged path - use a new
+    staging folder each time and compare md5 on the PC.
+
+v4.1  13 Oct 2026 (23:20)  backup: _old\before_v43_allseries
+  Home: Series (GENRES in index.html) then Tools (Script, Voice, Sound, Pictures, Image, Video, Reels, Repair).
+  Every series works like भय: page R.genre(id) -> job kind "genre" {genre}. tools.GENRES = per series label,
+    picture style (STYLES bhay/rahasya/kisse/romanch/kareeb/gyaan), BGM mood folders, video mood, default voice
+    tone (refs: burarikand/walkingcorpse/aarav/pehlapyar/hypnosis/psychology), hits on/off. story.GENRE_TEXT =
+    writing rules/shape/topics; write_genre / genre_ideas (bhay -> write_horror). horror_video.py MOODS
+    (horror, thriller, warm, romance, soft, clean). Batch writing: kind horror_stories {genre}.
+  Voice from Audacity projects: Settings > "Train from your Audacity projects": /api/voice/scan (recursive .aup3
+    list), /api/voice/folders (adds folders with .aup3 to engines\voice\config.json recordings.folders, backup
+    .before_*.json), job voice_overnight = sv_dataset (run.py dataset: Whisper lines, no script) ->
+    classify_recordings (LLM sorts recordings without a series by their words) -> train_all_series (>=10 min,
+    skips series trained in the last day, सुकून only if ticked). series.json keys are normalised names.
+  Untested on the PC: the non-भय series end to end, the overnight job. If one fails: Activity log shows the step.
+
+v4.2  14 Oct 2026  Experimental workspace and Activity log stabilization
+  app\experimental_workspace.py routes Experimental jobs to D:\HubGPT and organizes episode files into
+  00_Input / 01_Script / 02_Narration / 03_Artwork / Output. Experimental jobs persist in Activity\jobs.json;
+  stable D:\MukhtalifGPT\jobs.json stores stable-mode jobs only. Notes update each episode's activity.json.
+  Experimental browser recordings and feedback reports are stored with their episode. The HubGPT copy of the
+  voice engine accepts SV_NARRATIONS for Experimental output only; trained model and dataset folders stay shared.
+  Activity log lines wrap, server log chunks are limited to 100 KB, the browser retains at most about 350 KB in
+  view, and an unchanged job list is not redrawn on every 1.5-second poll. Python and inline UI JavaScript passed
+  syntax checks; no live browser check was possible because the hub server was not running.
+
+
+v4.3  15 Oct 2026  backup: README.txt_old_* / HANDOFF_HUB.txt_old_* (documentation snapshots)
+  Hindi cadence: app\story.py adds spoken-rhythm guidance to reduce choppy conjunction starts, repeated tiny
+    sentences and metronomic phrasing. Hub voice speak.py keeps the flow joiner from inventing ellipses; the
+    script's punctuation and sentence endings remain authoritative. Avoid broad edits to textsplit.py because
+    video/subtitle planning shares it. Voice changes are subtle; do not raise emotion/exaggeration globally without
+    listening to a representative Bhay/Kisse holdout. Acoustic context chaining was discussed but not implemented.
+  Genre artwork: app\tools.py asks the scene planner for one stable recurring-character anchor and varied camera
+    views; it explicitly avoids an always-rear-facing boy and does not force every scene into silhouette. Image review
+    compares generated frames to the scene/reference and can issue a targeted correction. Keep character coherence
+    without constraining shots that should focus on a place or object.
+  Genre names/output: when an AI-written genre story is submitted with a blank Story name, the UI sends a unique
+    temporary draft name. After the story summary returns, the job is renamed to Genre - generated title and all
+    later step paths/outputs follow that name. Explicit duplicate new-story names are given a numbered suffix after
+    checking script, narration, scene and episode folders. Existing-episode tool jobs without a script stage keep
+    their selected episode name. Genre video jobs report Output as the first result path; Open result opens that
+    directory (creating it if missing). Stable source files changed: app\tools.py, app\server.py,
+    app\ui\index.html. Backups for the latest app changes use suffix _old_20261015_145044.
+  Bhay reel title crash: engines\video\engine\horror_video.py clips the halo/mask region to the frame before
+    blending, avoiding the NumPy broadcast error on a title wider than the image crop. Reel 1 was rerendered
+    successfully at D:\MukhtalifGPT\Episodes\Bhay - 2026-10-15-05-35\Output\reels\reel1_अचानक.mp4.
+    Source backup: horror_video.py_old_20261015_144314.
+  Validation/deploy: the latest naming/output changes have not been exercised in a live HubGPT browser. Restart
+    HubGPT while idle (restart_hub.bat) before checking them. Do not test by running a long GPU episode unless asked.
+  Backups: README and handoff changes are saved beside the originals with this update's _old timestamp; the previous
+    v4.2 history remains above.

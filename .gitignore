@@ -1,0 +1,36 @@
+# Local credentials and machine-specific secrets
+/secrets.json
+
+# Runtime output and local working data
+**/logs/
+**/_tmp/
+**/_old/
+**/_backup_*/
+**/.cache/
+**/work/
+**/_work/
+**/outputs/
+**/__pycache__/
+*.py[cod]
+
+# Bundled Python runtimes and downloaded model/checkpoint data
+engines/**/libs/
+engines/**/.venv/
+engines/voice/models/
+engines/voice/training/
+
+# Generated source bundles, run snapshots, and per-machine interpreter paths
+/Code/ALL_CODE.txt*
+/engines/*/ALL_CODE.txt*
+**/*_old_20*
+**/*.bak_*
+/engines/voice/config*.before_*.json
+/engines/voice/config - *.json
+**/python.txt
+
+# Timestamped snapshots and editor/OS artifacts
+*_old_20*
+*.part
+*.tmp
+Thumbs.db
+Desktop.ini

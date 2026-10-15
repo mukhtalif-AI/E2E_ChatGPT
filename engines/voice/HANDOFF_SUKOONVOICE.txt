@@ -1,0 +1,74 @@
+SUKOONVOICE - notes for the next session / any AI                         (13 Oct 2026, 04:30)
+==========================================================================================
+GOAL (user): his OWN voice for the Sukoon series (Hindi sleep stories), natural - not robotic / AI-like:
+his pace, pauses, elongated endings, faint smile at phrase ends, his pitch. Standalone project (shared
+resources OK, code + output separate). Read README.txt first. Earlier history: _old\HANDOFF_before_13oct.txt
+
+USER RULES  D: media, E: code, never C:; ask before install/delete (move to _old, don't delete); keep him
+  posted with SHORT hints; spend his Claude usage carefully (PC does heavy work, smoke-test small first,
+  few check-ins); one GPU job at a time (a Studio render + voice job together froze the voice job).
+
+CURRENT STATE (13 Oct 04:30)
+  Winner by his ear = V3 -> now the config default (see README "CURRENT VOICE").
+  Running: final.bat -> full 1010.txt with V3 + all fixes as narrations\night_FINAL_1010, then Mukhtalif Studio
+  episode "D:\Mukhtalif\Episodes\SukoonVoice 1010" with --reels 4 (~30 s reels). Status: logs\final_status.txt
+  (speak log final_1_speak.txt, reels log final_2_reels.txt). Claude sends the mp3 + 720p reels when done.
+  His verdict on V3: "almost natural, natural tone and timbre"; remaining: a few garbled words (enunciation),
+  1-2 glitchy places, "ध्यान" emphasis wrong, slight pacing slips. V5 (old model + flow + calm) was very close.
+
+TIMELINE / WHAT WAS LEARNED
+  12 Oct  dataset 3437 lines (268 min; Sukoon 855). Runs: A sukoon_calm (liked), B sukoon_calm repaired data.
+          Pace stretch = "slowed tape"; Praat pitch/smile matching = autotune, robotic -> both OFF for good.
+  Night   s3train (sound generator fine-tune, s3_20261012_2359): kept-out 1.25 -> 0.95 BUT every combo with it
+  12->13  came out HIGHER pitched (136-144 Hz vs his 113) -> not used (s3gen base).
+          T3 sukoon_only (run_20261013_0110, "C"): pitch 119 Hz, pace 3.68 w/s (his 3.70) -> he liked it, but
+          "instructive tone" + "abrupt stops after every flow of words".
+  Cause   training clips were single cut-out phrases -> model ends every phrase like a finished sentence.
+  13 Oct  versions (2-min 1010_2min.txt, all best of 3 takes, scores in narrations\night_scores.txt):
+          V0 C, old per-phrase way .................. 7.0% wrong letters, likeness .82 (sounded MORE like him than V1)
+          V1 C + flow + stitched room tone ........... 6.0%, .84  BUG: forced "." on lines ending "..." (fixed)
+          V2 NEW flow model + script endings kept .... 5.1%, .84, pitch 1.6 st off; better pronunciation+pacing;
+                                                       1 stutter (phrase 25 ~1:48), "ध्यान" stress wrong
+          V3 V2 + exaggeration 0.35 (calm) ........... 4.5%, .852, no stutter  <- WINNER
+          V4 V3-like + min pause 0.9, temp 0.6 ....... 4.7%, .848 - his ear: pauses ABRUPT (silence stretching)
+          V5 C model + flow + calm + min pause 0.8 ... 5.0%, .85, pitch 1.7 st - "very close to V3"
+  Lessons  his script punctuation carries his style - never replace it; likeness score = timbre only, his ear
+           judges delivery; stretching pauses artificially (>0.6 s floor) sounds abrupt; room tone must be ONE
+           clean real piece looped (his idea), not stitched bits.
+
+WHAT WAS BUILT ON 13 OCT (code, all switchable in config / --set)
+  voice\flowdata.py   flow clips: 2-4 consecutive Studio-transcript segments (gap <= 3 s, span <= 15.5 s) cut WITH
+                      real pauses from voice.wav 16 kHz; text joined ", " (gap < .45 s) / "... "; holdout lines
+                      never used. 214 clips = 40 min (Trip To Bachpan 93, BRAKEUP 113; recordings-step episodes have
+                      no timings -> not usable). -> dataset\flow_clips, dataset\metadata_flow.jsonl
+  voice\train.py      profile sukoon_flow: Sukoon singles + flow clips (flow_weight 2); 16 flow clips + neighbours
+                      kept out for validation; prompts only from single lines and never containing the target
+                      text. Run: run_20261013_0319_sukoon_flow_lr3e-05 (best epoch 2, kept-out 4.10 -> 3.72).
+  voice\speak.py      flow_groups(): neighbouring phrases in one generation unless (...)/paragraph or > 28 words;
+                      script endings kept ("..."/"?"/"!" else "."); --flow, --set k=v overrides; room tone;
+                      declick (ffmpeg adeclick=w=55:o=75:t=4 before loudnorm).
+  voice\model.py      speak_sentence = best of `takes`: score = wrong letters + length + 0.02*pitch semitones off
+                      (target_pitch_hz 113) + (1 - likeness to trained speaker vector) + 2*max(0, repeat-0.7);
+                      retake if letters > max_letter_error, length off, or repeat >= max_repeat (0.85).
+                      repeat_score(): log-mel self-similarity, 60-250 ms chunk repeated right after itself
+                      (his real clips: >0.85 in 0.4%; V2 glitch 0.93). stretch_pauses() (flow only, floor
+                      flow_min_pause). trim(lead_keep): whole in-breath kept + faded in (was clipped -> "gasp").
+                      resolve_checkpoint("latest:<tag>").
+  voice\roomtone.py   v2: steadiest real pause (no breath, <-42 dB vs speech) in his Sukoon voice.wav, crossfaded
+                      end->start = seamless loop (refs\room_tone_loop.wav, 2 s, -54 dB vs voice), tiled under the
+                      whole narration. (v1 stitched frames = artifacts -> _old\roomtone_v1.py)
+  run.py              commands flowdata, speak --flow/--set; json import.
+  Bats: flow_smoke.bat (tested OK), flow_main.bat, planb.bat (waits for flow_main), final.bat (waits for
+        logs\final_args.txt = one line of speak args, then full script + Studio reels). improve_c.bat,
+        studio_video_C.bat = one-offs. Backups of every changed file in _old\ (*_before_flow.py).
+
+NEXT (his wishes, in order)
+  1 Listen to night_FINAL_1010 + reels; redo flagged phrases (--redo N; report.txt / timing.json give times).
+  2 Remaining defects: garbled words -> more takes or lower temperature per bad phrase; stress on single words
+    ("ध्यान") cannot be measured - only retakes; glitch check: repeat_score already in take selection.
+  3 His idea (agreed): (a) match the long-term frequency balance (EQ curve) of a real Sukoon episode - safe;
+    (b) learn his phrase-END contour (pitch/energy of last 0.5 s) from one episode and use it to PICK takes,
+    never to force pitch (forcing = autotune). Test on one episode first, then all.
+  4 Music shape like his Sukoon episodes (lower before the story, raise after). Breath library = shelved.
+  5 More flow data: Studio-align more Sukoon episodes (only 2 have script timings) -> retrain sukoon_flow.
+  Timing guide: ~5.5 min of PC time per minute of speech at best-of-3; Studio video ~25-35 min for 40 min.

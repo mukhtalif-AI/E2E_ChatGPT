@@ -1,0 +1,22 @@
+{
+ "license": {
+  "name": "Pixabay Content License",
+  "summary_url": "https://pixabay.com/service/license-summary/",
+  "full_url": "https://pixabay.com/service/license/",
+  "commercial_use": true,
+  "attribution_required": false,
+  "checked_on": "2026-10-13",
+  "not_allowed": "selling/redistributing the clip on its own (unchanged); using it in trademarks/logos; misleading or illegal use"
+ },
+ "clips": [
+  {"kind": "smoke", "id": "smoke-smoke-column-smoke-loop-vapor-335197", "title": "Smoke, Smoke Column, Smoke Loop", "author": "doktorkleinmusic", "author_url": "https://pixabay.com/users/doktorkleinmusic-5871510/", "file": "https://cdn.pixabay.com/video/2026/02/17/335197_large.mp4", "published": "2026-02-17", "duration": "5 s", "size": "2160x3840", "bytes": 3698901, "note": "made as a seamless loop by the author"},
+  {"kind": "smoke", "id": "ai-generated-smoke-white-black-372422", "title": "Ai Generated, Smoke, White", "author": "doktorkleinmusic", "author_url": "https://pixabay.com/users/doktorkleinmusic-5871510/", "file": "https://cdn.pixabay.com/video/2026/08/24/372422_large.mp4", "published": "2026-08-24", "duration": "5 s", "size": "2160x3840", "bytes": 6527197, "note": "marked AI-generated on Pixabay"},
+  {"kind": "smoke", "id": "looped-loop-smoke-light-wave-338585", "title": "Looped, Loop, Smoke", "author": "LayerAce", "author_url": "https://pixabay.com/users/layerace-18440243/", "file": "https://cdn.pixabay.com/video/2026/03/06/338585_large.mp4", "published": "2026-03-06", "duration": "10 s", "size": "1080x1920", "bytes": 12803838, "note": "loop"},
+  {"kind": "smoke", "id": "looped-loop-smoke-light-wave-338582", "title": "Looped, Loop, Smoke", "author": "LayerAce", "author_url": "https://pixabay.com/users/layerace-18440243/", "file": "https://cdn.pixabay.com/video/2026/03/06/338582_large.mp4", "published": "2026-03-06", "duration": "10 s", "size": "1080x1920", "bytes": 9454454, "note": "loop"},
+  {"kind": "smoke", "id": "looped-loop-smoke-light-wave-338584", "title": "Looped, Loop, Smoke", "author": "LayerAce", "author_url": "https://pixabay.com/users/layerace-18440243/", "file": "https://cdn.pixabay.com/video/2026/03/06/338584_large.mp4", "published": "2026-03-06", "duration": "10 s", "size": "1080x1920", "bytes": 3891702, "note": "loop"},
+  {"kind": "smoke", "id": "ai-generated-smoke-flow-flowing-376850", "title": "Ai Generated, Smoke, Flow", "author": "doktorkleinmusic", "author_url": "https://pixabay.com/users/doktorkleinmusic-5871510/", "file": "https://cdn.pixabay.com/video/2026/09/16/376850_large.mp4", "published": "2026-09-17", "duration": "5 s", "size": "2160x3840", "bytes": 6788964, "note": "marked AI-generated on Pixabay"},
+  {"kind": "smoke", "id": "smoke-swirls-abstract-smoking-66481", "title": "Smoke, Swirls, Beautiful Wallpaper", "author": "Mohamed_hassan", "author_url": "https://pixabay.com/users/mohamed_hassan-5229782/", "file": "https://cdn.pixabay.com/video/2021/02/27/66481-517677516_large.mp4", "published": "2021-02-28", "duration": "12 s", "size": "1920x1080", "bytes": 3211274, "note": ""},
+  {"kind": "candle", "id": "candle-light-flame-shining-fire-43424", "title": "Candle, Light, Flame", "author": "Relaxing_Guru", "author_url": "https://pixabay.com/users/relaxing_guru-11517010/", "file": "https://cdn.pixabay.com/video/2020/06/29/43424-436041748_large.mp4", "published": "2020-07-07", "duration": "59 s", "size": "1920x1080", "bytes": 7845408, "note": ""},
+  {"kind": "candle", "id": "candle-burning-lapse-black-blaze-7064", "title": "Candle, Burning, Lapse", "author": "InspiredImages", "author_url": "https://pixabay.com/users/inspiredimages-57296/", "file": "https://cdn.pixabay.com/video/2017/01/06/7064-198606738_large.mp4", "published": "2017-01-08", "duration": "11 s", "size": "3840x2160", "bytes": 5695374, "note": ""}
+ ]
+}

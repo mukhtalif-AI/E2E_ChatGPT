@@ -1,0 +1,11 @@
+{
+  "_help": "English narrator of Mukhtalif Hub. engine: qwen (proven, batches) or qwen_fast (CUDA graphs). speaker: Ryan or Aiden.",
+  "hf_models": "D:\\AI\\hf_models",
+  "tmp_dir": "D:\\MukhtalifHub\\_tmp",
+  "ffmpeg": "E:\\Program_Files\\ffmpeg\\bin\\ffmpeg.exe",
+  "engine": "qwen",
+  "speaker": "Ryan",
+  "batch": 6,
+  "takes": 3,
+  "loudness_lufs": -18
+}
