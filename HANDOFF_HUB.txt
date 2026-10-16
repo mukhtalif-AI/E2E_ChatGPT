@@ -21,7 +21,8 @@ CURRENT LAYOUT / CONFIGURATION (15 Oct 2026)
 
 LOCAL AI AND GPU HANDOFF (15 Oct 2026)
   HubGPT uses Ollama only. Gemma (gemma3:12b) writes stories and Hindi; Qwen (qwen3:8b) creates image prompts and handles
-  reasoning-heavy video choices; qwen2.5vl:7b reviews images. These role defaults are in config.json and may be changed
+  reasoning-heavy video choices (Ollama native thinking enabled for Qwen3 text calls); qwen2.5vl:7b reviews images.
+  gemma3:12b has no Ollama native thinking control. These role defaults are in config.json and may be changed
   in System settings. Ollama stays running, while HubGPT unloads used models before ComfyUI and GPU video rendering.
 HISTORY
   The entries below are chronological development notes. References to engines\studio, Mukhtalif Studio and old

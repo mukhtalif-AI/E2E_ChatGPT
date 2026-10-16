@@ -53,6 +53,9 @@ def model_chat(cfg, model, prompt, temperature=0.3, as_json=False, image_path=No
     if paths:
         message["images"] = [base64.b64encode(open(path, "rb").read()).decode() for path in paths]
     body = {"model": model, "stream": False, "options": {"temperature": temperature}, "messages": [message]}
+    # Native reasoning is supported by Qwen3 text models, but not the configured Gemma 3 model.
+    if model.lower().startswith("qwen3") and not any(tag in model.lower() for tag in ("vl", "vision")):
+        body["think"] = True
     if as_json:
         body["format"] = "json"
     result = json.loads(_post(cfg.get("ollama_url", "http://127.0.0.1:11434").rstrip("/") +
@@ -651,12 +654,13 @@ def plan(kind, b, cfg):
             import story as _st
             if _st.narration_lang(narration_dir(cfg, name, existing=True)) == "en":
                 b = dict(b, language="en")
-        if text and b.get("emotions") and b.get("language") != "en" and not b.get("preview"):
-            steps.append({"fn": "mark_emotions", "label": "the AI marks the feeling of each line ([डर] [उदास] …)",
-                          "args": {"name": name}})
         if text and b.get("language") != "en" and not b.get("preview") and hard_words(cfg):
             steps.append({"fn": "avoid_hard_words", "label": "lines with words your voice stumbles on: said another way",
                           "args": {"name": name}})
+        if text and b.get("language") != "en" and not b.get("preview") and (b.get("emotions") or b.get("dramatic")):
+            steps.append({"fn": "mark_emotions", "label": "the AI marks the feeling of each line ([डर] [उदास] …)",
+                          "args": {"name": name, "emotions": bool(b.get("emotions")),
+                                   "pauses": bool(b.get("dramatic"))}})
         if b.get("language") == "en":
             steps += [{"fn": "free_gpu", "label": "free the graphics card"},
                       {"fn": "en_speak", "label": "the English narrator reads the script (Qwen3-TTS)",
@@ -903,7 +907,7 @@ def plan(kind, b, cfg):
                 steps.append({"fn": "horror_sound", "label": f"{G['label']} music" + (" + ambience + effects" if "scenes" in ST
                               or os.path.exists(os.path.join(pics, "shots.json")) else "") + " under your voice",
                               "args": {"name": name, "pictures": pics, "track": b.get("music_track") or "", "genre": gid,
-                                       "tail": b.get("tail") or "1min"}})
+                                       "tail": b.get("tail") or "1min", "music_db": b.get("music_db")}})
             if "pictures" in ST:
                 steps += [{"fn": "comfy_images", "label": f"ComfyUI paints the scenes ({G['label']} look)",
                               "args": {"out": pics, "style": G["style"], "size": "16:9", "engine": cfg.get("image_engine"),
@@ -930,23 +934,28 @@ def plan(kind, b, cfg):
             steps.append({"fn": "fit_script", "label": "fit the script into the video length (AI shortens if needed)",
                           "args": {"name": name, "total_min": float(b["total_min"]), "engine": b.get("writer", "auto"),
                                    "story_mode": True}})
-        if b.get("emotions", True):
-            steps.append({"fn": "mark_emotions", "label": "the AI marks the feeling of each line ([डर] [उदास] …)",
-                          "args": {"name": name, "genre": gid}})
         if hard_words(cfg):
             steps.append({"fn": "avoid_hard_words", "label": "lines with words your voice stumbles on: said another way",
                           "args": {"name": name, "genre": gid}})
+        if b.get("emotions", True) or b.get("dramatic", True):
+            steps.append({"fn": "mark_emotions", "label": "the AI marks the feeling of each line ([डर] [उदास] …)",
+                          "args": {"name": name, "genre": gid, "emotions": bool(b.get("emotions", True)),
+                                   "pauses": bool(b.get("dramatic", True))}})
+        auto_story_tone = not text and not b.get("voice_style_manual")
+        voice_style = "__auto_story_theme__" if auto_story_tone else (b.get("voice_style") or G["voice"])
+        voice_label = ("a tone chosen to fit the generated story" if auto_story_tone else
+                       f"the tone of '{voice_style}'" + (f" (your {G['label']} voice)" if gv[1] else
+                       f" (your plain voice - no {G['label']} training yet)"))
         steps += [{"fn": "free_gpu", "label": "free the graphics card"},
-                  {"fn": "sv_speak", "label": f"your voice reads it in the tone of '{b.get('voice_style') or G['voice']}'"
-                                              + (f" (your {G['label']} voice)" if gv[1] else " (your plain voice - no "
-                                                 f"{G['label']} training yet)"),
-                   "args": {"name": name, "sets": gv[0], "redo": "", "style": b.get("voice_style") or G["voice"]}},
+                  {"fn": "sv_speak", "label": f"your voice reads it in {voice_label}",
+                   "args": {"name": name, "sets": gv[0], "redo": "", "style": voice_style}},
                   {"fn": "sfx_fetch", "label": "sound effects library for this series (CC0, only what is missing)", "args": {"genre": gid}},
                   {"fn": "horror_scenes", "label": "the AI plans the scenes: pictures + sounds for every part",
                    "args": {"name": name, "narration": nar, "out": pics, "count": int(b.get("scenes") or 0), "genre": gid}},
                   {"fn": "horror_sound", "label": "music + ambience + sound effects under your voice",
                    "args": {"name": name, "pictures": pics, "track": b.get("music_track") or "", "genre": gid,
-                            "tail": f"total:{float(b['total_min'])}" if float(b.get("total_min") or 0) else (b.get("tail") or "1min")}},
+                            "tail": f"total:{float(b['total_min'])}" if float(b.get("total_min") or 0) else (b.get("tail") or "1min"),
+                            "music_db": b.get("music_db")}},
                   {"fn": "comfy_images", "label": f"ComfyUI paints the scenes ({G['label']} look)",
                    "args": {"out": pics, "style": G["style"], "size": "16:9", "engine": cfg.get("image_engine"), "seed": None,
                             "silhouette": False, "variants": 2 if b.get("best_pictures") else 1}},
@@ -1065,6 +1074,10 @@ def plan(kind, b, cfg):
         if text and b.get("lang") == "en" and not english:
             steps.append({"fn": "llm_translate", "label": "the AI translates English -> Hindi (Sukoon style)",
                           "args": {"name": name}})
+        if not english and (b.get("emotions") or b.get("dramatic")):
+            steps.append({"fn": "mark_emotions", "label": "the AI adds sparse Hindi performance cues",
+                          "args": {"name": name, "emotions": bool(b.get("emotions")),
+                                   "pauses": bool(b.get("dramatic"))}})
         shaped = use_shape(b, cfg)
         if shaped:
             sets.append("with_music=false")
@@ -1246,7 +1259,7 @@ def repair_series_subtitles(ctx, video, lines="", subtitle_text=""):
         if result is not True:
             say(f"   voice line patch could not preserve the old timing ({result}); rendering with the updated narration timing")
     total = _duration(os.path.join(p["narration"], "narration_music.wav")) / 60
-    if not horror_sound(ctx, p["name"], ser["pictures"], ser.get("track") or "",
+    if not horror_sound(ctx, p["name"], ser["pictures"], ser.get("track") or "", ser["genre"],
                         f"total:{total:.3f}" if total else ser.get("tail", "1min")):
         return False
     moved = repair.keep_old(video)
@@ -1505,10 +1518,8 @@ DIRECTION = {
 EMOTIONS = ["डर", "फुसफुसाहट", "रहस्य", "उदास", "प्यार", "गुस्सा", "उत्साह", "सामान्य"]
 
 
-def mark_emotions(ctx, name, genre=""):
-    """the AI reads the script and marks how each line should FEEL: [डर] [फुसफुसाहट] [रहस्य] [उदास] [प्यार]
-    [गुस्सा] [उत्साह] (no tag = normal). The marks are saved in the script (old one in scripts\\_old) - change or
-    remove any mark there and remake. A script that already has marks is left as it is."""
+def mark_emotions(ctx, name, genre="", emotions=True, pauses=True):
+    """Add sparse context-aware delivery tags and punctuation-only pause cues."""
     import story
     cfg, say = ctx["cfg"], ctx["say"]
     p = os.path.join(ctx_folder(ctx, "scripts"), slug(name) + ".txt")
@@ -1516,58 +1527,78 @@ def mark_emotions(ctx, name, genre=""):
         return say("   (no script to mark)")
     lines = open(p, encoding="utf-8").read().replace("\r\n", "\n").split("\n")
     tag = re.compile(r"^\s*\[(" + "|".join(EMOTIONS) + r")\]")
-    if any(tag.match(l) for l in lines):
-        return say("   the script already has emotion marks - read as written")
-    idx = [i for i, l in enumerate(lines) if re.search("[\u0900-\u097F]", l) and not l.strip().startswith(("(", "["))]
+    content = {i: tag.sub("", line, count=1).strip() for i, line in enumerate(lines)}
+    idx = [i for i, line in content.items() if re.search("[\u0900-\u097F]", line)
+           and not line.startswith(("(", "["))]
     if not idx:
-        return
+        return say("   (no Hindi story lines to mark)")
     marks, paced = {}, {}
     for k in range(0, len(idx), 60):
         part = idx[k:k + 60]
-        prompt = ("You direct a Hindi voice actor" + (f" for a {GENRES[genre]['desc']}" if genre in GENRES else "") +
-                  ". " + DIRECTION.get(genre, DIRECTION[""]) + "\nFor each numbered line: (e) how it should FEEL when read "
-                  "aloud - ONLY one of: " + ", ".join(EMOTIONS) + " (most lines सामान्य; keep neighbouring lines in the same "
-                  "feeling); (t) the SAME line with '...' (a held pause) or ',' (a short breath) added where it makes the "
-                  "listener FEEL more. Judge every word by its MEANING in this sentence, never by the word alone - many Hindi "
-                  "words change meaning with context and only one meaning wants a pause: 'उसे खिड़की पर कुछ दिखाई नहीं "
-                  "दिया' has none ('पर' = on) but 'पीछे मुड़ के देखा पर... अचानक एक काला साया' does ('पर' = but); the same "
-                  "for कि (that / or), तो (then / so / emphasis), फिर, जब, ही, भी, सिर्फ़, अब, वो (that one / he-she), कोई "
-                  "(someone / any), सच में, बस (only / enough / bus), काला, ठंडा, अकेला … Put the pause BEFORE the word or "
-                  "reveal that should land, or after a turn ('लेकिन उसके बाद...'). Never change, add or remove a word; at "
-                  "most two marks per line; many lines need none. Answer JSON only: "
-                  '{"1": {"e": "डर", "t": "..."}, "2": {"e": "सामान्य", "t": "..."}, ...}\n\n' +
-                  "\n".join(f"{j + 1}. {lines[i].strip()}" for j, i in enumerate(part)))
+        first, last = idx.index(part[0]), idx.index(part[-1])
+        lo, hi = max(0, first - 2), min(len(idx), last + 3)
+        context = "\n".join(f"{idx[j] + 1}. {content[idx[j]]}" for j in range(lo, hi))
+        targets = "\n".join(f"{j + 1}. {content[i]}" for j, i in enumerate(part))
+        prompt = ("You are a restrained Hindi narration director" +
+                  (f" for {GENRES[genre]['desc']}" if genre in GENRES else "") + ". " +
+                  DIRECTION.get(genre, DIRECTION[""]) + "\nRead the surrounding passage for meaning. For every TARGET line, " +
+                  ("choose a justified delivery feeling from " + ", ".join(EMOTIONS) +
+                   "; use सामान्य for no special feeling. " if emotions else "do not assign emotions. ") +
+                  ("Only when genuinely useful, add '...' for a held beat or ',' for a short breath; most lines get none. "
+                   if pauses else "Do not change punctuation. ") +
+                  "Words such as पर, तो, कि, फिर, ही, भी, बस, अब, वो and कोई have no automatic cue: decide from the whole "
+                  "sentence and nearby passage. Keep dependent clauses connected; do not create suspense by fragmenting text. "
+                  "Never rewrite, add, delete, reorder, or inflect spoken words. Return JSON only, keyed by target number; "
+                  "omit fields when unchanged. Example: {\"1\":{\"e\":\"डर\",\"t\":\"same words with punctuation only\"}}\n\n"
+                  "SURROUNDING PASSAGE (context only):\n" + context + "\n\nTARGET LINES:\n" + targets)
         try:
-            t, m = story.ask(cfg, prompt, "auto", 0.2, as_json=True, say=say)
+            t, _ = story.ask(cfg, prompt, "auto", 0.2, as_json=True, say=say)
             d = json.loads(t[t.find("{"):t.rfind("}") + 1])
         except Exception as e:
             say(f"   (emotion marks skipped for lines {k + 1}-{k + len(part)}: {e})")
             continue
         for j, i in enumerate(part):
             v = d.get(str(j + 1), "")
-            e = str(v.get("e", "") if isinstance(v, dict) else v).strip()
-            if e in EMOTIONS and e != "सामान्य":
+            if not isinstance(v, dict):
+                continue
+            e = str(v.get("e", "")).strip()
+            if emotions and e in EMOTIONS and e != "सामान्य" and not tag.match(lines[i]):
                 marks[i] = e
-            t = str(v.get("t", "")) if isinstance(v, dict) else ""
-            W = lambda x: re.sub(r"[.…,।!?\-–—\s]+", " ", x).strip()
-            if t and t.count("...") <= 3 and W(t) == W(lines[i]) and t.strip() != lines[i].strip():
-                paced[i] = t.strip()                      # same words, only pauses added where the meaning asks
+            candidate = str(v.get("t", "")).strip()
+            original_words = re.findall(r"[^\W_]+", content[i].casefold(), flags=re.UNICODE)
+            candidate_words = re.findall(r"[^\W_]+", candidate.casefold(), flags=re.UNICODE)
+            original_punctuation = re.findall(r"[^\w\s]", content[i], flags=re.UNICODE)
+            candidate_punctuation = re.findall(r"[^\w\s]", candidate, flags=re.UNICODE)
+            punctuation_pos, added_punctuation = 0, []
+            for mark in candidate_punctuation:
+                if punctuation_pos < len(original_punctuation) and mark == original_punctuation[punctuation_pos]:
+                    punctuation_pos += 1
+                else:
+                    added_punctuation.append(mark)
+            preserved = punctuation_pos == len(original_punctuation)
+            allowed_additions = all(mark in (",", ".") for mark in added_punctuation)
+            if pauses and candidate and candidate.count("...") <= 2 and candidate_words == original_words \
+                    and preserved and allowed_additions and candidate != content[i]:
+                paced[i] = candidate
     if not marks and not paced:
-        return say("   the AI found no lines that need a special feeling or pause")
+        return say("   no safe emotion or pause cues were returned; original script kept")
     old = os.path.join(os.path.dirname(p), "_old")
     os.makedirs(old, exist_ok=True)
-    shutil.copy2(p, os.path.join(old, f"{slug(name)}_before_emotions_{time.strftime('%Y%m%d_%H%M')}.txt"))
-    for i, t in paced.items():
-        lines[i] = t
-    for i, e in marks.items():
-        lines[i] = f"[{e}] " + lines[i].lstrip()
+    shutil.copy2(p, os.path.join(old, f"{slug(name)}_before_emotions_{time.strftime('%Y%m%d_%H%M%S')}.txt"))
+    for i, text in paced.items():
+        existing = tag.match(lines[i])
+        prefix = f"[{existing.group(1)}] " if existing else ""
+        lines[i] = prefix + text
+    for i, emotion in marks.items():
+        lines[i] = f"[{emotion}] " + lines[i].lstrip()
     open(p + ".part", "w", encoding="utf-8").write("\n".join(lines))
     os.replace(p + ".part", p)
-    cnt = {}
-    for e in marks.values():
-        cnt[e] = cnt.get(e, 0) + 1
-    say(f"   {len(marks)} of {len(idx)} lines marked: " + ", ".join(f"{k} {v}" for k, v in cnt.items())
-        + f"; {len(paced)} lines got a pause where the meaning asks for one - saved in the script (edit to change)")
+    counts = {}
+    for emotion in marks.values():
+        counts[emotion] = counts.get(emotion, 0) + 1
+    say(f"   {len(marks)} of {len(idx)} lines marked: " +
+        (", ".join(f"{key} {value}" for key, value in counts.items()) or "no new emotion tags") +
+        f"; {len(paced)} lines got a context-checked pause cue - saved in the script")
 
 
 # ------------------------------------------------------------------ the word rack (words your voice stumbles on)
@@ -1716,6 +1747,45 @@ def sv_python(cfg):
     return cfg["gpu_python"]
 
 
+def _story_voice_style(ctx, script_path, genre):
+    """Choose a tone reference from the finished AI story; fall back to its selected series."""
+    cfg, say = ctx["cfg"], ctx["say"]
+    fallback = GENRES.get(genre, GENRES["bhay"])["voice"]
+    ref_dir = cfg.get("voice_references_dir", os.path.join(cfg.get("sukoonvoice_media", ""), "dataset", "refs"))
+    available = {os.path.splitext(f)[0].lower(): os.path.splitext(f)[0]
+                 for f in os.listdir(ref_dir) if f.lower().endswith(".wav")
+                 and not f.lower().startswith(("room_tone", "smile"))} if os.path.isdir(ref_dir) else {}
+    choices = {}
+    for gid, values in GENRES.items():
+        reference = values["voice"]
+        if reference.lower() in available:
+            choices[gid] = {"reference": available[reference.lower()], "description": values["desc"]}
+    if len(choices) < 2:
+        say(f"   story-tone match skipped; keeping the {genre} voice reference ({fallback})")
+        return fallback
+    try:
+        script = open(script_path, encoding="utf-8-sig", errors="replace").read()[:9000]
+        prompt = ("Choose which existing voice reference best fits the emotional narration tone of this completed "
+                  "Hindi story. Consider its actual events and emotional arc, not only its series label. Do not change "
+                  "the story's genre or rewrite it. Choose one candidate id exactly. Return JSON only: "
+                  '{"id":"...","reason":"short phrase"}\nCandidates: ' +
+                  json.dumps(choices, ensure_ascii=False) + "\nSelected series: " + str(genre) +
+                  "\nSTORY:\n" + script)
+        model = cfg.get("prompt_model") or cfg.get("llm")
+        answer = model_chat(cfg, model, prompt, temperature=0.1, as_json=True, timeout=120)
+        data = json.loads(answer[answer.find("{"):answer.rfind("}") + 1])
+        chosen = choices.get(str(data.get("id", "")).lower())
+        if chosen:
+            say(f"   story-tone match: {chosen['reference']} ({str(data.get('reason') or choices[str(data['id']).lower()]['description'])[:100]})")
+            return chosen["reference"]
+        say(f"   story-tone match returned no available reference; keeping {fallback}")
+    except Exception as e:
+        say(f"   story-tone match unavailable ({str(e)[:100]}); keeping {fallback}")
+    finally:
+        free_llm(ctx)
+    return fallback
+
+
 def sv_speak(ctx, name, sets, redo="", style=""):
     cfg = ctx["cfg"]
     script = os.path.join(ctx_folder(ctx, "scripts"), slug(name) + ".txt")
@@ -1726,6 +1796,8 @@ def sv_speak(ctx, name, sets, redo="", style=""):
         script = old
     if not os.path.isdir(os.path.join(cfg["sukoonvoice_dir"], "libs", "cb")):
         raise RuntimeError("the voice engine is not set up yet - run setup_hub.bat once")
+    if style == "__auto_story_theme__":
+        style = _story_voice_style(ctx, script, str((ctx.get("job") or {}).get("params", {}).get("genre") or "bhay"))
     hv = os.path.join(narration_dir(cfg, name, existing=bool(redo)), "hub_voice.json")
     if redo and os.path.exists(hv):                  # remaking lines: the SAME voice settings as the narration had
         try:
@@ -1890,35 +1962,168 @@ def _sfx_names_old(cfg):
 SCENES_ASK = (
     "You are the director of a {desc} video (channel '{label}'). The story is cut into numbered parts "
     "below (with their times). For EACH part design ONE picture and its sound.\n"
-    "First decide ONE visual look for the whole story (place, era, palette). If a character recurs, define a compact "
+    "First decide ONE visual look for the whole story: era, colour palette, light quality and painting style ONLY, "
+    "at most 30 words - NO people, NO characters, NO clothing, NO props or objects and NO single room in the look "
+    "(those belong in each scene's own prompt, otherwise every picture paints them). If a character recurs, define a compact "
     "visual anchor for them: a dark, readable silhouette with a stable build, hair outline, clothing shape and one "
     "distinctive prop. Keep those details consistent in every scene where that character appears, while varying the "
     "camera angle; do not show detailed facial features. Do not invent a boy or child when the story does not "
     "specify one.\n"
-    "For each part give: \"prompt\" (35-60 English words: the place, the light, what is visible, the mood; people "
+    "Every scene must show a different concrete moment, object, or action from its own numbered story part. Do not "
+    "reuse the same subject, action, composition, or camera setup in consecutive scenes. The per-scene prompt should "
+    "describe that moment; the shared look is added separately. Each prompt STARTS with its own main subject (a "
+    "person, an object, a place or an action from that part) and names its own location and shot size; no two "
+    "prompts in the story share the same main subject, and most scenes should NOT show the recurring character - "
+    "show the places, objects, hands, doors, streets and rooms that this part itself names; switch between inside "
+    "and outside, near and far, where the story allows. Never add weather, light sources or objects that the part "
+    "does not name.\n"
+    "For each part give: \"happens\" (write it FIRST: ONE short English sentence, at most 20 words, saying what "
+    "happens in this part, with only the people, objects, places and weather that this part's own text names), "
+    "\"prompt\" (35-60 English words built from \"happens\": the place, the light, what is visible, the mood; people "
     "only when relevant to that moment; preserve the recurring character's silhouette anchor and clothing, but "
     "deliberately vary wide establishing views, object details, point-of-view, profile, front, and over-shoulder shots "
     "as the story warrants; do not repeat a centered rear-view person in consecutive scenes. A recurring character "
     "stays a silhouette from every angle; a scene may focus on the environment or a story object with no character "
     "present. No gore or text), \"ambience\" (ONE name from AMBIENCE or "
-    "\"\"), \"hit\" (ONE name from HITS for a scary turn at the start of this part, or \"\" - use hits rarely, at "
+    "\"\" - it must fit the PLACE of that scene: indoors no river, crickets, birds or trains unless the story says so), \"hit\" (ONE name from HITS for a scary turn at the start of this part, or \"\" - use hits rarely, at "
     "most every third part), \"lightning\" (true only if the story has a storm there), \"cues\" (sound effects at "
     "the exact moment the story describes a sound or action: a list of {{\"words\": 2-4 words copied exactly from "
-    "that part where it happens, \"sfx\": ONE name from CUES}}; at most {cpp} per part; read the MEANING, not single "
+    "that part where it happens - in the story's own language and "
+    "script (Devanagari for a Hindi story), NEVER translated to English, \"sfx\": ONE name from CUES that is that "
+    "exact sound (the thing that makes the sound must be in the story: no car door for a face)}}; at most {cpp} per part; read the MEANING, not single "
     "words - 'खिड़की पर' is 'on the window' (no knock), 'पर' after a verb is 'but'; only sounds that really happen "
-    "in the story; [] if none), \"moment\" (ONLY where an object or small detail carries strong emotion - a "
-    "broken pencil, a letter, an old photo, a bangle, a toy, a hand on a door: {{\"words\": 2-4 words copied exactly "
-    "from that part where it is mentioned, \"prompt\": 25-40 English words, a close-up of that object or detail in "
+    "in the story; [] if none), \"moment\" (ONLY where an object or small detail that this part itself names carries strong "
+    "emotion: {{\"words\": 2-4 words copied exactly "
+    "from that part where it is mentioned (in the story's own script, never translated), \"prompt\": 25-40 English words, a close-up of that object or detail in "
     "this story's look and light, symbolic, no faces, no text}}; most parts have none - use it for at most {mom} "
     "parts in the whole story; {{}} if none).\n"
     "AMBIENCE: {amb}\nHITS: {hits}\nCUES: {cues}\n"
     'Return "character_anchors" as a JSON object mapping each recurring character ID to their stable silhouette, '
     'clothing shape, and distinctive prop. For each scene set "character" to that stable ID when visible, else "". '
-    'Answer ONLY JSON: {{"look": "...", "character_anchors": {{}}, "scenes": [{{"prompt": "...", '
+    'Answer ONLY JSON: {{"look": "...", "character_anchors": {{}}, "scenes": [{{"happens": "...", "prompt": "...", '
     '"character": "", "ambience": "", "hit": "", "lightning": false, '
     '"cues": [{{"words": "...", "sfx": "..."}}], "moment": {{}}}}, ...]}} '
     "with exactly {n} scenes.\n\nSTORY PARTS:\n{parts}")
 AMB_WORDS = ("wind", "thunder", "rain", "cricket", "drips", "fan", "tubelight", "drone", "pads", "water", "heartbeat")
+CUE_WORDS_ASK = (
+    "Below is one part of a story that is read aloud. A sound effect ({sfx}) should play at the moment the story "
+    "describes it (the planner's hint, maybe translated: \"{words}\"). Copy 2-4 consecutive words EXACTLY as they are "
+    "written in the text below (same language, same script, same spelling) at the place where that sound happens. "
+    "If that sound does not happen in this text, answer an empty string. Answer ONLY JSON: {{\"words\": \"...\"}}\n\n"
+    "TEXT:\n{text}")
+SCENE_VARY_ASK = (
+    "You write one picture prompt for a scene of a {desc} video. The prompt below is too similar to an earlier "
+    "scene of the same video, so the pictures would look the same.\n"
+    "EARLIER PROMPT: {earlier}\nTOO-SIMILAR PROMPT: {prompt}\n"
+    "STORY PART FOR THIS SCENE:\n{text}\n\n"
+    "Write a NEW prompt (35-60 English words) for this story part with a DIFFERENT main subject (another object, "
+    "place, action or detail this part mentions), a different location or viewpoint and a different shot size "
+    "(wide establishing view, extreme close-up of an object, view through a doorway, high angle, low angle...). "
+    "Start with the main subject. No recurring character unless this part is about them; no gore, no text. "
+    "Answer ONLY JSON: {{\"prompt\": \"...\"}}")
+SCENE_SIMILAR_MAX = 0.42        # word overlap (0-1) above which a scene prompt counts as a repeat of an earlier one
+SCENE_VARY_HINTS = ("wide establishing view of the place from outside, no people in frame",
+                    "extreme close-up of a single object from this moment, shallow depth of field, no people",
+                    "view through a half-open doorway into the space, nobody in the doorway",
+                    "high angle top-down view", "low angle view looking up, empty foreground",
+                    "a hand or footsteps only, the rest in darkness")
+_PEOPLE = re.compile(r"\b(wom[ae]n|m[ae]n|boy|girl|child|character|figure|person|people|sari|saree|silhouette|"
+                     r"he|she|his|her|face|eyes)\b", re.I)
+
+
+def _look_for_prompt(look, max_words=40):
+    """the shared look without people/props sentences (a look that names a person puts that person in every picture)"""
+    out = []
+    for x in re.split(r"(?<=[.!?])\s+", str(look or "")):
+        x = x.strip()
+        if not x or _PEOPLE.search(x):
+            continue
+        if out and len(" ".join(out + [x]).split()) > max_words:
+            break
+        out.append(x)
+    return " ".join(out).rstrip(".")
+
+
+def _overlap(a, b):
+    stop = {"the", "and", "with", "from", "that", "this", "into", "over", "under", "their", "there", "only", "single",
+            "dark", "dim", "light", "scene", "shot", "view", "close", "wide", "while", "which", "seems", "hangs"}
+    wa = {w for w in re.findall(r"[a-z]{4,}", str(a).lower()) if w not in stop}
+    wb = {w for w in re.findall(r"[a-z]{4,}", str(b).lower()) if w not in stop}
+    return len(wa & wb) / max(1, min(len(wa), len(wb)))
+
+
+def _vary_scene(cfg, say, desc, scene, earlier, text, i):
+    """a rewrite with another subject when this scene repeats an earlier one (AI first, a fixed hint as fallback)"""
+    import story
+    try:
+        t, _ = story.ask(cfg, SCENE_VARY_ASK.format(desc=desc, earlier=earlier[:500], prompt=scene[:500],
+                                                    text=str(text)[:700]), "auto", 0.7, True, say=lambda *a: None)
+        new = str(json.loads(t).get("prompt") or "").strip()
+        if new and _overlap(new, earlier) < SCENE_SIMILAR_MAX:
+            return new, "rewritten by the AI"
+    except Exception:
+        pass
+    return f"{SCENE_VARY_HINTS[i % len(SCENE_VARY_HINTS)]}: {scene}", "given a different framing"
+
+
+def _words_in(text, words):
+    """True when these words are (nearly) spoken in this text"""
+    import difflib
+    norm = lambda t: re.sub(r"[^\w\s]", "", str(t)).split()
+    w, tw = norm(words), norm(text)
+    if not w or not tw:
+        return False
+    target = " ".join(w)
+    return any(difflib.SequenceMatcher(None, target, " ".join(tw[j:j + len(w)])).ratio() >= 0.75
+               for j in range(len(tw)))
+
+
+# a bed whose file name names a sound source must have that source in the scene (story text or picture prompt):
+# "crickets with birds" / "midnight train horn" / "river ambience" under a photo studio scene sounds wrong
+AMB_SOURCES = {
+    "bird": ("bird", "पक्षी", "चिड़िया", "चिडिया", "पंछी", "परिंद", "कौवा", "कौआ", "कोयल", "मोर", "dawn", "morning", "सुबह"),
+    "train": ("train", "railway", "station", "ट्रेन", "रेल", "स्टेशन", "प्लेटफ़ॉर्म", "प्लेटफार्म"),
+    "horn": ("horn", "हॉर्न", "train", "ट्रेन", "रेल", "traffic", "सड़क"),
+    "river": ("river", "stream", "नदी", "धारा", "घाट", "नाला"),
+    "sea": ("sea", "ocean", "beach", "समुद्र", "सागर", "लहर", "तट"),
+    "wave": ("sea", "ocean", "beach", "wave", "समुद्र", "सागर", "लहर", "तट"),
+    "dog": ("dog", "कुत्त"),
+    "market": ("market", "bazaar", "crowd", "बाज़ार", "बाजार", "भीड़", "मेला", "मेले"),
+    "crowd": ("market", "bazaar", "crowd", "बाज़ार", "बाजार", "भीड़", "मेला", "लोग"),
+    "traffic": ("traffic", "road", "street", "सड़क", "गाड़ियों", "ट्रैफ़िक"),
+    "temple": ("temple", "मंदिर", "आरती", "घंटी"),
+    "church": ("church", "चर्च"),
+    "kitchen": ("kitchen", "रसोई", "चूल्हा"),
+    "hospital": ("hospital", "अस्पताल", "ward", "वार्ड"),
+    "office": ("office", "दफ़्तर", "दफ्तर", "ऑफिस"),
+    "cafe": ("cafe", "café", "कैफ़े", "कैफे", "ढाबा", "चाय की दुकान"),
+    "village": ("village", "गाँव", "गांव", "खेत"),
+    "forest": ("forest", "jungle", "woods", "जंगल"),
+    "jungle": ("forest", "jungle", "woods", "जंगल"),
+    "thunder": ("thunder", "storm", "lightning", "बिजली", "गरज", "तूफ़ान", "तूफान"),
+    "rain": ("rain", "storm", "monsoon", "बारिश", "बरसात", "बूँद", "बूंद", "तूफ़ान", "तूफान"),
+    "fire": ("fire", "flame", "bonfire", "आग", "अलाव", "लपट", "चिता", "चूल्हा"),
+    "cricket": ("cricket", "night", "outside", "field", "झींगुर", "रात", "बाहर", "खेत"),
+}
+
+
+def _amb_fits(path, text):
+    """False when the bed's file name names a sound source (bird, train, river...) that this scene never has"""
+    n = os.path.basename(str(path or "")).lower()
+    t = str(text or "").lower()
+    return all(any(w in t for w in words) for src, words in AMB_SOURCES.items() if src in n)
+
+
+def _fix_cue_words(cfg, text, words, sfx):
+    """the planner wrote the cue words in another language (English for a Hindi story): ask for the exact words"""
+    import story
+    try:
+        t, _ = story.ask(cfg, CUE_WORDS_ASK.format(sfx=os.path.splitext(os.path.basename(sfx))[0][:60], words=words,
+                                                   text=str(text)[:900]), "auto", 0.2, True, say=lambda *a: None)
+        w = str(json.loads(t).get("words") or "").strip()
+        return w if w and _words_in(text, w) else ""
+    except Exception:
+        return ""
 
 
 def sfx_fetch(ctx, genre=""):
@@ -1951,6 +2156,175 @@ def _word_time(tim, words, a=None, b=None):
     return None
 
 
+# ------------------------------------------------------------------ story-beat scenes + two-step director (Experimental, 16 Oct)
+SCENE_SECONDS = 30            # Experimental genre videos: about one picture per this many seconds (Tinker: scene_seconds)
+_SENT_END = re.compile(r"[।?!॥]\s*[\"'”’)]*\s*$")
+SCENE_PICTURE_ASK = (
+    "You write the picture prompts for a {desc} video. For EACH numbered scene below you get WHAT HAPPENS in it "
+    "and the story TEXT it covers (the text is read aloud while the picture is on screen).\n"
+    "Write one English image prompt (35-60 words) per scene that shows exactly that moment: start with the main "
+    "subject (a person, object, place or action from WHAT HAPPENS), then the location, the shot size and the light. "
+    "Use ONLY people, objects, places, weather and light sources that the scene's own TEXT or WHAT HAPPENS names; "
+    "never add anything else. A recurring character stays a dark silhouette with no detailed face. Neighbouring "
+    "scenes must not share the same main subject or camera setup. No gore, no text or letters.\n"
+    'Answer ONLY JSON: {{"prompts": ["...", "..."]}} with exactly {n} prompts.\n\nSCENES:\n{scenes}')
+SCENE_FIX_ASK = (
+    "This picture prompt for a scene of a {desc} video adds things the story never mentions in this scene: {bad}.\n"
+    "PROMPT: {prompt}\nWHAT HAPPENS: {happens}\nSTORY TEXT OF THE SCENE:\n{text}\n\n"
+    "Rewrite the prompt (35-60 English words) for the same moment WITHOUT those things, using only what the story "
+    "text names. Start with the main subject. Answer ONLY JSON: {{\"prompt\": \"...\"}}")
+# an English word in a picture prompt -> words that must be in the scene's own text (Hindi, or English loan words)
+# for it to stay; weather may also come from the scene before or after
+INVENTED = {
+    "rain": ("बारिश", "बरसात", "बूँद", "बूंद", "भीग", "मानसून", "रेन"),
+    "storm": ("तूफ़ान", "तूफान", "आंधी", "आँधी", "बारिश"),
+    "lightning": ("बिजली", "कड़क", "तूफ़ान", "तूफान"),
+    "thunder": ("बिजली", "गरज", "कड़क", "तूफ़ान", "तूफान"),
+    "fog": ("कोहरा", "कोहरे", "धुंध", "कुहासा"), "mist": ("कोहरा", "कोहरे", "धुंध", "कुहासा"),
+    "snow": ("बर्फ", "बर्फ़"),
+    "moon": ("चाँद", "चांद", "चाँदनी", "चांदनी", "चंद्र", "पूर्णिमा"),
+    "candle": ("मोमबत्ती", "दीया", "दीये", "दीपक", "दिया जल", "लौ"),
+    "lantern": ("लालटेन", "दीया", "दीपक", "लैंप"),
+    "bangle": ("चूड़ी", "चूड़ियाँ", "चूड़ियां", "कंगन"),
+    "mirror": ("आईना", "आइना", "आईने", "शीशा", "शीशे", "दर्पण", "मिरर"),
+    "doll": ("गुड़िया", "खिलौना", "खिलौने"),
+    "clock": ("घड़ी", "घड़ियाँ", "टिक"),
+    "letter": ("चिट्ठी", "पत्र", "ख़त", "खत", "लेटर"),
+    "umbrella": ("छाता", "छतरी"),
+    "knife": ("चाकू", "छुरी", "खंजर"),
+    "blood": ("खून", "ख़ून", "रक्त", "लहू"),
+    "skull": ("खोपड़ी", "कंकाल"), "skeleton": ("कंकाल", "हड्डी"),
+    "crow": ("कौआ", "कौवा", "कौए"), "owl": ("उल्लू",), "cat": ("बिल्ली",), "dog": ("कुत्त",),
+    "rose": ("गुलाब",), "flower": ("फूल", "गुलाब"), "flowers": ("फूल", "गुलाब"),
+    "swing": ("झूला", "झूले"),
+    "book": ("किताब", "पुस्तक", "डायरी", "कॉपी", "बुक"),
+    "train": ("ट्रेन", "रेल", "स्टेशन"), "river": ("नदी", "घाट", "धारा"),
+    "sea": ("समुद्र", "सागर", "लहर", "तट"), "ocean": ("समुद्र", "सागर"),
+    "forest": ("जंगल", "वन"), "temple": ("मंदिर",),
+    "graveyard": ("कब्र", "क़ब्र", "कब्रिस्तान", "श्मशान"), "cemetery": ("कब्र", "क़ब्र", "कब्रिस्तान", "श्मशान"),
+}
+WEATHER = {"rain", "storm", "lightning", "thunder", "fog", "mist", "snow", "moon"}
+
+
+def _wre(w):
+    return r"\b" + w + r"(s|es|y|light|lit|drops?)?\b"
+
+
+def _beat_parts(narration, seconds=SCENE_SECONDS):
+    """the story cut into scenes of about `seconds` that end where a sentence ends (।?!), never on a line that
+    trails off with '...' -> [{text, start, end}]"""
+    tm = json.load(open(os.path.join(narration, "timing.json"), encoding="utf-8"))
+    if not tm:
+        return []
+    T = max(10.0, float(seconds))
+    ends = [bool(_SENT_END.search(str(x["text"]).strip())) for x in tm]
+    out, s, n = [], 0, len(tm)
+    while s < n:
+        best, cut = None, n - 1
+        for i in range(s, n):
+            dur = float(tm[i]["end"]) - float(tm[s]["start"])
+            if ends[i] and dur >= 0.4 * T:
+                best = i
+            if ends[i] and dur >= 0.7 * T:
+                cut = i
+                break
+            if dur >= 1.5 * T:                     # no sentence end for a long time: the last one, else this line
+                cut = best if best is not None else i
+                break
+        out.append(tm[s:cut + 1])
+        s = cut + 1
+    if len(out) > 1 and float(out[-1][-1]["end"]) - float(out[-1][0]["start"]) < 0.4 * T:
+        tail = out.pop()                           # a short tail joins the scene before it
+        out[-1] += tail
+    return [{"text": " ".join(str(c["text"]).strip() for c in p), "start": p[0]["start"], "end": p[-1]["end"]}
+            for p in out]
+
+
+def _invented(prompt, text, near=""):
+    """the English things a picture prompt names that the scene's story text does not have (weather may come
+    from the scene before or after)"""
+    t, nb = str(text or "").lower(), str(near or "").lower()
+    bad = []
+    for w, ok in INVENTED.items():
+        if not re.search(_wre(w), str(prompt or ""), re.I):
+            continue
+        hay = t + " " + nb if w in WEATHER else t
+        if not any(k in hay for k in ok) and not re.search(r"\b" + w, t):
+            bad.append(w)
+    return bad
+
+
+def _strip_words(prompt, bad):
+    """drop the comma/sentence pieces of a prompt that name these words"""
+    pieces = re.split(r"(?<=[,.;])\s+", str(prompt or ""))
+    keep = [x for x in pieces if not any(re.search(_wre(w), x, re.I) for w in bad)]
+    return " ".join(keep).strip(" ,;")
+
+
+def _model_cfg(cfg, key):
+    """(cfg for story.ask, engine): a model chosen on Tinker for this step always runs locally in Ollama"""
+    m = str(cfg.get(key) or "").strip()
+    return (dict(cfg, _llm_override=m), "local") if m else (cfg, "auto")
+
+
+def _ask_step(cfg, key, prompt, temp, say=lambda *a: None):
+    c, eng = _model_cfg(cfg, key)
+    try:
+        return story_ask(c, prompt, eng, temp, say)
+    finally:
+        if c is not cfg and c.get("_ollama_used"):
+            cfg["_ollama_used"] = True
+
+
+def story_ask(cfg, prompt, engine, temp, say):
+    import story
+    ctx_len = 16384 if len(prompt) > 9000 else 8192     # long stories cut into many scenes need a longer context
+    try:
+        return story.ask(cfg, prompt, engine, temp, True, say=say, ctx_len=ctx_len)
+    except TypeError:                                    # an older story.py without ctx_len
+        return story.ask(cfg, prompt, engine, temp, True, say=say)
+
+
+def _clean_scene(cfg, say, desc, i, prompt, happens, text, near):
+    """a picture prompt with invented props or weather -> rewritten by the AI, else those pieces are cut out"""
+    bad = _invented(prompt, text, near)
+    if not bad:
+        return prompt
+    try:
+        t, _ = _ask_step(cfg, "scene_picture_model", SCENE_FIX_ASK.format(
+            desc=desc, bad=", ".join(bad), prompt=prompt[:600], happens=happens[:300], text=str(text)[:900]), 0.5)
+        new = str(json.loads(t).get("prompt") or "").strip()
+        if new and not _invented(new, text, near):
+            say(f"   scene {i + 1}: the picture added {', '.join(bad)} (not in this part of the story) - rewritten")
+            return new
+    except Exception:
+        pass
+    new = _strip_words(prompt, bad)
+    if len(new.split()) < 8:
+        hb = _invented(happens, text, near)
+        new = (_strip_words(happens, hb) if hb else happens) or new
+    say(f"   scene {i + 1}: the picture added {', '.join(bad)} (not in this part of the story) - removed")
+    return new or prompt
+
+
+def _picture_prompts(cfg, say, desc, parts, sc):
+    """step 2 of the director: one picture prompt per scene, written from its 'what happens' line"""
+    rows = []
+    for i, p in enumerate(parts):
+        x = sc[i] if i < len(sc) and isinstance(sc[i], dict) else {}
+        hap = str(x.get("happens") or "").strip() or "(not given - read the text)"
+        rows.append(f"{i + 1}. WHAT HAPPENS: {hap}\n   TEXT: {str(p['text'])[:900]}")
+    try:
+        t, model = _ask_step(cfg, "scene_picture_model",
+                             SCENE_PICTURE_ASK.format(desc=desc, n=len(parts), scenes="\n".join(rows)), 0.6, say)
+        pr = [str(x or "").strip() for x in (json.loads(t).get("prompts") or [])]
+        say(f"   picture prompts written from each scene's 'what happens' line by {model}")
+        return pr
+    except Exception as e:
+        say(f"   (picture prompts from the 'what happens' lines failed: {e} - kept the director's own prompts)")
+        return []
+
+
 def horror_scenes(ctx, name, narration, out, count=0, genre="bhay"):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
@@ -1960,7 +2334,17 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay"):
     tm = json.load(open(os.path.join(narration, "timing.json"), encoding="utf-8"))
     total = tm[-1]["end"] if tm else 600
     n = int(count) or max(8, min(18, round(total / 70)))
-    parts = _parts(narration, "", n)
+    exp = bool(cfg.get("_experimental_workspace"))     # Experimental: scenes end at sentence ends, two-step director
+    if exp and not int(count):
+        try:
+            secs = float(cfg.get("scene_seconds") or SCENE_SECONDS)
+        except (TypeError, ValueError):
+            secs = SCENE_SECONDS
+        parts = _beat_parts(narration, secs)[:40] or _parts(narration, "", n)
+        n = len(parts)
+        say(f"   {n} scenes, each ending where a sentence ends (about {secs:g} s each)")
+    else:
+        parts = _parts(narration, "", n)
     import sfx_lib
     sfx = _sfx_names(cfg)
     amb = [k for k in sfx if sfx_lib.kind_of(cfg, sfx[k]) == "amb"]
@@ -1975,53 +2359,111 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay"):
     ask = SCENES_ASK.format(desc=G["desc"], label=G["label"], amb=", ".join(amb) or "-", hits=", ".join(hits) or "-", n=len(parts),
                             cues=", ".join(cue_names) if cpp else "- (none for this series)", cpp=cpp,
                             mom=max(2, round(total / 150)),
-                            parts="\n".join(f"{i + 1}. ({int(p['start'] // 60)}:{int(p['start'] % 60):02d}) {p['text'][:700]}"
+                            parts="\n".join(f"{i + 1}. ({int(p['start'] // 60)}:{int(p['start'] % 60):02d}) {p['text'][:1200]}"
                                             for i, p in enumerate(parts)))
+    cut = [i + 1 for i, p in enumerate(parts) if len(p["text"]) > 1200]
+    if cut:
+        say(f"   ⚠ scene(s) {', '.join(map(str, cut))} are longer than 1200 letters - the director only reads the start")
     d = {}
     try:
-        t, model = story.ask(cfg, ask, "auto", 0.6, True, say=say)
+        t, model = _ask_step(cfg, "director_model", ask, 0.6, say)
         d = json.loads(t)
         say(f"   planned by {model}")
     except Exception as e:
         say(f"   (the AI could not plan the scenes: {e} - simple pictures)")
     sc = d.get("scenes") or []
+    if exp and len(sc) < len(parts):
+        say(f"   ⚠ the director planned {len(sc)} of {len(parts)} scenes - the rest get pictures from their own text")
+    two = _picture_prompts(cfg, say, G["desc"], parts, sc) if exp else []
+    dcfg = _model_cfg(cfg, "director_model")[0]
     look = d.get("look", "")
     character_anchors = d.get("character_anchors") or {}
     if look:
         say(f"   the look of this story: {look}")
-    shots = []
+    shots, seen, fixed_cues, dropped_cues = [], [], 0, 0
+    look_p = _look_for_prompt(look)
+    if exp and look_p:
+        whole = " ".join(p["text"] for p in parts)
+        lb = [w for w in _invented(look_p, whole) if w in WEATHER]
+        if lb:
+            look_p = _strip_words(look_p, lb)
+            say(f"   the look named {', '.join(lb)}, which this story never has - removed from the look")
     for i, p in enumerate(parts):
         x = sc[i] if i < len(sc) and isinstance(sc[i], dict) else {}
-        pr = str(x.get("prompt") or "a dark empty Indian village lane at night, one weak lamp, fog")
+        happens = str(x.get("happens") or "").strip()
+        scene = str((two[i] if i < len(two) else "") or x.get("prompt") or happens
+                    or "a dark empty Indian village lane at night, one weak lamp, fog").strip()
+        if exp:
+            near = " ".join(parts[j]["text"] for j in (i - 1, i + 1) if 0 <= j < len(parts))
+            scene = _clean_scene(cfg, say, G["desc"], i, scene, happens, p["text"], near)
         character = str(x.get("character") or "").strip()[:60]
         anchor = str(character_anchors.get(character) or "").strip() if character else ""
-        if look:
-            pr = f"{look}. In this scene: {pr}"              # the same film first, then the moment -> coherent
+        sim = max(((_overlap(scene, e), e) for e in seen), default=(0, ""))
+        if sim[0] >= SCENE_SIMILAR_MAX:                  # same subject as an earlier picture -> another subject
+            scene, how = _vary_scene(dcfg, say, G["desc"], scene, sim[1], p["text"], i)
+            say(f"   scene {i + 1} repeated an earlier picture ({sim[0]:.0%} the same words) - {how}")
+        seen.append(scene)
+        # the moment first (image models weigh the start most), the shared style after -> varied but coherent
+        pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
         if anchor:
             pr += f" Character continuity anchor: {anchor}. Keep this character design unchanged."
-        shots.append({"file": f"{i + 1:03d}.png", "prompt": pr, "character_anchor": anchor,
-                      "character": character,
-                      "text": p["text"][:300], "start": p["start"],
-                      "end": p["end"], "ambience": sfx.get(str(x.get("ambience") or "").lower(), ""),
+        cues = []
+        for c in (x.get("cues") or []):
+            if not (isinstance(c, dict) and str(c.get("sfx", "")).lower() in sfx and str(c.get("words", "")).strip()):
+                continue
+            w, f = str(c.get("words", "")), sfx[str(c.get("sfx", "")).lower()]
+            if not _words_in(p["text"], w):              # e.g. "Rain" for a Hindi story: never found -> never placed
+                w2 = _fix_cue_words(dcfg, p["text"], w, f)
+                if not w2:
+                    dropped_cues += 1
+                    continue
+                fixed_cues += 1
+                w = w2
+            cues.append({"words": w, "file": f})
+            if len(cues) >= max(cpp, 0):
+                break
+        amb_f = sfx.get(str(x.get("ambience") or "").lower(), "")
+        if amb_f and not _amb_fits(amb_f, p["text"] + " " + scene):
+            prev = next((s["ambience"] for s in reversed(shots) if s.get("ambience")), "")
+            keep = prev if prev and _amb_fits(prev, p["text"] + " " + scene) else ""
+            say(f"   scene {i + 1}: bed {os.path.basename(amb_f)} names a sound this scene does not have - "
+                + (f"kept the previous bed {os.path.basename(keep)}" if keep else "no bed (music only)"))
+            amb_f = keep
+        shots.append({"file": f"{i + 1:03d}.png", "prompt": pr, "scene_prompt": scene, "character_anchor": anchor,
+                      "character": character, "happens": happens,
+                      "text": p["text"], "start": p["start"],
+                      "end": p["end"], "ambience": amb_f,
                       "hit": sfx.get(str(x.get("hit") or "").lower(), ""), "lightning": bool(x.get("lightning")),
-                      "cues": [{"words": str(c.get("words", "")), "file": sfx[str(c.get("sfx", "")).lower()]}
-                               for c in (x.get("cues") or [])[:max(cpp, 0)] if isinstance(c, dict)
-                               and str(c.get("sfx", "")).lower() in sfx and str(c.get("words", "")).strip()]})
-        say(f"   {i + 1}: {pr[:90]}{'  | ' + os.path.basename(shots[-1]['ambience']) if shots[-1]['ambience'] else ''}"
+                      "cues": cues})
+        # Lead with the scene-specific text in logs; the shared look prefix made every
+        # line appear identical when only the first 90 characters were printed.
+        scene_preview = scene
+        say(f"   {i + 1}: {scene_preview[:150]}{'…' if len(scene_preview) > 150 else ''}"
+            f"{'  | ' + os.path.basename(shots[-1]['ambience']) if shots[-1]['ambience'] else ''}"
             f"{'  | ' + str(len(shots[-1]['cues'])) + ' cue(s)' if shots[-1]['cues'] else ''}"
             f"{'  | hit ' + os.path.basename(shots[-1]['hit']) if shots[-1]['hit'] else ''}")
+    if fixed_cues or dropped_cues:
+        say(f"   sound effect words checked against the narration: {fixed_cues} re-copied from the story text, "
+            f"{dropped_cues} dropped (that sound does not happen there)")
     moments = []
     for i, p in enumerate(parts):                          # the object that carries the feeling, at its words
         x = sc[i] if i < len(sc) and isinstance(sc[i], dict) else {}
         mo = x.get("moment") if isinstance(x.get("moment"), dict) else {}
         if not mo.get("prompt") or not mo.get("words"):
             continue
+        if exp:
+            mb = _invented(mo["prompt"], p["text"])
+            if mb:
+                mo = dict(mo, prompt=_strip_words(mo["prompt"], mb))
+                say(f"   close-up '{mo['words']}' named {', '.join(mb)} (not in this part) - removed")
+                if len(str(mo["prompt"]).split()) < 6:
+                    continue
         at = _word_time(tm, mo["words"], p["start"], p["end"])
         if at is None or at > total - 6:
             continue
         moments.append({"file": f"m{len(moments) + 1:02d}.png", "at": round(at, 2), "words": mo["words"],
                         "character": "",
-                        "prompt": (f"{look}. Close-up detail: " if look else "Close-up detail: ") + str(mo["prompt"])})
+                        "prompt": f"Close-up detail: {mo['prompt']}" + (f". Setting and style: {look_p}" if look_p else "")})
         say(f"   moment at {int(at // 60)}:{int(at % 60):02d} ('{mo['words']}'): {str(mo['prompt'])[:90]}")
     json.dump({"source": narration, "look": look, "shots": shots, "moments": moments},
               open(os.path.join(out, "shots.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -2048,14 +2490,55 @@ def _horror_track(cfg, folders=("Dark", "Tension", "Eerie")):
     return t
 
 
-def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min"):
+def _usable_music(ctx, track, folders, music_db=None):
+    """never a silent bed: a track you cannot hear under the voice is swapped; with none left, a softened library
+    track (speech band dipped, 4 dB lower) with a clear warning in the job log"""
+    cfg, say = ctx["cfg"], ctx["say"]
+
+    def audible(t):
+        try:
+            import audio_screen
+            r = audio_screen.screen(cfg, audio_screen.original_of(cfg, t), "music")
+            vb = (r.get("m") or {}).get("voice_band")
+            return (vb is None or vb >= float(audio_screen.LIMITS["music"].get("voice_band_min", 0))), vb
+        except Exception:
+            return True, None
+    if track and os.path.exists(track):
+        ok, vb = audible(track)
+        if ok:
+            return track, music_db
+        say(f"   ⚠ WARNING: music '{os.path.basename(track)}' is almost only deep rumble ({(vb or 0) * 100:.1f}% above "
+            "300 Hz) - it would sound like no music under your voice; picking another track")
+        for _ in range(4):
+            alt = _horror_track(cfg, folders)
+            if alt and alt != track and os.path.exists(alt) and audible(alt)[0]:
+                return alt, music_db
+    say(f"   ⚠ WARNING: no usable music in the {', '.join(folders)} mood folders (add or rate tracks on the Sounds page)")
+    fb = auto_track(cfg)
+    if fb and os.path.exists(fb):
+        try:
+            import audio_screen
+            fb = audio_screen.treated(cfg, fb, "music")
+        except Exception:
+            pass
+        base = abs(float(music_db)) if music_db not in (None, "") else \
+            abs(float((load_audio_index(cfg).get("shape") or {}).get("story_db", -18.0)))
+        say(f"   ⚠ using '{os.path.basename(fb)}' from your library instead, softened and 4 dB lower")
+        return fb, base + 4
+    say("   ⚠ WARNING: the music library has no track at all - this episode has no background music")
+    return track, music_db
+
+
+def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music_db=None):
     """music bed (shaped like your episodes, a bit lower) + per-scene ambience loops + rare hits -> narration_music.wav"""
     import numpy as np
     cfg, say = ctx["cfg"], ctx["say"]
-    track = track or _horror_track(cfg, GENRES.get(genre, GENRES["bhay"])["music"])
+    folders = GENRES.get(genre, GENRES["bhay"])["music"]
+    track = track or _horror_track(cfg, folders)
+    track, music_db = _usable_music(ctx, track, folders, music_db)
     say(f"   music: {os.path.basename(track)}")
     _series_note(cfg, name, genre=genre, track=track, pictures=pictures)
-    if not shape_mix(ctx, name, track, tail, music_db=None):
+    if not shape_mix(ctx, name, track, tail, music_db=music_db):
         return False
     d = narration_dir(cfg, name, existing=True)
     lead = float(json.load(open(os.path.join(d, "music_shape.json"), encoding="utf-8")).get("lead_s", 0))
@@ -2097,8 +2580,8 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min"):
             w = norm(c.get("words"))
             if not w or not os.path.exists(c.get("file", "")):
                 continue
-            at = None
-            for x in tim:                               # the sentence that has these words, and where in it they are
+            at = c.get("at")                            # Experimental runs: already timed at the spoken word
+            for x in ([] if at is not None else tim):   # the sentence that has these words, and where in it they are
                 if float(x["end"]) < float(s["start"]) - 1 or float(x["start"]) > float(s["end"]) + 1:
                     continue
                 tw = norm(x["text"])
@@ -2270,6 +2753,8 @@ def genre_voice_sets(cfg, gid, b):
     G = GENRES[gid]
     run = series_model(cfg, gid) or (series_model(cfg, "rahasya") if gid == "bhay" else "")
     sets = ["with_music=false", "model=" + json.dumps(run or "base"), "match=false", "room_tone=false",
+            "pace_style=" + json.dumps(gid),
+            "acoustic_context=" + json.dumps(bool(b.get("acoustic_context", True))),
             f"exaggeration={float(b.get('exaggeration') or G['ex'])}", f"temperature={G['temp']}"]
     base = {"pause_comma": .35, "pause_line": 1.0, "pause_sentence": 1.1, "pause_dots": 1.2, "pause_marker": 1.6,
             "pause_paragraph": 2.2}
@@ -2481,7 +2966,8 @@ def apply_settings(cfg):
         st = json.load(open(_settings_path(cfg), encoding="utf-8"))
     except Exception:
         st = {}
-    for key in ("llm", "story_model", "vision_llm", "prompt_model"):
+    for key in ("llm", "story_model", "vision_llm", "prompt_model", "director_model", "scene_picture_model",
+                "scene_seconds"):
         if st.get(key):
             cfg[key] = st[key]
     return st
@@ -2893,6 +3379,26 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
     cfg, say = ctx["cfg"], ctx["say"]
     sj = os.path.join(out, "shots.json")
     meta = json.load(open(sj, encoding="utf-8"))
+    # Older/partially written scene plans can contain numeric placeholders.
+    # The picker expects each entry to be a scene record, so ignore malformed
+    # rows explicitly instead of failing later on s["prompt"] / s.get(...).
+    scene_records = meta.get("shots") or []
+    moment_records = meta.get("moments") or []
+    if not isinstance(scene_records, list):
+        scene_records = []
+        meta["shots"] = scene_records
+    if not isinstance(moment_records, list):
+        moment_records = []
+        meta["moments"] = moment_records
+    malformed = sum(not isinstance(s, dict) for s in scene_records + moment_records)
+    if malformed:
+        say(f"   (skipping {malformed} malformed scene record(s) in shots.json; expected objects)")
+        scene_records = [s for s in scene_records if isinstance(s, dict)]
+        moment_records = [s for s in moment_records if isinstance(s, dict)]
+        meta["shots"], meta["moments"] = scene_records, moment_records
+    records = scene_records + moment_records
+    if not records:
+        raise RuntimeError("shots.json has no valid scene records; regenerate the scene plan before picking images")
     G = GENRES.get(genre, GENRES["bhay"])
     look = meta.get("look", "")[:220]
     alt = os.path.join(out, "_alt")
@@ -2929,7 +3435,7 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
 
     free_gpu(ctx)
     bad = []
-    for s in meta["shots"] + (meta.get("moments") or []):
+    for s in records:
         if ctx["stopped"]():
             return False
         f = os.path.join(out, s["file"])
@@ -2977,7 +3483,7 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
             s["score"], s["repair_hint"] = score, revision
             if s.get("character") and best and score >= 5:
                 character_refs.setdefault(s["character"], f)
-    unresolved = [s for s in meta["shots"] + (meta.get("moments") or [])
+    unresolved = [s for s in records
                   if s.get("score") is None or s.get("score", 0) < 6]
     json.dump(meta, open(sj, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if unresolved:
@@ -2986,7 +3492,7 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
         free_gpu(ctx)
         return False
     free_llm(ctx)
-    sc = [s.get("score") for s in meta["shots"] + (meta.get("moments") or []) if s.get("score") is not None]
+    sc = [s.get("score") for s in records if s.get("score") is not None]
     if sc:
         say(f"   scenes judged: average {sum(sc) / len(sc):.1f}/10, lowest {min(sc):.0f}/10")
     free_gpu(ctx)
@@ -3338,7 +3844,7 @@ def status(cfg, jobs):
     return {"comfy": comfy_running(cfg), "ollama": ol,
             "gpu": _gpu_cache["v"], "disk_free_gb": free, "engines": eng,
             "running": run and {"id": run["id"], "title": run["title"], "step": run.get("step", 0),
-                                "n_steps": len(run["steps"]), "step_label": run.get("step_label", "")},
+                                "n_steps": len(run.get("steps") or []), "step_label": run.get("step_label", "")},
             "queued": sum(1 for j in js if j["status"] == "queued")}
 
 

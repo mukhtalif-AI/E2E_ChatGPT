@@ -13,7 +13,8 @@ START
 
 LOCAL AI
   HubGPT uses Ollama at http://127.0.0.1:11434. Gemma is the default for story writing and Hindi; Qwen is used
-  for image-prompt creation and reasoning-heavy video choices; Qwen vision handles picture review. Choose installed
+  for image-prompt creation and reasoning-heavy video choices; Qwen vision handles picture review. Qwen3 native
+  thinking is enabled for text-model calls; Gemma 3 (gemma3:12b) has no Ollama thinking control. Choose installed
   models on the System page. HubGPT unloads Ollama models after local-AI steps and before ComfyUI/video GPU work,
   while leaving the Ollama service running.
 THE PAGES (left menu)

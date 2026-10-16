@@ -7,7 +7,7 @@ HubGPT Voice and HubGPT Video commands and talks to ComfyUI / the selected local
 their local web APIs. Generated media is routed under media_dir / episodes_dir; trained voice checkpoints belong to the HubGPT voice engine.
 ONE graphics-card job at a time: jobs wait in a queue (two GPU jobs together froze the PC's voice job).
 """
-import json, os, re, shutil, subprocess, sys, threading, time, traceback, urllib.parse, urllib.request, uuid
+import ctypes, hashlib, json, os, re, shutil, subprocess, sys, threading, time, traceback, urllib.parse, urllib.request, uuid
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 APP = os.path.dirname(os.path.abspath(__file__))           # ...\hub_chatgpt\app
@@ -34,12 +34,42 @@ WIN = os.name == "nt"
 LIGHT = {"elements_fetch", "check_video", "sfx_fetch"}
 
 
+class JobStopped(BaseException):
+    """raised inside a job's thread when you press Stop (BaseException, so a step's `except Exception` cannot eat it)"""
+
+
+_JOB_LOCAL = threading.local()            # which job this thread is running (set by the worker)
+_RealPopen = subprocess.Popen
+
+
+def _shared_service(args):
+    """ComfyUI / Ollama servers a step starts are shared by everything: Stop must not kill them"""
+    s = " ".join(map(str, args)) if isinstance(args, (list, tuple)) else str(args)
+    return ("main.py" in s and "--windows-standalone-build" in s) or s.rstrip().lower().endswith(" serve")
+
+
+class _TrackedPopen(_RealPopen):
+    """every program a job starts (ffmpeg, python engines, ... also through subprocess.run) is remembered,
+    so Stop can end all of them, not only the ones started through run_cmd"""
+    def __init__(self, args, *a, **kw):
+        super().__init__(args, *a, **kw)
+        jid = getattr(_JOB_LOCAL, "jid", None)
+        if jid and JOBS is not None and not _shared_service(args):
+            JOBS.children.setdefault(jid, []).append(self)
+
+
+subprocess.Popen = _TrackedPopen
+
+
 class Jobs:
     def __init__(self):
         self.lock = threading.Lock()
         self.jobs = []
         self.procs = {}
         self.stop_flag = set()
+        self.children = {}                     # job id -> programs it started
+        self.threads = {}                      # job id -> worker thread running it
+        self.abandoned = set()                 # worker threads given up on after Stop (a step would not let go)
         if os.path.exists(JOBS_FILE):
             try:
                 self.jobs = json.load(open(JOBS_FILE, encoding="utf-8"))
@@ -47,13 +77,23 @@ class Jobs:
                 self.jobs = []
         try:
             import experimental_workspace
-            exp_file = os.path.join(experimental_workspace.root(CFG), "Activity", "jobs.json")
-            if os.path.isfile(exp_file):
-                saved = json.load(open(exp_file, encoding="utf-8"))
-                known = {j.get("id") for j in self.jobs}
-                self.jobs.extend(j for j in saved if j.get("id") not in known)
+            for base in [experimental_workspace.root(CFG)] + experimental_workspace.legacy_roots(CFG):
+                exp_file = os.path.join(base, "Activity", "jobs.json")   # old data folders: jobs still listed
+                if os.path.isfile(exp_file):
+                    saved = json.load(open(exp_file, encoding="utf-8"))
+                    known = {j.get("id") for j in self.jobs}
+                    self.jobs.extend(j for j in saved if j.get("id") not in known)
         except Exception:
             pass
+        for j in self.jobs:                            # older Experimental records were saved without their steps:
+            if not isinstance(j.get("steps"), list):   # they cannot carry on, so they stop instead of breaking the hub
+                j["steps"] = []
+                if j.get("status") in ("running", "queued"):
+                    j["status"] = "stopped"
+                    j["note"] = "stopped: this job was saved without its steps and cannot carry on - start it again"
+        for j in self.jobs:                            # Stop was pressed just before the hub closed: keep it stopped
+            if j.pop("stopping", None) and j.get("status") in ("running", "queued"):
+                j["status"] = "stopped"; j["note"] = "stopped by you"
         for j in self.jobs:                            # a restart never loses work: unfinished jobs carry on
             if j["status"] in ("running", "queued"):   # (finished steps are skipped, the cut step runs again)
                 if j["status"] == "running":
@@ -109,52 +149,98 @@ class Jobs:
                 queued = True
             elif j["status"] == "running":
                 self.stop_flag.add(jid)
+                j["stopping"] = True; j["note"] = "stopping..."
                 queued = False
-                p = self.procs.get(jid)
+                procs = [self.procs.get(jid)] + list(self.children.get(jid, []))
+                tid = self.threads.get(jid)
             else:
                 return False
         if queued:
             self.save()
             return True
-        if j["status"] == "running":
-            if p and p.poll() is None:
-                kill_tree(p)
-            # ComfyUI runs its own server-side task, so killing a child process
-            # cannot stop it. Interrupt only while this job is using ComfyUI;
-            # ComfyUI is shared and may have unrelated work in its queue.
-            steps = j.get("steps") or []
-            step = steps[j.get("step", 0)] if 0 <= j.get("step", 0) < len(steps) else {}
-            if step.get("fn") in {"comfy_images", "pick_scenes", "repaint"}:
-                try:
-                    urllib.request.urlopen(urllib.request.Request(CFG["comfy_url"] + "/interrupt", data=b"",
-                                          method="POST"), timeout=3).close()
-                except OSError:
-                    pass
-            return True
-        return False
+        for p in procs:                                  # 1. end every program the job started (whole tree)
+            try:
+                if p and p.poll() is None:
+                    kill_tree(p)
+            except Exception:
+                pass
+        if tid:
+            comfy_cancel(tid)                            # 2. drop only THIS job's picture in ComfyUI (it is shared)
+            raise_in_thread(tid, JobStopped)             # 3. the step itself stops at its next line of Python
+            threading.Thread(target=self._stop_watchdog, args=(j, tid), daemon=True).start()
+        self.save()
+        return True
+
+    def _stop_watchdog(self, j, tid, wait=20):
+        """a step stuck inside one long call (a slow web request) cannot be stopped mid-call: after `wait` s the
+        job is marked stopped anyway and a fresh worker takes over the queue; the old thread ends when it returns"""
+        t0 = time.time()
+        while time.time() - t0 < wait:
+            time.sleep(0.5)
+            if self.threads.get(j["id"]) != tid:
+                return
+        with self.lock:
+            if self.threads.get(j["id"]) != tid or j["status"] != "running":
+                return
+            self.abandoned.add(tid)
+            self.threads.pop(j["id"], None)
+            j["status"] = "stopped"; j["ended"] = time.time(); j.pop("stopping", None)
+            j["note"] = "stopped by you (a step was still finishing a request; it ends on its own)"
+            self.stop_flag.discard(j["id"])
+        self.save()
+        threading.Thread(target=self.worker, args=(self._is_light_job(j),), daemon=True).start()
 
     def worker(self, light=False):
         """two lanes: graphics-card jobs one after another; light jobs (scripts written online) beside them"""
         while True:
             with self.lock:
-                j = next((x for x in self.jobs if x["status"] == "queued" and self._is_light_job(x) == light), None)
+                line = [x for x in self.jobs if x["status"] == "queued" and self._is_light_job(x) == light]
+                j = min(line, key=self.queue_key) if line else None
                 if j:
                     j["status"] = "running"; j["started"] = time.time()
             if not j:
                 time.sleep(0.7); continue
-            self.save()
-            ok = self.run(j)
-            if j["id"] in self.stop_flag:
-                j["status"] = "stopped"; self.stop_flag.discard(j["id"])
-            else:
-                j["status"] = "done" if ok else "failed"
-            j["ended"] = time.time(); self.save()
-            if (j.get("params") or {}).get("_experimental_workspace"):
+            me = threading.get_ident()
+            try:
+                self.save()
+                self.threads[j["id"]] = me; _JOB_LOCAL.jid = j["id"]
                 try:
-                    import experimental_workspace
-                    experimental_workspace.organize(j)
-                except Exception:
-                    pass
+                    ok = self.run(j)
+                except JobStopped:
+                    ok = False
+                _JOB_LOCAL.jid = None
+                raise_in_thread(me, None)                # a Stop that arrived too late must not hit the lines below
+                self.children.pop(j["id"], None)
+                if me in self.abandoned:                 # Stop already marked it and started a new worker
+                    self.abandoned.discard(me)
+                    return
+                self.threads.pop(j["id"], None)
+                if j["id"] in self.stop_flag:
+                    j["status"] = "stopped"; self.stop_flag.discard(j["id"])
+                    j["note"] = "stopped by you"
+                else:
+                    j["status"] = "done" if ok else "failed"
+                j.pop("stopping", None)
+                j["ended"] = time.time(); self.save()
+                if (j.get("params") or {}).get("_experimental_workspace"):
+                    try:
+                        import experimental_workspace
+                        experimental_workspace.organize(j)
+                    except Exception:
+                        pass
+            except JobStopped:                           # never let a late Stop end the queue itself
+                _JOB_LOCAL.jid = None
+                if me in self.abandoned:
+                    self.abandoned.discard(me)
+                    return
+                if j.get("status") == "running":
+                    j["status"] = "stopped"; j["ended"] = time.time(); j.pop("stopping", None)
+                    self.stop_flag.discard(j["id"]); self.threads.pop(j["id"], None); self.save()
+
+    @staticmethod
+    def queue_key(job):
+        """queue order: a job cut short by a restart first, then the build-queue position (default: time added)"""
+        return (0 if job.get("step") else 1, float(job.get("queue_pos", job.get("created") or 0)))
 
     @staticmethod
     def _is_light_job(job):
@@ -174,11 +260,25 @@ class Jobs:
         if (j.get("params") or {}).get("_experimental_workspace"):
             import experimental_workspace
             run_cfg, run_media = experimental_workspace.job_config(CFG, j["params"])
+        tinker_on = False
+        if (j.get("params") or {}).get("_tinker") and not self._is_light_job(j):
+            try:
+                import tinker
+                tinker_on = True                   # leave() in finally, even if enter() stops halfway
+                tinker.enter(j["params"]["_tinker"])
+                for line in tinker.describe(j["params"]["_tinker"]):
+                    say("-- tinker: " + line)
+            except Exception as e:
+                say(f"-- tinker settings were not applied: {e}")
         ctx = {"job": j, "say": say, "cfg": run_cfg, "hub_cfg": CFG, "media": run_media or MEDIA,
                "stopped": lambda: j["id"] in self.stop_flag,
                "run_cmd": lambda cmd, cwd=None, env=None: self.run_cmd(j, cmd, cwd, env, say),
                "add_job": lambda kind, title, steps: self.add(kind, title, steps)}
-        steps = j["steps"]
+        steps = j.get("steps") or []
+        if not steps:
+            say("-- this job has no steps saved, so there is nothing to run - start it again")
+            log.close()
+            return False
         try:
             for i, st in enumerate(steps):
                 if i < j.get("step", 0):
@@ -191,7 +291,11 @@ class Jobs:
                 say(f"\n[{i + 1}/{len(steps)}] {st.get('label', st['fn'])}")
                 t_step = time.time()
                 try:
-                    result = getattr(tools, st["fn"])(ctx, **st.get("args", {}))
+                    if st["fn"].startswith("exp_") and (j.get("params") or {}).get("_experimental_workspace"):
+                        import experimental_workspace
+                        result = getattr(experimental_workspace, st["fn"])(ctx, **st.get("args", {}))
+                    else:
+                        result = getattr(tools, st["fn"])(ctx, **st.get("args", {}))
                     elapsed = time.time() - t_step
                     say(f"   (step took {int(elapsed // 60)} min {int(elapsed % 60)} s)")
                     j.setdefault("timings", []).append([st["fn"], round(elapsed)])
@@ -200,14 +304,28 @@ class Jobs:
                         tools.free_llm(ctx)
                         return False
                 except Exception as e:
-                    say(f"   !! {e}\n" + traceback.format_exc())
+                    if j["id"] in self.stop_flag:
+                        say("\n-- stopped by you")
+                    else:
+                        say(f"   !! {e}\n" + traceback.format_exc())
                     tools.free_llm(ctx)
                     return False
             j["step"] = len(steps)
             say(f"\nDONE  ({time.strftime('%H:%M:%S')})")
             tools.free_llm(ctx)
             return True
+        except JobStopped:
+            raise_in_thread(threading.get_ident(), None)
+            say("\n-- stopped by you")
+            try:
+                tools.free_llm(ctx)
+            except Exception:
+                pass
+            return False
         finally:
+            if tinker_on:
+                import tinker
+                tinker.leave()
             log.close()
     def run_cmd(self, j, cmd, cwd, env, say):
         say("   > " + " ".join(f'"{c}"' if " " in str(c) else str(c) for c in cmd))
@@ -249,6 +367,33 @@ def orphan_kill(pid):
                            text=True, timeout=10)
         if "python" in r.stdout.lower():
             subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"], capture_output=True, timeout=20)
+    except Exception:
+        pass
+
+
+def raise_in_thread(tid, exc):
+    """exc=None clears a pending one"""
+    try:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(tid), ctypes.py_object(exc) if exc else None)
+    except Exception:
+        pass
+
+
+def comfy_cancel(tid):
+    """remove the picture this job's thread sent to ComfyUI (waiting -> deleted, being painted -> interrupted)"""
+    try:
+        import comfy
+        pid = comfy.ACTIVE.pop(tid, None)
+        if not pid:
+            return
+        q = json.loads(urllib.request.urlopen(CFG["comfy_url"] + "/queue", timeout=3).read())
+        if any(len(x) > 1 and x[1] == pid for x in q.get("queue_running", [])):
+            urllib.request.urlopen(urllib.request.Request(CFG["comfy_url"] + "/interrupt", data=b"", method="POST"),
+                                   timeout=3).close()
+        elif any(len(x) > 1 and x[1] == pid for x in q.get("queue_pending", [])):
+            urllib.request.urlopen(urllib.request.Request(CFG["comfy_url"] + "/queue",
+                                   json.dumps({"delete": [pid]}).encode(), {"Content-Type": "application/json"}),
+                                   timeout=3).close()
     except Exception:
         pass
 
@@ -328,7 +473,9 @@ def restart_self():
 def roots():
     r = [MEDIA, CFG.get("sukoonvoice_media"), CFG.get("episodes_dir"), CFG.get("artwork_dir"), CFG.get("music_dir"),
          os.path.join(CFG.get("studio_dir", ""), "assets", "fonts")]
-    r.append(CFG.get("experimental_root") or r"D:\HubGPT")
+    import experimental_workspace
+    r.append(experimental_workspace.root(CFG))
+    r.extend(experimental_workspace.legacy_roots(CFG))       # older data folders (D:\HubGPT) stay viewable
     return [os.path.normcase(os.path.abspath(x)) for x in r if x]
 
 
@@ -370,11 +517,15 @@ class H(BaseHTTPRequestHandler):
             return self.send(404, {"error": "not found"})
         size = os.path.getsize(path)
         ctype = TYPES.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
-        etag = f'"{int(os.path.getmtime(path) * 1000):x}-{size:x}"'      # changes when the file is made again
+        # Include the path: two different HTML pages can have the same size and
+        # timestamp, and must never share a validator in the browser cache.
+        path_tag = hashlib.sha256(os.path.normcase(os.path.abspath(path)).encode("utf-8")).hexdigest()[:12]
+        etag = f'"{path_tag}-{int(os.path.getmtime(path) * 1000):x}-{size:x}"'
+        cache_control = "no-store" if ctype.startswith("text/html") else "no-cache"
         if self.headers.get("If-None-Match") == etag and not self.headers.get("Range"):
             self.send_response(304)
             self.send_header("ETag", etag)
-            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Cache-Control", cache_control)
             self.end_headers()
             return
         rng = self.headers.get("Range")
@@ -394,7 +545,7 @@ class H(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("ETag", etag)
-        self.send_header("Cache-Control", "no-cache")                  # always ask: is this still the same file?
+        self.send_header("Cache-Control", cache_control)                 # HTML modes are never reused from cache.
         self.send_header("Content-Length", str(b - a + 1))
         if code == 206:
             self.send_header("Content-Range", f"bytes {a}-{b}/{size}")
@@ -436,10 +587,31 @@ class H(BaseHTTPRequestHandler):
             return self.file(f)
         if p == "/api/status":
             return self.send(200, {**tools.status(CFG, JOBS), "update_ready": code_changed()})
+        if p.startswith("/api/narrator"):            # corner narrator page (app/narrator.py)
+            import narrator
+            try:
+                return self.send(*narrator.handle_get(CFG, p, q))
+            except ValueError as e:
+                return self.send(400, {"error": str(e)})
+        if p.startswith("/api/create/") or p == "/api/queue":   # Experimental Create form defaults, build queue
+            import create_form
+            return self.send(*create_form.handle_get(CFG, JOBS, p, q))
+        if p == "/api/tinker":                      # Experimental settings panel (app/tinker.py)
+            import tinker
+            return self.send(200, tinker.state(CFG))
+        if p.startswith("/api/git/"):              # Save / Git page (app/git_save.py, fixed git commands only)
+            import git_save
+            return self.send(*git_save.handle_get(CFG, p, q))
+        if p.startswith("/api/rate/") or p == "/api/sounds":   # Experimental ratings (feedback.py) and Sounds page
+            import feedback, sound_library
+            try:
+                return self.send(*(feedback if p.startswith("/api/rate/") else sound_library).handle_get(CFG, p, q))
+            except Exception as e:
+                return self.send(500, {"error": str(e)})
         if p == "/api/jobs":
             exp = self.headers.get("X-Hub-Experimental") == "1"
             rows = [j for j in JOBS.jobs if bool((j.get("params") or {}).get("_experimental_workspace")) == exp]
-            return self.send(200, [{**{k: v for k, v in j.items() if k != "steps"}, "n_steps": len(j["steps"])}
+            return self.send(200, [{**{k: v for k, v in j.items() if k != "steps"}, "n_steps": len(j.get("steps") or [])}
                                    for j in reversed(rows[-100:])])
         m = re.match(r"^/api/jobs/([\w]+)/log$", p)
         if m:
@@ -459,7 +631,7 @@ class H(BaseHTTPRequestHandler):
                     end = off + len(data)
                     text = data.decode("utf-8", "replace")
             return self.send(200, {"text": text, "next": end, "trimmed": locals().get("trimmed", False), "status": j["status"],
-                                   "step": j.get("step"), "n_steps": len(j["steps"]),
+                                   "step": j.get("step"), "n_steps": len(j.get("steps") or []),
                                    "step_label": j.get("step_label", "")})
         m = re.match(r"^/api/jobs/([\w]+)/notes$", p)
         if m:
@@ -502,7 +674,8 @@ class H(BaseHTTPRequestHandler):
                     data = {}
             ep = os.path.join(ep_dir, CFG.get("episode_output_name", "Output")) if ep_dir else os.path.join(CFG.get("episodes_dir", ""), name, CFG.get("episode_output_name", "Output"))
             vids = sorted(__import__("glob").glob(os.path.join(ep, "*.mp4")), key=os.path.getmtime, reverse=True)
-            nar = os.path.join(ep_dir, "02_Narration", "narrations", name) if ep_dir else tools.narration_dir(CFG, name, existing=True)
+            line_cfg = dict(CFG, sukoonvoice_media=os.path.join(ep_dir, CFG.get("layout", {}).get("experimental_narration", "02_Narration"))) if ep_dir else CFG
+            nar = tools.narration_dir(line_cfg, name, existing=True)
             lines = []
             if os.path.isdir(nar):
                 try:
@@ -511,7 +684,6 @@ class H(BaseHTTPRequestHandler):
                     key = (nar, stamp)
                     if key not in _EXPERIMENTAL_LINE_CACHE:
                         _EXPERIMENTAL_LINE_CACHE.clear()
-                        line_cfg = dict(CFG, sukoonvoice_media=os.path.join(ep_dir, CFG.get("layout", {}).get("experimental_narration", "02_Narration"))) if ep_dir else CFG
                         _EXPERIMENTAL_LINE_CACHE[key] = tools.narration_lines(line_cfg, nar).get("lines", [])
                     lines = _EXPERIMENTAL_LINE_CACHE[key]
                 except Exception:
@@ -521,11 +693,19 @@ class H(BaseHTTPRequestHandler):
                 recordings = json.load(open(recfile, encoding="utf-8")).get("takes", [])
             except (OSError, ValueError, AttributeError):
                 recordings = []
+            audio_review = {}
+            audio_review_path = os.path.join(nar, "experimental_audio_review.json")
+            if os.path.isfile(audio_review_path):
+                try:
+                    audio_review = json.load(open(audio_review_path, encoding="utf-8"))
+                except (OSError, ValueError):
+                    audio_review = {}
             report_out = os.path.join(ep, "experimental_report.txt")
             data.update({"name": name, "video": vids[0] if vids else "",
                          "script": os.path.join(ep_dir, "01_Script", "script.txt") if ep_dir else os.path.join(CFG["scripts_dir"], name + ".txt"),
                          "lines": lines,
                          "recordings": recordings,
+                         "audio_review": audio_review,
                          "report": report_out if os.path.isfile(report_out) else os.path.join(d, "experimental_report.txt")})
             return self.send(200, data)
         return self.send(404, {"error": "unknown"})
@@ -671,6 +851,34 @@ class H(BaseHTTPRequestHandler):
                         for entry in data["entries"]:
                             f.write("[{}] [{}] {}\n{}\n\n".format(entry["time"], entry["stage"], entry["result"].upper(), entry["note"]))
                 return self.send(200, {"ok": True, "entries": len(data["entries"]), "report": report_out})
+            if p.startswith("/api/git/"):          # Save / Git page (app/git_save.py)
+                import git_save
+                return self.send(*git_save.handle_post(CFG, p, body, JOBS))
+            if p.startswith("/api/rate/") or p.startswith("/api/sounds/"):   # ratings (feedback.py), Sounds page
+                import feedback, sound_library
+                try:
+                    return self.send(*(feedback if p.startswith("/api/rate/") else sound_library).handle_post(CFG, p, body, JOBS))
+                except ValueError as e:
+                    return self.send(400, {"error": str(e)})
+            if p.startswith("/api/narrator/"):         # corner narrator page (app/narrator.py)
+                import narrator
+                try:
+                    return self.send(*narrator.handle_post(CFG, p, body, JOBS))
+                except ValueError as e:
+                    return self.send(400, {"error": str(e)})
+            if p.startswith("/api/create/") or p.startswith("/api/queue/"):   # Create form defaults, build queue
+                import create_form
+                return self.send(*create_form.handle_post(CFG, JOBS, p, body))
+            if p.startswith("/api/tinker/"):           # Experimental settings panel (app/tinker.py)
+                import tinker
+                if p == "/api/tinker/save":
+                    return self.send(200, tinker.save(CFG, body.get("section"), body.get("key"), body.get("value")))
+                if p in ("/api/tinker/promote", "/api/tinker/working_reset"):
+                    if any(j["status"] == "running" for j in JOBS.jobs):
+                        return self.send(409, {"error": "a job is running; promote when it has finished"})
+                    if p == "/api/tinker/promote":
+                        return self.send(200, tinker.promote(CFG, body.get("items") or []))
+                    return self.send(200, tinker.working_reset(CFG, body.get("section"), body.get("key")))
             if p == "/api/jobs":
                 kind = body.get("kind")
                 if self.headers.get("X-Hub-Experimental") == "1" or body.get("_experimental_mode") is True:
@@ -691,6 +899,8 @@ class H(BaseHTTPRequestHandler):
                 j = JOBS.get(jid)
                 if not j:
                     return self.send(404, {"error": "no such job"})
+                if not j.get("steps"):
+                    return self.send(400, {"error": "this job has no steps saved - start it fresh from its page"})
                 k = JOBS.add(j["kind"], j["title"] + " (again)", j["steps"], j.get("outputs"), j.get("params"))
                 return self.send(200, {"id": k["id"]})
             if p == "/api/open":
@@ -926,6 +1136,21 @@ def main():
         import webbrowser; webbrowser.open(url)
         return
     tools.apply_settings(CFG)                          # your choices from Settings (e.g. the local writer model)
+    try:                                               # prompts and tables promoted from Experimental mode
+        import tinker
+        tinker.install(CFG)
+    except Exception as e:
+        print(f"  (working_tinker.json was not applied: {e})", flush=True)
+    try:                                               # Experimental runs pick music / effects with your ratings
+        import feedback
+        feedback.install(CFG)
+    except Exception as e:
+        print(f"  (ratings were not connected to music / effects selection: {e})", flush=True)
+    try:                                               # corner narrator steps (app/narrator.py; off until a series turns it on)
+        import narrator
+        narrator.install(CFG)
+    except Exception as e:
+        print(f"  (corner narrator not connected: {e})", flush=True)
     JOBS = Jobs()
     try:                                               # a small note for whoever checks the hub from outside
         os.makedirs(CFG["hub_logs_root"], exist_ok=True)

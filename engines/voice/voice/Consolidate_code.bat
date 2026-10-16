@@ -1,11 +1,16 @@
 @echo off
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 :: Define the name of the output file
 set "OUTPUT_FILE=consolidated_code.py"
 
-:: Delete the output file if it already exists so we start fresh
-if exist "%OUTPUT_FILE%" del "%OUTPUT_FILE%"
+:: Preserve the previous merged source before rebuilding it.
+if exist "%OUTPUT_FILE%" (
+    for /f %%i in ('powershell.exe -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
+    copy /y "%OUTPUT_FILE%" "%OUTPUT_FILE%.bak_!STAMP!" >nul
+)
+type nul > "%OUTPUT_FILE%"
 
 echo Consolidating Python files into %OUTPUT_FILE%...
 echo.
@@ -33,4 +38,4 @@ for /r %%i in (*.py) do (
 
 echo.
 echo Done! All Python files have been combined.
-pause
+if /i not "%~1"=="--no-pause" pause

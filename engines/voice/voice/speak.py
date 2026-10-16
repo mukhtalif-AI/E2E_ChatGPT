@@ -23,10 +23,32 @@ CONJ = {"और", "लेकिन", "पर", "जब", "तो", "कि", "�
 OBL = {"उस", "इस", "जिस", "किस", "छत", "मेज़", "मेज", "दीवार", "खिड़की", "दरवाज़े", "दरवाजे", "ज़मीन", "जमीन", "बिस्तर",
        "सड़क", "रास्ते", "कंधे", "चेहरे", "हाथ", "सिर", "पेड़", "घर", "छाती", "पलंग", "कुर्सी", "गाड़ी", "बस", "स्टेशन"}
 VERB_END = re.compile(r"(है|हैं|था|थी|थे|हूं|हूँ|हो|गा|गी|गे|ें|ो|ना)$")
+EDITORIAL_TAIL = re.compile(
+    r"(?i)\b(?:the repetition of|the repeated (?:phrase|line|words)|this repetition|"
+    r"the ending is meant to|this ending is meant to|the final line is meant to|"
+    r"the story is meant to|this story is intended to|the intention is|"
+    r"note:|editor['’]s note|as requested,|i hope you (?:enjoy|like)|"
+    r"the (?:story|script|ending) above)\b"
+)
 
 
-def chunk(s, max_words=16):
-    """long unpunctuated sentences -> pieces of <= max_words, cut before a joining word or after a verb."""
+def _strip_editorial_tail(text):
+    """Keep appended English author notes out of Hindi narration."""
+    match = EDITORIAL_TAIL.search(text)
+    if not match:
+        return text
+    text = text[:match.start()]
+    hindi = list(re.finditer(r"[\u0900-\u097F]", text))
+    if hindi:
+        end = hindi[-1].end()
+        while end < len(text) and text[end] in "।.!?…\"”'’":
+            end += 1
+        text = text[:end]
+    return text.rstrip()
+
+
+def chunk(s, max_words=28):
+    """Only very long sentences get a fallback clause split; punctuation remains the main guide."""
     w = s.split()
     if len(w) <= max_words:
         return [s]
@@ -55,6 +77,10 @@ def read_script(path):
         raise SystemExit(f"no script found: {path}")
     S = cfg.C["speak"]
     raw = open(path, encoding="utf-8-sig").read().replace("\r\n", "\n")
+    clean_raw = _strip_editorial_tail(raw)
+    if clean_raw != raw:
+        say("   removed an AI editor note appended after the story")
+        raw = clean_raw
     parts = [p for p in re.split(r"\n\s*-{3,}\s*\n", "\n" + raw + "\n") if p.strip()]
     if len(parts) > 1:
         say("   (the script has several versions separated by ----- : reading the FIRST one)")
@@ -164,70 +190,20 @@ def gentle_ending(plan, S):
         plan[start - 1]["pause"] = max(plan[start - 1]["pause"], 2.5)
     return plan
 
-# --- dramatic pacing (भय / रहस्य): a held beat after "लेकिन उसके बाद...", a breath before "तभी", room after a reveal.
-# Only the SILENCES change - every phrase is still spoken whole at the series' normal expressiveness, so there are
-# no pitch jumps; lead-ins are at least two words (a lone word like "तभी" can come out garbled, so it gets a pause
-# BEFORE it instead of being cut off on its own).
-LEADS = ["लेकिन उसके बाद", "और उसके बाद", "पर उसके बाद", "मगर उसके बाद", "लेकिन तभी", "और तभी", "पर तभी",
-         "लेकिन फिर", "और फिर", "तभी अचानक", "और अचानक", "लेकिन अचानक", "उसके बाद", "और उस रात", "उस रात",
-         "और वहाँ", "और वहां", "लेकिन वहाँ", "लेकिन वहां", "पर जैसे ही", "और जैसे ही", "जैसे ही", "उसी पल",
-         "और उसी पल", "ठीक उसी वक़्त", "ठीक उसी वक्त", "लेकिन जो", "और जो", "but then", "and then", "and suddenly"]
-BEATS = ("तभी", "अचानक", "एकदम", "फिर", "suddenly", "then")         # a breath BEFORE these
-# every series its own kind of tension (drama_style): horror/thriller = held breath; story = turns of the story;
-# soft (romance, ASMR) = tender, lingering moments; explain (knowledge) = a beat before the point that matters
-LEADS_BY = {
-    "horror": LEADS,
-    "story": LEADS + ["लेकिन उस दिन", "पर उस दिन", "और उस दिन", "सालों बाद", "कई साल बाद", "लेकिन किस्मत", "और फिर एक दिन",
-                      "फिर एक दिन", "लेकिन उसे क्या पता था", "उसे नहीं पता था"],
-    "soft": ["और फिर", "उस पल", "उसी पल", "और उस पल", "धीरे से", "और धीरे से", "पहली बार", "और उस रात", "उस रात",
-             "बस एक पल", "और जैसे ही", "जैसे ही", "and then", "slowly"],
-    "explain": ["लेकिन असल में", "असल में", "सबसे ज़रूरी बात", "सबसे जरूरी बात", "इसका मतलब", "यानी कि", "लेकिन सवाल यह है",
-                "सवाल यह है", "दिलचस्प बात यह है", "हैरानी की बात यह है", "सोचिए", "ज़रा सोचिए", "but here is the thing",
-                "in other words"]}
-BEATS_BY = {"horror": BEATS, "story": ("तभी", "अचानक", "एकदम"), "soft": ("धीरे", "हल्के"), "explain": ()}
-
-
 def _jit(text, lo=0.85, hi=1.2):
     import zlib
     return lo + (hi - lo) * (zlib.crc32(text.encode("utf-8")) % 1000) / 999.0
 
 
 def dramatic(units, S):
-    """units -> units with tension silences. Deterministic (same script = same pauses), so a Repair remake of
-    single lines keeps the numbering."""
-    hold = float(S.get("pause_tension", 1.7))
-    style = str(S.get("drama_style", "horror"))
-    leads, beats = LEADS_BY.get(style, LEADS), BEATS_BY.get(style, BEATS)
-    leads = sorted(leads, key=lambda x: -len(x))
-    out = []
-    for u in units:
-        t = u["text"].strip()
-        done = False
-        for lead in leads:
-            m = re.match(r"^(" + re.escape(lead) + r")[,\s.…]+(.+)$", t, re.I)
-            if m and len(m.group(2).split()) >= 3 and (len(lead.split()) >= 2 or S.get("flow")):   # a lone word only
-                # when flow mode joins it to the phrase before it (alone it can come out garbled)
-                out.append(dict(u, text=m.group(1) + "...", pause=round(hold * _jit(t, 0.9, 1.15), 2), hold=True,
-                                fixed=False))
-                out.append(dict(u, text=m.group(2), fixed=u.get("fixed", False)))
-                done = True
-                break
-        if not done:
-            if out and t.split()[0].strip(",.…") in beats and not out[-1].get("hold"):
-                out[-1]["pause"] = max(out[-1]["pause"], round(hold * 0.75 * _jit(out[-1]["text"]), 2))
-                out[-1]["hold"] = True
-            out.append(dict(u))
-    for i, u in enumerate(out):                       # a short line after a long one = a reveal: let it land
-        t = u["text"].strip()
-        if i and len(t.split()) <= 5 and len(out[i - 1]["text"].split()) >= 5 and re.search(r"[।.!?…]$", t) \
-                and not t.endswith("...") and not u.get("fixed"):
-            u["pause"] = max(u["pause"], round(hold * 1.2 * _jit(t), 2)); u["hold"] = True
-            if not out[i - 1].get("fixed"):
-                out[i - 1]["pause"] = max(out[i - 1]["pause"], round(hold * 0.6, 2)); out[i - 1]["hold"] = True
-        elif t.endswith("?") and not u.get("fixed"):
-            u["pause"] = max(u["pause"], round(float(S["pause_sentence"]) * 1.35, 2)); u["hold"] = True
+    """Honor explicit author/LLM ellipses; do not infer drama from fixed words or line length."""
+    out = [dict(u) for u in units]
     for u in out:
-        u["pause"] = min(u["pause"], float(S.get("pause_tension_max", 2.6)))
+        if u.get("fixed"):
+            continue
+        if u["text"].rstrip().endswith(("...", "…")):
+            u["pause"] = max(float(u["pause"]), float(S.get("pause_tension", 1.7)))
+            u["hold"] = True
     out = vary(out, S)
     if out:
         out[-1]["pause"] = 0.0
@@ -317,22 +293,9 @@ def flow_groups(plan, S):
         if cur:
             t = cur[0]["text"].strip()
             for a, b in zip(cur, cur[1:]):
-                left = a["text"].strip()
                 right = b["text"].strip()
-                # Keep punctuation the writer supplied. A normal line/breath boundary is just
-                # connected speech; it must not become an ellipsis and an artificial stop.
-                if left.endswith(("...", "…", ".", "।", "?", "!", ",", ";", ":")):
-                    joiner = " "
-                elif a["pause"] < 0.6:
-                    joiner = ", "
-                else:
-                    joiner = " "
-                t += joiner + right
-            last = cur[-1]["text"].strip()                # keep YOUR script's ending exactly (it carries your style)
-            end = "..." if last.endswith("...") or last.endswith("…") else "?" if last.endswith("?") else \
-                "!" if last.endswith("!") else "."
-            if not t.endswith(("...", "…", ".", "।", "?", "!")):
-                t += end
+                # Keep source punctuation; a normal breath boundary is not a new comma or stop.
+                t += " " + right
             out.append(dict({"text": t, "pause": cur[-1]["pause"], "parts": len(cur)},
                             **({"emo": cur[0]["emo"]} if cur[0].get("emo") else {}),
                             **{k: True for k in ("hold", "fixed") if cur[-1].get(k)}))
@@ -485,7 +448,10 @@ def main(src, name=None, model=None, redo="", style=None, pace=None, s3gen=None,
         if do_match:
             T = match.targets("sukoon" if (not style or "sukoon" in str(style).lower()) else "story")
             say(f"   match to you: pitch -> {T['f0']:.0f} Hz, pace -> {T['rate']:.1f} words/s")
-        series = "sukoon" if (not style or "sukoon" in str(style).lower()) else "story"
+        # Genre runs pass their series ID separately from `style`, which names
+        # the reference recording. Use that ID to select the checkpoint's
+        # learned pace class; retain the legacy inference for ordinary runs.
+        series = str(S.get("pace_style") or ("sukoon" if (not style or "sukoon" in str(style).lower()) else "story"))
         set_voice(m, ref, ck, float(S["exaggeration"]), style=series, pace_setting=S.get("pace", "auto"))
         wps = words_per_second()
         t0, done_audio = time.time(), 0.0

@@ -1,6 +1,6 @@
 """comfy.py - pictures through ComfyUI's local web API (graphs copied from Kisse), started by itself when needed.
 ComfyUI itself is a SHARED resource (E:\\ComfyUI_windows_portable); its output goes to <media_dir>\\_comfy."""
-import json, os, subprocess, time, urllib.error, urllib.parse, urllib.request
+import json, os, subprocess, threading, time, urllib.error, urllib.parse, urllib.request
 
 
 # ------------------------------------------------------------------ ComfyUI (graphs = Kisse's, copied)
@@ -43,6 +43,9 @@ def dreamshaper_xl_turbo(prompt, negative, w, h, seed, steps=8):
 
 ENGINES = {"z_image_turbo": z_image_turbo, "z_image_turbo_fp8": z_image_turbo_fp8,
            "dreamshaper_xl_turbo": dreamshaper_xl_turbo}
+
+
+ACTIVE = {}          # worker thread -> the ComfyUI prompt it is waiting for (so Stop can cancel just that one)
 
 
 def _get(url, timeout=30):
@@ -124,6 +127,7 @@ def comfy_generate(cfg, prompt, out_png, engine, seed, w, h, timeout=900, steps=
         pid = json.loads(_post(cfg["comfy_url"] + "/prompt", {"prompt": graph}))["prompt_id"]
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"ComfyUI refused the job: {e.read().decode('utf-8', 'replace')[:400]}")
+    ACTIVE[threading.get_ident()] = pid
     t0, fails = time.time(), 0
     while time.time() - t0 < timeout:
         time.sleep(1.0 if not fails else min(10.0, 2.0 * fails))

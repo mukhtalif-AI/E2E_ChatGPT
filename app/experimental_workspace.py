@@ -4,11 +4,14 @@ The stable HubGPT paths remain configured in config.json. Experimental jobs
 get a per-episode workspace under the dedicated HubGPT root instead.
 """
 import glob
+import array
 import json
 import os
 import re
 import shutil
+import struct
 import time
+import wave
 
 
 def layout(cfg, key, default):
@@ -16,7 +19,19 @@ def layout(cfg, key, default):
 
 
 def root(cfg):
-    return os.path.abspath(cfg.get("experimental_root") or r"D:\HubGPT")
+    # The one data folder (config.json paths.experimental_root); without it, the main output folder.
+    return os.path.abspath(cfg.get("experimental_root") or cfg.get("media_dir") or r"D:\MukhtalifGPT")
+
+
+def legacy_roots(cfg):
+    """Older data folders (config.json paths.legacy_roots, e.g. D:\\HubGPT): only read, never written,
+    so files made before the move still open and old jobs still show."""
+    here = os.path.normcase(root(cfg))
+    out = []
+    for p in (cfg.get("paths") or {}).get("legacy_roots") or []:
+        if p and os.path.normcase(os.path.abspath(p)) != here and os.path.isdir(p):
+            out.append(os.path.abspath(p))
+    return out
 
 
 def initialize(cfg):
@@ -39,10 +54,21 @@ def prepare(kind, body, cfg, job_id):
     """Build an isolated job config and plan without changing the stable CFG."""
     from tools import plan, slug
 
+    import tinker
+
     b = dict(body)
     base = initialize(cfg)
     L = cfg.get("layout") or {}
+    # Tinker settings: this job keeps the snapshot taken now, also after a hub restart.
+    snap = tinker.snapshot(cfg)
+    if snap:
+        b["_tinker"] = snap
     series = slug(b.get("genre") or b.get("series") or ("sukoon" if kind == "episode" else "Other"))
+    try:                                   # which prompt / model versions this run uses, for its ratings later
+        import feedback
+        b["_prompt_versions"] = feedback.prompt_versions(cfg, snap, b.get("genre") or "")
+    except Exception as exc:
+        b["_prompt_versions"] = {"error": str(exc)}
     episode_kinds = {"episode", "genre", "horror", "experimental", "voice", "pictures", "image", "slideshow", "studio"}
     episode_dir = ""
     if kind in episode_kinds:
@@ -58,7 +84,7 @@ def prepare(kind, body, cfg, job_id):
             json.dump({"job_id": job_id, "kind": kind, "series": series, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
                        "request": {k: v for k, v in b.items() if k not in ("data",)}}, f, ensure_ascii=False, indent=2)
 
-    job_cfg = dict(cfg)
+    job_cfg = tinker.apply_models(cfg, snap)
     job_cfg["experimental_mode"] = True
     job_cfg["experimental_root"] = base
     job_cfg["media_dir"] = os.path.join(base, L.get("experimental_library", "Library"))
@@ -71,7 +97,25 @@ def prepare(kind, body, cfg, job_id):
     for name in (L.get("scripts", "scripts"), L.get("pictures", "pictures"), L.get("videos", "videos"), L.get("images", "images"), L.get("temporary", "_tmp")):
         os.makedirs(os.path.join(job_cfg["media_dir"], name), exist_ok=True)
 
-    plan = plan(kind, b, job_cfg)
+    try:
+        tinker.enter(snap)
+        plan = plan(kind, b, job_cfg)
+    finally:
+        if snap:
+            tinker.leave()
+    if kind == "experimental" and b.get("narration_stack_trial", True):
+        # Experimental-only diagnostic stage. Keep the stable planner and voice engine untouched.
+        for index, step in enumerate(plan.get("steps", [])):
+            if step.get("fn") == "sv_speak":
+                plan["steps"].insert(index + 1, {
+                    "fn": "exp_audio_review",
+                    "label": "experimental narration stack: per-line audio signal review",
+                    "args": {"name": b.get("name", ""), "series": series,
+                             "director": "writer mode: {}; configured local model: {}".format(
+                                 b.get("writer") or "auto", cfg.get("llm") or "not set")},
+                })
+                break
+    _feedback_steps(plan, b, series)
     if episode_dir:
         # Route generated cover art and scene assets into the episode workspace.
         old = job_cfg["pictures_dir"]
@@ -101,6 +145,153 @@ def prepare(kind, body, cfg, job_id):
     return plan, b, job_cfg
 
 
+def exp_audio_review(ctx, name, series="", director=""):
+    """Write transparent signal diagnostics for an Experimental narration; never auto-grade or alter audio."""
+    from tools import narration_dir
+
+    cfg = ctx["cfg"]
+    narration = narration_dir(cfg, name, existing=True)
+    rows = []
+    for path in sorted(glob.glob(os.path.join(narration, "*.wav"))):
+        try:
+            with wave.open(path, "rb") as wav:
+                channels, width, rate, frames = (wav.getnchannels(), wav.getsampwidth(),
+                                                  wav.getframerate(), wav.getnframes())
+                raw = wav.readframes(frames)
+            if width != 2 or not frames:
+                rows.append({"file": os.path.basename(path), "status": "skipped",
+                             "reason": "signal report currently reads 16-bit PCM WAV only"})
+                continue
+            samples = array.array("h")
+            samples.frombytes(raw)
+            if __import__("sys").byteorder != "little":
+                samples.byteswap()
+            peak = max((abs(v) for v in samples), default=0)
+            rms = (sum(v * v for v in samples) / max(1, len(samples))) ** 0.5
+            silent = sum(abs(v) <= 32 for v in samples) / max(1, len(samples))
+            edge_start = abs(samples[0]) / 32768 if samples else 0
+            edge_end = abs(samples[-1]) / 32768 if samples else 0
+            rows.append({"file": os.path.basename(path), "duration_s": round(frames / rate, 2),
+                         "sample_rate": rate, "channels": channels,
+                         "peak_dbfs": round(20 * __import__("math").log10(max(1, peak) / 32768), 1),
+                         "rms_dbfs": round(20 * __import__("math").log10(max(1, rms) / 32768), 1),
+                         "clipped_sample_pct": round(100 * sum(abs(v) >= 32760 for v in samples) / len(samples), 4),
+                         "near_silence_pct": round(100 * silent / len(samples), 2),
+                         "start_edge_pct_full_scale": round(100 * edge_start, 2),
+                         "end_edge_pct_full_scale": round(100 * edge_end, 2)})
+        except (OSError, EOFError, wave.Error, struct.error) as exc:
+            rows.append({"file": os.path.basename(path), "status": "skipped", "reason": str(exc)})
+
+    report = {
+        "schema": 1,
+        "stack": {
+            "tts_active": "Existing HubGPT Voice / Chatterbox series voice",
+            "tts_candidate": "IndicF5 (not wired or installed in this checkout)",
+            "speech_verification": "Existing Hindi Whisper check inside the voice retry loop",
+            "faster_whisper": "Used by the video engine; not used here as a second speech verdict",
+            "story_director": director,
+            "audio_evaluator": "Signal measurements below; listen to judge naturalness, emotion, and pacing",
+            "correction_controller": "Existing pronunciation/stutter retakes; signal measurements do not trigger edits",
+            "series": series,
+        },
+        "interpretation": "Measurements are diagnostic cues, not a naturalness score or automatic pass/fail.",
+        "files": rows,
+    }
+    out = os.path.join(narration, "experimental_audio_review.json")
+    os.makedirs(narration, exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    ctx["say"]("   signal review: {} WAV file(s); no audio was modified".format(len(rows)))
+    ctx["say"]("   report: " + out)
+    return True
+
+
+def _feedback_steps(plan, b, series):
+    """Experimental genre runs: effects placed at the spoken word, then the AI self-review after the video."""
+    steps = plan.get("steps", [])
+    for index, step in enumerate(steps):
+        if step.get("fn") == "horror_sound" and b.get("word_timed_sfx", True):
+            a = step.get("args") or {}
+            steps.insert(index, {"fn": "exp_cue_times",
+                                 "label": "sound effects timed to the spoken words (Whisper word times)",
+                                 "args": {"name": a.get("name", ""), "pictures": a.get("pictures", ""),
+                                          "genre": a.get("genre", "")}})
+            break
+    for index, step in enumerate(steps):
+        if step.get("fn") == "horror_video":
+            a = step.get("args") or {}
+            steps.insert(index + 1, {"fn": "exp_after_video",
+                                     "label": "AI self-review of the video (pre-fills ratings you can change)"
+                                     if b.get("self_review", True) else "remember what this video was made from",
+                                     "args": {"video": a.get("out", ""), "narration": a.get("narration", ""),
+                                              "pictures": a.get("pictures", ""), "genre": a.get("genre", series),
+                                              "name": a.get("name", ""), "review": bool(b.get("self_review", True))}})
+            break
+
+
+def exp_cue_times(ctx, name, pictures, genre=""):
+    import self_review
+    try:
+        return self_review.cue_times(ctx, name, pictures, genre)
+    except Exception as exc:                # never stop a run over this; horror_sound keeps the old estimate
+        ctx["say"]("   (word timing skipped: {})".format(exc))
+        return True
+
+
+def exp_after_video(ctx, video, narration, pictures, genre="", name="", review=True):
+    """write Output/review_sources.json (what the video was made from), then the optional self-review"""
+    job = ctx.get("job") or {}
+    params = job.get("params") or {}
+    req = {k: v for k, v in params.items() if not k.startswith("_")}
+    try:
+        import feedback
+        settings = feedback._settings_of(dict(req, _tinker=params.get("_tinker")))
+    except Exception:
+        settings = {}
+    out_dir = os.path.dirname(video)
+    os.makedirs(out_dir, exist_ok=True)
+    src = {"job_id": job.get("id"), "series": genre, "name": name, "video": video, "narration": narration,
+           "pictures": pictures, "settings": settings, "prompt_versions": params.get("_prompt_versions") or {},
+           "made": time.strftime("%Y-%m-%d %H:%M:%S")}
+    tmp = os.path.join(out_dir, "review_sources.json.part")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(src, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, os.path.join(out_dir, "review_sources.json"))
+    if not review or not os.path.isfile(video):
+        return True
+    return exp_self_review(ctx, video, narration, pictures, genre, name)
+
+
+def exp_self_review(ctx, video, narration="", pictures="", genre="", name="", checks=None):
+    import self_review
+    try:
+        return self_review.run(ctx, video, narration, pictures, genre, name, checks) is not False
+    except Exception as exc:                # a failed review never fails the video
+        import traceback
+        ctx["say"]("   (self-review stopped: {})\n{}".format(exc, traceback.format_exc()[-800:]))
+        return True
+
+
+def exp_sound_fetch(ctx, kind, folder, items, allow_by=False):
+    import sound_library
+    return sound_library.fetch(ctx, kind, folder, items, allow_by)
+
+
+def exp_sound_topup(ctx, series="", per=3):
+    import sound_library
+    return sound_library.topup(ctx, series, per)
+
+
+def exp_music_topup(ctx, series="", per=2, allow_by=False):
+    import sound_library
+    return sound_library.topup_music(ctx, series, per, allow_by)
+
+
+def exp_sound_screen(ctx):
+    import audio_screen
+    return audio_screen.screen_all(ctx)
+
+
 def _replace_paths(value, old, new):
     if isinstance(value, str):
         return value.replace(old, new)
@@ -115,7 +306,8 @@ def job_config(cfg, params):
     meta = (params or {}).get("_experimental_workspace") or {}
     if not meta:
         return cfg, None
-    out = dict(cfg)
+    import tinker
+    out = tinker.apply_models(cfg, (params or {}).get("_tinker"))
     out.update({"experimental_mode": True, "experimental_root": meta.get("root"),
                 "media_dir": meta.get("media_dir"), "sukoonvoice_media": meta.get("sukoonvoice_media"),
                 "layout": meta.get("layout") or cfg.get("layout", {})})
@@ -155,7 +347,8 @@ def sync_jobs(jobs, cfg):
     path = os.path.join(base, layout(cfg, "experimental_activity", "Activity"), "jobs.json")
     tmp = path + ".part"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump([{k: v for k, v in j.items() if k != "steps"} for j in selected[-300:]], f, ensure_ascii=False, indent=2)
+        # steps are kept: after a hub restart this file is read back and unfinished jobs carry on from it
+        json.dump(selected[-300:], f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
 
 

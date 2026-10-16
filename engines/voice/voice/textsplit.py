@@ -22,11 +22,7 @@ def sentences(text, max_words=22):
         if cur:
             out.append(cur)
     out = [s for s in out if re.search("[\u0900-\u097Fa-zA-Z0-9]", s)]
-    merged = []                                   # 1-3 word bits ("गाँव में।") join a neighbour: the voice
-    for s in out:                                 # model is unstable on them and captions would flash
-        if merged and (len(merged[-1].split()) < 4 or len(s.split()) < 3) and \
-                len((merged[-1] + " " + s).split()) <= max_words:
-            merged[-1] = merged[-1] + " " + s
-        else:
-            merged.append(s)
-    return merged
+    # Keep authored sentence boundaries, including short complete lines. The old
+    # merge joined fragments across terminal punctuation and erased intentional
+    # beats such as "वह रुक गया।" followed by a one-word reveal.
+    return out

@@ -99,7 +99,8 @@ RULES = (
     "made-up facts or numbers. " + SPOKEN_HINDI_CADENCE)
 
 CHECK = (
-    "Check this Hindi Sukoon sleep script against the list and return the CORRECTED FULL SCRIPT ONLY, with one "
+    "Check this Hindi Sukoon sleep script against the list and return the CORRECTED FULL SCRIPT ONLY, with no "
+    "explanation or commentary after the final line, and with one "
     "complete conversational sentence per line and pause-only lines only where a longer pause is intended:\n"
     "1 it is night; nothing happens in daylight or sunshine\n2 the central image ({image}) is kept from start to end "
     "and the ending returns to it\n3 no line, phrase or idea is repeated (except the final good-night lines)\n"
@@ -347,6 +348,10 @@ def local_chat(cfg, prompt, temp=0.85, as_json=False, ctx_len=8192):
     cfg["_ollama_used"] = True
     body = {"model": model, "prompt": prompt, "stream": False,
             "options": {"temperature": temp, "num_ctx": ctx_len, "repeat_penalty": 1.12}}
+    # Ollama exposes native thinking for supported Qwen3 text models. Gemma 3 has no
+    # advertised think control, so leave its request unchanged.
+    if model.lower().startswith("qwen3") and not any(tag in model.lower() for tag in ("vl", "vision")):
+        body["think"] = True
     if as_json:
         body["format"] = "json"
     req = urllib.request.Request(cfg.get("ollama_url", "http://127.0.0.1:11434").rstrip("/") + "/api/generate",
@@ -355,7 +360,7 @@ def local_chat(cfg, prompt, temp=0.85, as_json=False, ctx_len=8192):
         return (json.loads(r.read()).get("response") or "").strip(), model
 
 
-def ask(cfg, prompt, engine="auto", temp=0.85, as_json=False, say=print):
+def ask(cfg, prompt, engine="auto", temp=0.85, as_json=False, say=print, ctx_len=8192):
     """-> (text, model). auto = Gemini if a key is set (falls back to local if Gemini fails)."""
     if engine == "auto" and secret("story_engine") == "local":
         engine = "local"
@@ -367,7 +372,7 @@ def ask(cfg, prompt, engine="auto", temp=0.85, as_json=False, say=print):
             if engine == "gemini":
                 raise
             say(f"   (Gemini: {e} - using the local model)")
-    t, m = local_chat(cfg, prompt, temp, as_json, 8192)
+    t, m = local_chat(cfg, prompt, temp, as_json, ctx_len)
     return _strip(t), m
 
 
@@ -464,34 +469,51 @@ def narration_lang(d):
         return "hi"
 
 
-def wpm(cfg, lang="hi"):
+def _experimental_narrations(cfg, series=""):
+    """narration folders of earlier Experimental episodes (Series/<series>/Episodes/*/02_Narration/narrations/*);
+    the current episode's own folder is empty when its script is written, so it alone measures nothing"""
+    try:
+        import experimental_workspace
+        base = experimental_workspace.root(cfg)
+    except Exception:
+        return []
+    L = cfg.get("layout") or {}
+    return glob.glob(os.path.join(base, "Series", series or "*", "Episodes", "*",
+                                  L.get("experimental_narration", "02_Narration"), "narrations", "*"))
+
+
+def wpm(cfg, lang="hi", series=""):
     """script words per minute (pauses included), measured on past narrations: YOUR voice for Hindi, the English
-    narrator for English (until there are English narrations: a calm-narration default)"""
-    c = _WPM.get(lang, {})
+    narrator for English (until there are English narrations: a calm-narration default). In Experimental mode the
+    series' own earlier episodes count first (each series has its own trained voice and pace)."""
+    exp = bool(cfg.get("experimental_mode"))
+    key = f"{lang}|{series if exp else ''}|{int(exp)}"
+    c = _WPM.get(key, {})
     if c.get("t", 0) > time.time() - 600:
         return c["v"]
     rates = []
-    if cfg.get("experimental_mode"):
-        narration_roots = {os.path.join(cfg.get("sukoonvoice_media", ""), "narrations")}
+    if exp:
+        dirs = (_experimental_narrations(cfg, series) if series else []) or _experimental_narrations(cfg)
+        dirs += glob.glob(os.path.join(cfg.get("sukoonvoice_media", ""), "narrations", "*"))
     else:
         narration_roots = {cfg.get("narrations_dir") or os.path.join(cfg.get("sukoonvoice_media", ""), "narrations"),
                            os.path.join(cfg.get("sukoonvoice_media", ""), "narrations")}
-    for root in narration_roots:
-        for d in glob.glob(os.path.join(root, "*")):
-            if narration_lang(d) != lang:
-                continue
-            sp, tp = os.path.join(d, "script.txt"), os.path.join(d, "timing.json")
-            try:
-                words = nwords(open(sp, encoding="utf-8-sig").read())
-                end = json.load(open(tp, encoding="utf-8"))[-1]["end"]
-                if words >= 150 and end > 60:
-                    rates.append(words / (end / 60))
-            except Exception:
-                continue
+        dirs = [d for root in narration_roots for d in glob.glob(os.path.join(root, "*"))]
+    for d in dict.fromkeys(dirs):
+        if narration_lang(d) != lang:
+            continue
+        sp, tp = os.path.join(d, "script.txt"), os.path.join(d, "timing.json")
+        try:
+            words = nwords(open(sp, encoding="utf-8-sig").read())
+            end = json.load(open(tp, encoding="utf-8"))[-1]["end"]
+            if words >= 150 and end > 60:
+                rates.append(words / (end / 60))
+        except Exception:
+            continue
     rates.sort()
     v = rates[len(rates) // 2] if rates else (100.0 if lang == "hi" else 110.0)
-    _WPM[lang] = {"t": time.time(), "v": round(v, 1), "n": len(rates)}
-    return _WPM[lang]["v"]
+    _WPM[key] = {"t": time.time(), "v": round(v, 1), "n": len(rates)}
+    return _WPM[key]["v"]
 
 
 def estimate(cfg, text, lang=None):
@@ -525,7 +547,8 @@ def build_prompt(cfg, r, minutes=12, notes="", subscribe=True, big=True):
         f"STYLE RULES: {RULES}\n\n"
         + (f"EARLIER EPISODES - do NOT reuse their images, places, stories, openings or phrases:\n{avoid}\n\n" if avoid else "")
         + "HOW THE CREATOR WRITES (copy the voice, rhythm and format - not the words):\n\n"
-        + "\n\n---\n\n".join(ex) + "\n\n=====\nNow write tonight's script. Script lines only.\n")
+        + "\n\n---\n\n".join(ex) + "\n\n=====\nNow write tonight's script. Output only spoken story lines. Stop at the final story line; "
+        "do not add an explanation, interpretation, editor's note, or comments about the story.\n")
 
 
 def build_prompt_en(cfg, r, minutes=12, notes="", subscribe=True, big=True):
@@ -553,10 +576,39 @@ def build_prompt_en(cfg, r, minutes=12, notes="", subscribe=True, big=True):
         + (("HOW THE CREATOR WRITES (his Hindi episodes - copy the warmth, rhythm and format in ENGLISH, never "
             "translate them):\n\n" if hindi_ex else "HOW THE CREATOR WRITES (copy the voice, rhythm and format - not "
             "the words):\n\n") + "\n\n---\n\n".join(ex) + "\n\n" if ex else "")
-        + "=====\nNow write tonight's script in English. Script lines only.\n")
+        + "=====\nNow write tonight's script in English. Output only spoken story lines. Stop at the final story line; "
+        "do not add an explanation, interpretation, editor's note, or comments about the story.\n")
+
+
+_EDITORIAL_TAIL = re.compile(
+    r"(?i)\b(?:the repetition of|the repeated (?:phrase|line|words)|this repetition|"
+    r"the ending is meant to|this ending is meant to|the final line is meant to|"
+    r"the story is meant to|this story is intended to|the intention is|"
+    r"note:|editor['’]s note|as requested,|i hope you (?:enjoy|like)|"
+    r"the (?:story|script|ending) above)\b"
+)
+
+
+def _strip_editorial_tail(text, lang="hi"):
+    """Drop model commentary appended after a finished story, including inline explanations."""
+    text = (text or "").replace("\r", "")
+    match = _EDITORIAL_TAIL.search(text)
+    if not match:
+        return text
+    text = text[:match.start()]
+    if lang != "en":
+        hindi = list(re.finditer(r"[\u0900-\u097F]", text))
+        if hindi:
+            # Remove an orphaned English fragment like 'reflected.' before the note as well.
+            end = hindi[-1].end()
+            while end < len(text) and text[end] in "।.!?…\"”'’":
+                end += 1
+            text = text[:end]
+    return text.rstrip()
 
 
 def clean_en(text):
+    text = _strip_editorial_tail(text, "en")
     lines = []
     for ln in (text or "").replace("\r", "").split("\n"):
         ln = ln.strip().strip("*#").strip()
@@ -597,6 +649,7 @@ def clean_for(text, lang):
 
 
 def clean(text):
+    text = _strip_editorial_tail(text, "hi")
     lines = []
     for ln in (text or "").replace("\r", "").split("\n"):
         ln = ln.strip().strip("*#").strip()
@@ -724,6 +777,7 @@ def _local_parts(cfg, say, r, minutes, notes, subscribe, stopped):
                 + (f"Do not reuse from earlier episodes:\n{avoid}\n" if avoid else "")
                 + "Parts: " + " | ".join(f"{k + 1}. {x}" for k, x in enumerate(goals))
                 + f"\n\nWrite ONLY part {i + 1} ({g}), about {target} {'English' if en else 'Hindi'} words. {extra}"
+                + "Output only spoken story lines; do not add an explanation or comments about the story. "
                 + ("Continue from here without repeating:\n\n" + done[-900:] if done else "This is the beginning.")
                 + f"\n\nPart {i + 1}:\n")
         part = ""
@@ -896,10 +950,12 @@ def horror_prompt(cfg, r, minutes=15, notes=""):
             "the ending.\n\n"
             f"STYLE RULES: {RULES_HORROR}\n\n"
             + (f"EARLIER BHAY STORIES - do NOT reuse their ideas:\n{avoid}\n\n" if avoid else "")
-            + "Now write the story. Story lines only.\n")
+            + "Now write the story. Output only spoken story lines. Stop at the final narrative line; do not append "
+            "an explanation, interpretation, editor's note, or comments about the story.\n")
 
 
 def clean_horror(text):
+    text = _strip_editorial_tail(text, "hi")
     out = []
     for ln in (text or "").replace("\r", "").split("\n"):
         ln = ln.strip().strip("*#").strip()
@@ -914,11 +970,29 @@ def clean_horror(text):
         if not re.search("[ऀ-ॿ]", ln):
             continue
         ln = ln.replace("(...)", " ").strip()
+        ln = _trim_dangling(ln)
         if len(ln.split()) > 18:
             out += [x.strip() for x in re.split(r"(?<=[।!?])\s+", ln) if x.strip()]
         else:
             out.append(ln)
     return "\n".join(out) + "\n"
+
+
+# words a spoken Hindi sentence cannot stop on: "... नेगेटिव थी एक..." sounds like the next line is missing
+# (not की/का/के/को/में/से: "ये कहानी है ... स्टूडियो की..." is a normal inverted Hindi sentence)
+DANGLING_HI = {"एक", "और", "या", "कि", "जो", "ने", "सबसे", "बहुत", "वाली", "वाला", "वाले", "इस", "उस", "किसी", "कोई"}
+
+
+def _trim_dangling(ln):
+    """a line that trails off ('...' / '…') on a word like एक/की/और: drop those words, keep the pause"""
+    m = re.search(r"(\s*(?:\.{2,}|…)\s*)$", ln)
+    if not m:
+        return ln
+    words = ln[:m.start()].split()
+    n = len(words)
+    while len(words) > 3 and words[-1].strip(",") in DANGLING_HI:
+        words.pop()
+    return ln if len(words) == n else " ".join(words).rstrip(",") + "..."
 
 
 def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=None, stopped=lambda: False,
@@ -928,21 +1002,23 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
         r["topic"] = topic
     say(f"   story seed: {r['topic']}")
     say(f"   told as: {r['telling']} | fear: {r['fear']} | ending: {r['ending']}")
-    say(f"   ~{minutes:.0f} min ≈ {int(float(minutes) * wpm(cfg))} words (your voice: {wpm(cfg)} words/min)")
+    say(f"   ~{minutes:.0f} min ≈ {int(float(minutes) * wpm(cfg, 'hi', 'bhay'))} words "
+        f"(your voice: {wpm(cfg, 'hi', 'bhay')} words/min)")
     t0 = time.time()
     prompt = horror_prompt(cfg, r, minutes, notes)
     if level == "mature":
         prompt = prompt.replace("No gore, no cheap shocks", genre_rules(cfg, "bhay").get("mature") or LEVELS["mature"]["bhay"]
                                 + " No cheap shocks")
     text, model = ask(cfg, prompt, engine, 0.95, say=say)
-    script = _long_enough(cfg, text, int(float(minutes) * wpm(cfg)), prompt, engine, say, clean_horror)
+    script = _long_enough(cfg, text, int(float(minutes) * wpm(cfg, "hi", "bhay")), prompt, engine, say, clean_horror)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
     if not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             fixed, _ = ask(cfg, "Check this complete Hindi horror story: natural spoken Hindi, steadily building dread, "
                            "clear cause and effect, a fair hook, no repeated ideas, and an ending that lands. Preserve "
-                           "the events and approximate length. Return the corrected full story only.\n\nSTORY:\n\n"
+                           "the events and approximate length. Return the corrected full story only, with no notes or "
+                           "commentary after the final line.\n\nSTORY:\n\n"
                            + script, review_engine, 0.4, say=say)
             fixed = clean_horror(fixed)
             if nwords(fixed) >= nwords(script) * 0.8:
@@ -1115,7 +1191,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
     r = dict(rec or {}) or genre_recipe(cfg, gid, topic)
     if topic:
         r["topic"] = topic
-    words = int(float(minutes) * wpm(cfg))
+    words = int(float(minutes) * wpm(cfg, "hi", gid))
     avoid = "\n".join(f"- {e.get('topic', '')}: {e.get('summary', {}).get('memory_story', '')}"
                       for e in [e for e in ledger(cfg) if e.get("genre") == gid][-10:])
     say(f"   {G['name']}: {r['topic']}  | told as: {r['telling']}  | ~{words} words")
@@ -1128,7 +1204,8 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
               "no breathing exercises, no 'close your eyes', no good-night ending (unless the series is ASMR). Prefer one "
               "complete, naturally connected sentence per line; use a line with only (...) only for an intentional longer pause. No headings, lists, emojis or "
               "stage directions.\n\n" + (f"EARLIER SCRIPTS - do NOT reuse their ideas:\n{avoid}\n\n" if avoid else "")
-              + "Now write it. Script lines only.\n")
+              + "Now write it. Output only spoken script lines. Stop at the final narrative line; do not append an "
+              "explanation, interpretation, editor's note, or comments about the story.\n")
     t0 = time.time()
     text, model = ask(cfg, prompt, engine, 0.9, say=say)
     script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror)
@@ -1139,7 +1216,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
             review = ("Review this complete Hindi " + G["name"] + " audio story. Preserve its events, voice, and length. "
                       "Check the story shape, cause and effect, character consistency, repeated ideas, natural spoken "
                       "Hindi, and a satisfying ending. For knowledge content, remove unsupported factual claims. "
-                      "Return the corrected full script only.\n\nSCRIPT:\n\n" + script)
+                      "Return the corrected full script only, with no notes or commentary after the final line.\n\nSCRIPT:\n\n" + script)
             fixed, _ = ask(cfg, review, review_engine, 0.25, say=say)
             fixed = clean_horror(fixed)
             if nwords(fixed) >= nwords(script) * 0.8:

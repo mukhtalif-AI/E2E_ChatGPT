@@ -309,11 +309,11 @@ function musicSel(id){const m=P.presets.music||{};return `<select id="${id}"><op
 
 const R={};
 // "Experimental" means a full isolated site copy, not an ordinary in-page tool.
-R.experimental=()=>{window.location.href="/experimental"};
+R.experimental=()=>{window.location.replace("/experimental?from=working")};
 // ---------------- HOME
 R.home=async()=>{
   const st=P.status&&P.status.engines&&(!P.status.engines.voice||!P.status.engines.studio);
-  $("main").innerHTML=`<h1>What do you want to make?</h1><p class="sub">Pick a series for a finished video, or a tool for one step. Extra settings sit in the folded sections (▸).</p><p><a class="btn" href="/experimental">✦ Try Experimental mode</a></p>
+  $("main").innerHTML=`<h1>What do you want to make?</h1><p class="sub">Pick a series for a finished video, or a tool for one step. Extra settings sit in the folded sections (▸).</p>
   ${st?`<div class="card" style="border-color:var(--warn);margin-bottom:14px"><b>One-time setup needed</b> — double-click <b>setup_hub.bat</b> in the hub folder.</div>`:""}
   <h2 style="margin-top:6px">Series</h2>
   <div class="make genres">${GENRES.map(g=>`<div class="card flow genre ${g.page?"":"soon"}" onclick="${g.page?`go('${g.page}'${g.page=="genre"?`,'${g.id}'`:""})`:`toast('${esc(g.name)} is coming - tick its recordings and train its voice in Settings first')`}">
@@ -386,7 +386,7 @@ function voiceForm(prefix){const pr=P.presets;return `
    <label>Quality</label>${chips(prefix+"Takes",{"3":"Best of 3 takes","1":"Fast draft"},"3")}
    <label>Delivery — calm ↔ expressive</label>${range(prefix+"Ex",0.25,0.7,0.05,0.35)}
    <label>Pauses — shorter ↔ longer</label>${range(prefix+"Pause",0.4,1.6,0.05,1.0,"×")}
-   <div>${sw(prefix+"Drama","Dramatic pauses — hold the silence after “लेकिन उसके बाद…”, before “तभी”, after a reveal",false)}</div>
+   <div>${sw(prefix+"Drama","Context-aware pauses — the director considers the surrounding sentence and story; no automatic pauses for particular words",false)}</div>
    <div>${sw(prefix+"Emo","Emotions — the AI marks each line [डर] [उदास] [फुसफुसाहट] … and your voice follows (gently, no pitch jumps)",false)}</div>
    <div class="hint">Both are saved into the script, so you can edit them. Turning one on for an existing narration remakes all of it, not just a few lines.</div>
    <div class="sec">Music & sound</div>
@@ -723,7 +723,8 @@ R.genre=async(gid)=>{await pre();gid=gid||store.get("gid","bhay");store.set("gid
    ${["bhay","rahasya","romanch","kisse"].includes(gid)?`<label>Content</label>${chips("hLevel",{standard:"Standard",mature:"Mature (18+)"},store.get("lvl_"+gid,"standard"))}<div class="hint">Mature: stronger, adult content for this series. Your own rules: D:\\MukhtalifGPT\\genre_rules.json (edit freely).</div>`:""}
    <div id="hMine" style="display:none"><textarea id="hScript" placeholder="Paste your Hindi story - one phrase per line, (...) for a long pause"></textarea></div>
    <div class="row"><div style="flex:0 0 170px"><label>Story length (min)</label><input id="hMin" type="number" min="5" max="40" value="15"></div>
-     <div><label>Your voice in the tone of</label><select id="hStyle"><option>${VS}</option></select></div></div>
+     <div><label>Your voice in the tone of</label><select id="hStyle"><option>${VS}</option></select></div>
+     <div style="flex:0 0 auto;align-self:end">${sw("hAcoustic","Acoustic context",true)}<span class="hint">Carry delivery between lines</span></div></div>
    <div class="hint" id="hStyleHint">Reference episodes are ordered by measured pacing when available; the closest match is selected automatically.</div>
    <div id="hGenreHint" class="hint" style="margin-top:5px"></div>
    <div class="actions" style="margin-top:8px"><button class="btn small" id="hAnalyze">Suggest this story’s genre</button><span class="hint">Uses the local language model; suggestion only, your selected series stays unchanged.</span></div>
@@ -735,7 +736,7 @@ R.genre=async(gid)=>{await pre();gid=gid||store.get("gid","bhay");store.set("gid
      <div style="margin-top:8px">${sw("hBest","Best pictures: 2 versions of every scene, the AI keeps the better one (+5-8 min). Off = each scene checked once, only bad ones repainted (+1-2 min)",false)}</div>`)}
    ${more("Voice & music",`<div class="hint" id="hVoiceNote"></div><label>Delivery — calm ↔ expressive</label>${range("hEx",0.25,0.7,0.05,{bhay:.5,rahasya:.5,kisse:.55,romanch:.5,kareeb:.3,gyaan:.5}[gid]||.5)}
      <label>Pauses — shorter ↔ longer</label>${range("hPause",0.4,1.4,0.05,{bhay:.75,rahasya:.6,kisse:.65,romanch:.75,kareeb:1,gyaan:.55}[gid]||.7,"×")}
-     <div>${sw("hDrama","Dramatic pauses — hold the silence after “लेकिन उसके बाद…”, before “तभी”, after a reveal (saved into the script as (... 1.8))",true)}</div>
+     <div>${sw("hDrama","Context-aware pauses — the director considers the surrounding sentence and story; no automatic pauses for particular words (saved into the script)",true)}</div>
      <div>${sw("hEmo","Emotions — the AI marks each line [डर] [उदास] [फुसफुसाहट] … and your voice follows gently (saved into the script)",true)}</div>
      <label>Quality</label>${chips("hTakes",{"3":"Best of 3 takes","1":"Fast draft"},"3")}
      <label>Music</label>${musicSel("hMusic").replace(/Default \([^)]*\)/,"Default: the "+G.name+" mood folders")}`)}
@@ -747,10 +748,10 @@ R.genre=async(gid)=>{await pre();gid=gid||store.get("gid","bhay");store.set("gid
     const r=await api("/api/voice/styles",{genre:gid,script,minutes:+$("#hMin").value||0,suggest_genre:suggest});
     const current=$("#hStyle").value,keep=current&&$("#hStyle").dataset.manual==="1";
     const rows=r.ranking||r.styles.map(name=>({name}));
-    $("#hStyle").innerHTML=rows.map((x,i)=>`<option value="${esc(x.name)}">${i===0?"★ Recommended · ":""}${esc(x.name)}${x.score!=null?` · rhythm fit ${x.score}%`:""}${x.episode?` · from ${esc(x.episode)}`:""}</option>`).join("");
-    const wanted=keep&&rows.some(x=>x.name===current)?current:(r.recommended||VS);
-    if(rows.some(x=>x.name===wanted))$("#hStyle").value=wanted;
-    $("#hStyleHint").textContent=rows[0]?(rows[0].episode&&rows[0].score!=null?`Best pacing match: ${rows[0].episode} (${rows[0].score}% match). You can choose any reference below.`:`Recommended for ${G.name}: ${rows[0].name}. The story-specific cadence match updates after you paste a script.`):"No voice reference recordings found.";
+    $("#hStyle").innerHTML=`<option value="">Auto — choose a tone for the generated story</option>`+rows.map((x,i)=>`<option value="${esc(x.name)}">${i===0?"★ Recommended · ":""}${esc(x.name)}${x.score!=null?` · rhythm fit ${x.score}%`:""}${x.episode?` · from ${esc(x.episode)}`:""}</option>`).join("");
+    const wanted=keep&&rows.some(x=>x.name===current)?current:(script.trim()?(r.recommended||VS):"");
+    $("#hStyle").value=wanted;
+    $("#hStyleHint").textContent=rows.length?(script.trim()?(rows[0].episode&&rows[0].score!=null?`Best pacing match for this pasted script: ${rows[0].episode} (${rows[0].score}% match). You can choose any reference below.`:`Recommended for ${G.name}: ${rows[0].name}.`):`AI-written stories choose a voice tone after the story is finished. ${rows[0].name} is the ${G.name} fallback if matching is unavailable.`):"No voice reference recordings found.";
     if(suggest){const s=r.genre_suggestion;$("#hGenreHint").textContent=s?`Story genre suggestion: ${s.name} · ${Math.round(s.confidence*100)}% confidence${s.reason?` · ${s.reason}`:""}`:`Could not suggest a genre${r.genre_error?`: ${r.genre_error}`:"."}`;}
   }catch(err){if(suggest)$("#hGenreHint").textContent="Genre suggestion unavailable: "+err.message}finally{styleBusy=false}};
   $("#hStyle").onchange=()=>{$("#hStyle").dataset.manual="1"};
@@ -769,6 +770,8 @@ R.genre=async(gid)=>{await pre();gid=gid||store.get("gid","bhay");store.set("gid
     const enteredName=$("#hName").value.trim();
     startGo("genre",{genre:gid,name:enteredName||(PFX+" - Draft "+Date.now()),auto_name:!mine()&&!enteredName,script:mine()?$("#hScript").value:"",topic:mine()?"":$("#hTopic").value,
       recipe:mine()?null:(P.hRecipe||null),notes:mine()?"":(P.hNote||""),speech_min:+$("#hMin").value,voice_style:$("#hStyle").value,
+      voice_style_manual:$("#hStyle").dataset.manual==="1",
+      acoustic_context:$("#hAcoustic").checked,
       title_text:$("#hTitle").value,scenes:+$("#hScenes").value||0,exaggeration:+$("#hEx").value,pause_scale:+$("#hPause").value,
       takes:+chipVal("hTakes"),music_track:($("#hMusic").value&&$("#hMusic").value!="none")?$("#hMusic").value:"",writer:chipVal("hWriter"),
       reels:+$("#hReels").value,reel_len:+$("#hReelLen").value,total_min:+$("#hTotal").value||0,fit:$("#hFit").checked,

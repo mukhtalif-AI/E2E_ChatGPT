@@ -256,6 +256,10 @@ def local_chat(model, prompt, json_mode=True, num_ctx=16384, timeout=900, think=
         message["images"] = [image]
     body = {"model": model, "stream": False, "options": {"temperature": 0.4, "num_ctx": num_ctx},
             "messages": [message]}
+    # Honor callers' thinking preference only for Qwen3 text models. Gemma 3 does not
+    # expose Ollama's native think control; vision variants are excluded as well.
+    if model.lower().startswith("qwen3") and not any(tag in model.lower() for tag in ("vl", "vision")):
+        body["think"] = bool(think)
     if json_mode:
         body["format"] = "json"
     req = urllib.request.Request(OLLAMA + "/api/chat", json.dumps(body).encode(), {"Content-Type": "application/json"})

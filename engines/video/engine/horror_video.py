@@ -141,11 +141,13 @@ class Video:
         _tf, _sf = FONTS.get(plan.get("mood") or "horror", FONTS["horror"])
         ff = font(_sf) or font("aparajb.ttf") or font("TiroDevanagariHindi-Regular.ttf") or font("Nirmala.ttc")
         self.caps = []
+        room = float((plan.get("sub_room") or {}).get("tall" if H > W else "wide") or 0)   # corner narrator side kept free
+        maxw = int(min(W - 300, W - 2 * room * W))
         for ln in plan.get("lines", []):
             t = re.sub(r"\.{2,}|…", "…", ln["text"]).strip(" .।")
             if not t:
                 continue
-            rows = wrap(t, ff, 50, W - 300)
+            rows = wrap(t, ff, 50, maxw)
             a, b = float(ln["start"]), float(ln["end"])
             groups = [rows[g:g + 2] for g in range(0, len(rows), 2)]       # long lines: two rows at a time
             nw = [max(1, sum(len(r.split()) for r in g)) for g in groups]
