@@ -1155,6 +1155,14 @@ def genre_rules(cfg, gid):
     return G
 
 
+def _rules_for(G, level):
+    """a series' writing rules; at the mature level its 'no gore' goes (the mature line allows what it forbade)"""
+    r = str(G.get("rules") or "")
+    if level == "mature" and G.get("mature"):
+        r = re.sub(r",?\s*\bno gore\b", "", r, flags=re.I).replace(" .", ".").strip()
+    return r
+
+
 def _long_enough(cfg, text, words, prompt, engine, say, cleaner):
     """small local models stop early: ask them to go on until the script has its length"""
     script = cleaner(text)
@@ -1198,7 +1206,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
     prompt = (f"You write for '{G['name']}', {G['channel']}: one male narrator. Write tonight's complete script.\n\n"
               f"TOPIC: {r['topic']}\n" + (f"NOTES FROM THE CREATOR: {notes}\n" if notes else "")
               + f"TOLD AS: {r['telling']}\nLENGTH: about {words} Hindi words (without the (...) lines) = about "
-              f"{minutes:.0f} minutes spoken.\nSHAPE: {G['shape']}\n\nSTYLE RULES: {G['rules']} "
+              f"{minutes:.0f} minutes spoken.\nSHAPE: {G['shape']}\n\nSTYLE RULES: {_rules_for(G, level)} "
               + SPOKEN_HINDI_CADENCE + " "
               + (G.get("mature", "") + " " if level == "mature" else "") + "This is NOT a sleep or meditation script: "
               "no breathing exercises, no 'close your eyes', no good-night ending (unless the series is ASMR). Prefer one "

@@ -35,3 +35,6 @@ engines/voice/training/
 *.tmp
 Thumbs.db
 Desktop.ini
+
+# one backups folder
+/_backups/

@@ -53,6 +53,9 @@ def model_chat(cfg, model, prompt, temperature=0.3, as_json=False, image_path=No
     if paths:
         message["images"] = [base64.b64encode(open(path, "rb").read()).decode() for path in paths]
     body = {"model": model, "stream": False, "options": {"temperature": temperature}, "messages": [message]}
+    # Without num_ctx Ollama loads vision models at their full 128k context: 13 GB, spills to CPU, checks time out.
+    if paths:
+        body["options"]["num_ctx"] = int(cfg.get("vision_num_ctx", 8192))
     # Native reasoning is supported by Qwen3 text models, but not the configured Gemma 3 model.
     if model.lower().startswith("qwen3") and not any(tag in model.lower() for tag in ("vl", "vision")):
         body["think"] = True
@@ -66,35 +69,37 @@ def model_chat(cfg, model, prompt, temperature=0.3, as_json=False, image_path=No
 STYLES = {
     "sukoon_night": ("Sukoon night (dreamy, calm)",
                      "soft dreamy digital painting, calm night, deep indigo and navy blue tones with a warm amber "
-                     "lamp glow, gentle moonlight, cozy and peaceful, soft focus, simple composition, no text, no letters"),
+                     "lamp glow, gentle moonlight, cozy and peaceful, soft focus, simple composition, wordless image"),
     "silhouette": ("Silhouette art",
                    "flat silhouette art illustration, every shape a solid pure-black silhouette with crisp clean edges "
-                   "against a smooth glowing gradient sky, minimal, calm, no faces, no text"),
+                   "against a smooth glowing gradient sky, minimal, calm, figures as featureless black shapes, wordless image"),
     "watercolor": ("Soft watercolour",
-                   "soft watercolor illustration, pastel colours, gentle paper texture, airy and calm, no text"),
+                   "soft watercolor illustration, pastel colours, gentle paper texture, airy and calm, wordless image"),
     "cinematic": ("Cinematic still",
-                  "cinematic film still, 35mm photograph, soft natural light, shallow depth of field, calm mood, no text"),
+                  "cinematic film still, 35mm photograph, soft natural light, shallow depth of field, calm mood, wordless image"),
     "bhay": ("भय horror (dark, silhouettes)",
              "dark atmospheric Indian horror digital painting, cinematic, deep shadows, cold moonlight blue and dim "
-             "sickly green tones, thin fog, a single weak warm light source, figures obscured by darkness when the "
-             "scene calls for them, varied camera angles and shot sizes, no repeated rear-view figure, no gore, no blood, "
-             "no text, no letters, eerie and quiet"),
+             "sickly green tones, thin fog, a single weak warm light source, dread and wrongness, unnatural stillness, "
+             "long distorted shadows, pale lifeless skin and hollow dark eyes on any ghostly figure, varied camera "
+             "angles and shot sizes, unsettling and frightening, wordless image"),
     "rahasya": ("रहस्य thriller (noir)",
                 "cinematic Indian thriller film still, moody noir lighting, deep shadows and one hard light source, "
-                "muted teal and amber, rain-wet surfaces, mystery, scene-specific framing and varied camera angles; "
-                "people appear only when the story calls for them, not always from behind, no text"),
+                "muted teal and amber, mystery and tension, scene-specific framing and varied camera angles, "
+                "wordless image"),
     "kisse": ("किस्से emotional (warm)",
               "warm cinematic Indian slice-of-life painting, soft golden evening light, nostalgic film colours, "
-              "gentle and emotional, people seen from behind or far, no clear faces, no text"),
+              "gentle and emotional, people seen from behind or far with faces turned away or in soft shadow, "
+              "wordless image"),
     "romanch": ("रोमांच romance (warm, tasteful)",
-                "romantic cinematic painting, warm candle and golden-hour light, soft bokeh, rain or city lights, two "
-                "silhouettes close together seen from behind, tasteful and elegant, no nudity, no faces, no text"),
+                "romantic cinematic painting, warm candle and golden-hour light, soft bokeh, city lights or lamp glow, two "
+                "fully clothed silhouettes in elegant clothes close together seen from behind, faces in soft shadow, "
+                "tasteful and elegant, wordless image"),
     "kareeb": ("करीब ASMR (soft, close)",
-               "soft dreamy close-up still life, cosy night, warm lamp, gentle textures (fabric, tea cup, rain on "
-               "glass, pages), shallow depth of field, very calm, no people, no text"),
+               "soft dreamy close-up still life, cosy night, warm lamp, gentle textures (fabric, tea cup, a dark window, "
+               "glass, pages), shallow depth of field, very calm, an empty quiet room, objects only, wordless image"),
     "gyaan": ("ज्ञान knowledge (clean illustration)",
               "clean modern editorial illustration, simple shapes, calm deep blue and warm accent colours, clear "
-              "subject in the centre, informative, no text, no letters"),
+              "subject in the centre, informative, wordless pure imagery"),
     "none": ("Only my words", ""),
 }
 # every series' machine settings (the भय pipeline, tuned per series)
@@ -1706,8 +1711,7 @@ def free_gpu(ctx):
             say("   ComfyUI: pictures model unloaded")
         except Exception as e:
             say(f"   ComfyUI could not unload its models: {e}")
-    if ctx.get("include_llm"):
-        free_llm(ctx)
+    free_llm(ctx)          # also the AI models this job used (free_llm checks that), so the voice gets the whole card
 
 
 def free_llm(ctx):
@@ -1715,7 +1719,8 @@ def free_llm(ctx):
     cfg, say = ctx["cfg"], ctx["say"]
     if not ctx.get("include_llm") and not cfg.pop("_ollama_used", False):
         return
-    models = {cfg.get("llm"), cfg.get("prompt_model"), cfg.get("vision_llm"), cfg.get("story_model")}
+    models = {cfg.get("llm"), cfg.get("prompt_model"), cfg.get("vision_llm"), cfg.get("story_model"),
+              cfg.get("director_model"), cfg.get("scene_picture_model")}     # Tinker scene models too
     try:
         import story
         models.add(story.secret("local_model"))
@@ -1897,7 +1902,8 @@ def horror_story(ctx, name, topic="", minutes=15, notes="", engine="auto", recip
     open(p, "w", encoding="utf-8").write(script)
     entry = {"name": name, "date": time.strftime("%Y-%m-%d %H:%M"), "genre": "horror" if genre == "bhay" else genre,
              "topic": info["recipe"]["topic"],
-             "recipe": info["recipe"], "model": info["model"], "words": story.nwords(script), "summary": summ}
+             "recipe": info["recipe"], "model": info["model"], "words": story.nwords(script), "summary": summ,
+             "level": info.get("level") or level}
     story.add_ledger(cfg, entry)
     json.dump(entry, open(p[:-4] + ".story.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     if summ.get("title_hi"):
@@ -1934,7 +1940,8 @@ def write_horror_stories(ctx, n=3, topics=None, minutes=15, engine="auto", genre
         entry = {"name": os.path.basename(p)[:-4], "date": time.strftime("%Y-%m-%d %H:%M"),
                  "genre": "horror" if genre == "bhay" else genre,
                  "topic": info["recipe"]["topic"], "recipe": info["recipe"], "model": info["model"],
-                 "words": story.nwords(script), "summary": summ, "status": "written (no voice yet)"}
+                 "words": story.nwords(script), "summary": summ, "status": "written (no voice yet)",
+                 "level": level}
         story.add_ledger(cfg, entry)
         json.dump(entry, open(p[:-4] + ".story.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         say(f"   saved: {os.path.basename(p)}  ({story.nwords(script)} words)  {summ.get('title_hi', '')}")
@@ -1984,7 +1991,7 @@ SCENES_ASK = (
     "deliberately vary wide establishing views, object details, point-of-view, profile, front, and over-shoulder shots "
     "as the story warrants; do not repeat a centered rear-view person in consecutive scenes. A recurring character "
     "stays a silhouette from every angle; a scene may focus on the environment or a story object with no character "
-    "present. No gore or text), \"ambience\" (ONE name from AMBIENCE or "
+    "present. {rules}), \"ambience\" (ONE name from AMBIENCE or "
     "\"\" - it must fit the PLACE of that scene: indoors no river, crickets, birds or trains unless the story says so), \"hit\" (ONE name from HITS for a scary turn at the start of this part, or \"\" - use hits rarely, at "
     "most every third part), \"lightning\" (true only if the story has a storm there), \"cues\" (sound effects at "
     "the exact moment the story describes a sound or action: a list of {{\"words\": 2-4 words copied exactly from "
@@ -1995,7 +2002,7 @@ SCENES_ASK = (
     "in the story; [] if none), \"moment\" (ONLY where an object or small detail that this part itself names carries strong "
     "emotion: {{\"words\": 2-4 words copied exactly "
     "from that part where it is mentioned (in the story's own script, never translated), \"prompt\": 25-40 English words, a close-up of that object or detail in "
-    "this story's look and light, symbolic, no faces, no text}}; most parts have none - use it for at most {mom} "
+    "this story's look and light, symbolic, the object alone}}; most parts have none - use it for at most {mom} "
     "parts in the whole story; {{}} if none).\n"
     "AMBIENCE: {amb}\nHITS: {hits}\nCUES: {cues}\n"
     'Return "character_anchors" as a JSON object mapping each recurring character ID to their stable silhouette, '
@@ -2019,11 +2026,34 @@ SCENE_VARY_ASK = (
     "Write a NEW prompt (35-60 English words) for this story part with a DIFFERENT main subject (another object, "
     "place, action or detail this part mentions), a different location or viewpoint and a different shot size "
     "(wide establishing view, extreme close-up of an object, view through a doorway, high angle, low angle...). "
-    "Start with the main subject. No recurring character unless this part is about them; no gore, no text. "
+    "Start with the main subject. No recurring character unless this part is about them. {rules} "
     "Answer ONLY JSON: {{\"prompt\": \"...\"}}")
+PICTURE_RULES = {     # what the picture-prompt AI may write; the painter (Z-Image) cannot read "no X" and paints X
+    "standard": "Write only what IS visible: never put 'no', 'not' or 'without' in a prompt and never mention text, "
+                "letters, signs or writing. Show the feeling through light, shadow, posture and wrong details; leave "
+                "gore, wounds and blood out of the picture.",
+    "mature": "Write only what IS visible: never put 'no', 'not' or 'without' in a prompt and never mention text, "
+              "letters, signs or writing. This is for adults: blood, wounds and disturbing details may be shown "
+              "plainly where the story has them.",
+}
+
+
+def _pic_rules(cfg):
+    return PICTURE_RULES.get(str(cfg.get("_picture_level") or "standard"), PICTURE_RULES["standard"])
+
+
+def _anchor_text(v):
+    """a character anchor as plain words (some models answer {silhouette: .., clothing: .., prop: ..})"""
+    if isinstance(v, dict):
+        return ". ".join(str(x).strip() for x in v.values() if str(x or "").strip())
+    if isinstance(v, (list, tuple)):
+        return ". ".join(str(x).strip() for x in v if str(x or "").strip())
+    return str(v or "").strip()
+
+
 SCENE_SIMILAR_MAX = 0.42        # word overlap (0-1) above which a scene prompt counts as a repeat of an earlier one
-SCENE_VARY_HINTS = ("wide establishing view of the place from outside, no people in frame",
-                    "extreme close-up of a single object from this moment, shallow depth of field, no people",
+SCENE_VARY_HINTS = ("wide establishing view of the place from outside, an empty scene",
+                    "extreme close-up of a single object from this moment, shallow depth of field, the object alone",
                     "view through a half-open doorway into the space, nobody in the doorway",
                     "high angle top-down view", "low angle view looking up, empty foreground",
                     "a hand or footsteps only, the rest in darkness")
@@ -2057,7 +2087,7 @@ def _vary_scene(cfg, say, desc, scene, earlier, text, i):
     import story
     try:
         t, _ = story.ask(cfg, SCENE_VARY_ASK.format(desc=desc, earlier=earlier[:500], prompt=scene[:500],
-                                                    text=str(text)[:700]), "auto", 0.7, True, say=lambda *a: None)
+                                                    text=str(text)[:700], rules=_pic_rules(cfg)), "auto", 0.7, True, say=lambda *a: None)
         new = str(json.loads(t).get("prompt") or "").strip()
         if new and _overlap(new, earlier) < SCENE_SIMILAR_MAX:
             return new, "rewritten by the AI"
@@ -2165,8 +2195,8 @@ SCENE_PICTURE_ASK = (
     "Write one English image prompt (35-60 words) per scene that shows exactly that moment: start with the main "
     "subject (a person, object, place or action from WHAT HAPPENS), then the location, the shot size and the light. "
     "Use ONLY people, objects, places, weather and light sources that the scene's own TEXT or WHAT HAPPENS names; "
-    "never add anything else. A recurring character stays a dark silhouette with no detailed face. Neighbouring "
-    "scenes must not share the same main subject or camera setup. No gore, no text or letters.\n"
+    "never add anything else. A recurring character stays a dark silhouette, face hidden in shadow. Neighbouring "
+    "scenes must not share the same main subject or camera setup. {rules}\n"
     'Answer ONLY JSON: {{"prompts": ["...", "..."]}} with exactly {n} prompts.\n\nSCENES:\n{scenes}')
 SCENE_FIX_ASK = (
     "This picture prompt for a scene of a {desc} video adds things the story never mentions in this scene: {bad}.\n"
@@ -2336,7 +2366,7 @@ def _picture_prompts(cfg, say, desc, parts, sc):
         rows.append(f"{i + 1}. WHAT HAPPENS: {hap}\n   TEXT: {str(p['text'])[:900]}")
     try:
         t, model = _ask_step(cfg, "scene_picture_model",
-                             SCENE_PICTURE_ASK.format(desc=desc, n=len(parts), scenes="\n".join(rows)), 0.6, say)
+                             SCENE_PICTURE_ASK.format(desc=desc, n=len(parts), scenes="\n".join(rows), rules=_pic_rules(cfg)), 0.6, say)
         pr = []
         for x in (_loads(t).get("prompts") or []):         # some models answer [{"prompt": "..."}] instead of ["..."]
             if isinstance(x, dict):
@@ -2403,9 +2433,16 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     G = GENRES.get(genre, GENRES["bhay"])
     if not G.get("hits"):
         hits = []
+    try:                                              # the story's level (mature allows blood in the pictures too)
+        cfg["_picture_level"] = json.load(open(os.path.join(ctx_folder(ctx, "scripts"), slug(name) + ".story.json"),
+                                               encoding="utf-8")).get("level") or "standard"
+    except Exception:
+        cfg["_picture_level"] = "standard"
+    if cfg["_picture_level"] != "standard":
+        say(f"   pictures follow the story's level: {cfg['_picture_level']}")
     ask = SCENES_ASK.format(desc=G["desc"], label=G["label"], amb=", ".join(amb) or "-", hits=", ".join(hits) or "-", n=len(parts),
                             cues=", ".join(cue_names) if cpp else "- (none for this series)", cpp=cpp,
-                            mom=max(2, round(total / 150)),
+                            mom=max(2, round(total / 150)), rules=_pic_rules(cfg),
                             parts="\n".join(f"{i + 1}. ({int(p['start'] // 60)}:{int(p['start'] % 60):02d}) {p['text'][:1200]}"
                                             for i, p in enumerate(parts)))
     cut = [i + 1 for i, p in enumerate(parts) if len(p["text"]) > 1200]
@@ -2447,7 +2484,7 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             near = " ".join(parts[j]["text"] for j in (i - 1, i + 1) if 0 <= j < len(parts))
             scene = _clean_scene(cfg, say, G["desc"], i, scene, happens, p["text"], near)
         character = str(x.get("character") or "").strip()[:60]
-        anchor = str(character_anchors.get(character) or "").strip() if character else ""
+        anchor = _anchor_text(character_anchors.get(character)) if character else ""
         sim = max(((_overlap(scene, e), e) for e in seen), default=(0, ""))
         if sim[0] >= SCENE_SIMILAR_MAX:                  # same subject as an earlier picture -> another subject
             scene, how = _vary_scene(dcfg, say, G["desc"], scene, sim[1], p["text"], i)
@@ -3355,7 +3392,7 @@ def comfy_images(ctx, out, style="sukoon_night", size="16:9", engine=None, seed=
             say(f"   {s['file']} already there"); continue
         subj = s["prompt"]
         if silhouette:
-            subj = f"{subj}. The main subject is a dark silhouette (solid shape, no face details) against the glowing light"
+            subj = f"{subj}. The main subject is a solid black featureless silhouette against the glowing light"
         full = subj + (". " + look if look else "")
         full, neg = no_steam(full, negative)
         sd = int(seed) + i if seed not in (None, "") else random.randint(1, 2 ** 31)
@@ -3427,6 +3464,9 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
     (no text, no broken hands / faces); a scene where both are bad is painted twice more and judged again.
     The other versions go to _alt (nothing deleted)."""
     cfg, say = ctx["cfg"], ctx["say"]
+    if cfg.get("experimental_mode") or cfg.get("_experimental_workspace") or cfg.get("picture_check") == "new":
+        import picture_check                # Experimental: yes/no checks against 'what happens', flag instead of stop
+        return picture_check.pick_scenes(ctx, out, genre, redo)
     sj = os.path.join(out, "shots.json")
     meta = json.load(open(sj, encoding="utf-8"))
     # Older/partially written scene plans can contain numeric placeholders.
