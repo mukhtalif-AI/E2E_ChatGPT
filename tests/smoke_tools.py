@@ -84,7 +84,11 @@ def private_config(tmp, maps):
     real = {"data": p.get("hub_output_root"), "exp": p.get("experimental_root") or p.get("hub_output_root")}
     data = os.path.join(tmp, "data")
     p.update({"hub_output_root": data, "experimental_root": data, "narrations_root": os.path.join(data, "narrations"),
-              "episodes_root": os.path.join(data, "Episodes"), "hub_logs_root": os.path.join(tmp, "logs")})
+              "episodes_root": os.path.join(data, "Episodes"), "hub_logs_root": os.path.join(tmp, "logs"),
+              "voice_data_root": os.path.join(tmp, "voice")})
+    os.makedirs(os.path.join(tmp, "voice"), exist_ok=True)       # a fixed word rack, so plans do not depend on yours
+    json.dump({"smokeword": {"count": 3, "examples": [], "narrations": []}},
+              open(os.path.join(tmp, "voice", "word_rack.json"), "w", encoding="utf-8"))
     for name in SAVED_FROM_DATA:
         src = os.path.join(real["data"] or "", name)
         if os.path.isfile(src):
