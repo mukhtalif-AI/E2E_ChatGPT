@@ -1,9 +1,19 @@
-# Cleanup plan (proposed, nothing done yet)
+# Cleanup plan
 
-Status: **proposal only**. No files have been moved, deleted or split. Each step is small, can be undone, and
-should be followed by the smoke test. Say which steps you want and in what order.
+Status on 16 Oct 2026, ~23:55:
 
-## Step 0. Commit what you have (5 minutes, do first)
+| Step | State |
+|---|---|
+| 0. Commit what you have | **done**: all code is committed up to `0d0501b` (23:40); only these doc updates are not |
+| 1. Smoke test script | not done (no `tests\` folder yet) |
+| 2. Backups into one place | **done** 16 Oct ~19:25: 124 items (42 MB) moved into `_backups\2026-10-16_cleanup\`, then deleted on your OK. New backups still go next to the file. Kept: `secrets.json_old_*`, voice `config*.before_*` / `config - *.json`, `_tmp\model_test_20261016`, logs, `.cache\pip` (1.4 GB) |
+| 3. .gitignore | **partly done**: `/_backups/` added; `*.bak`, `**/*.before_*`, `engines/video/output/`, `.pytest_cache` not added (nothing needs them yet) |
+| 4. Split tools.py | not done; `tools.py` grew to ~4350 lines on 16 Oct, so the line numbers in the table below are out of date (see `PROJECT_MAP.md` for current ones) |
+
+Each remaining step is small, can be undone, and should be followed by the smoke test. Say which steps you want and
+in what order. Steps 0, 2 and 3 below are kept as they were written, for the record.
+
+## Step 0. Commit what you have (done 16 Oct)
 
 16 Oct work is staged but not committed. Open Experimental > Save / Git, tick everything offered, commit
 with a message like "16 Oct: Tinker, ratings, sounds, git page, steps fix". Now any later step can be undone
@@ -78,7 +88,7 @@ The form fields (`speech_min`, `total_min`, `stages`, `auto_topic`) come from `t
 real run I'd check the dry-run output against what the page sends, because the Experimental page may add
 fields the planner expects. After each passing run, mark the matching rows "verified on PC" in `CHANGELOG.md`.
 
-## Step 2. Backups into one place
+## Step 2. Backups into one place (done 16 Oct, then deleted on your OK)
 
 Today: 55 `*_old_*` / `.bak` files (about 13 MB) sit next to live files in `app\`, `app\ui\`,
 `app\ui\experimental\`, the root, `engines\voice\` and `engines\video\`; plus `_old\`, `app\_old\`,
@@ -96,7 +106,7 @@ AI helper's instructions and in `AGENTS.md`).
 Not to move: `engines\voice\config - 14102026_2304.json` and `config.json.before_*.json` until we check
 the voice engine doesn't read them; `secrets.json_old_*` stays put (it holds keys).
 
-## Step 3. .gitignore
+## Step 3. .gitignore (only `/_backups/` added)
 
 Your `.gitignore` already ignores backups (`*_old_20*`, `*.bak_*`, `_old/`, `_backup_*/`), `_tmp/`, logs,
 `Code/ALL_CODE.txt*`, `secrets.json`, model folders and bundled libraries. Nothing risky is tracked.
@@ -129,7 +139,7 @@ and rating-based picking would just be ignored). So the split must keep `tools` 
   never by `from tools import GENRES` (that copies the value once and misses Tinker's later change).
 - One section per step, smoke test after each, commit after each. Any step can be undone by reverting one commit.
 
-Proposed order (least connected first):
+Proposed order (least connected first; line numbers from the morning of 16 Oct):
 
 | Step | Move to | Lines today | Risk |
 |---|---|---|---|

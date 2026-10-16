@@ -1060,7 +1060,15 @@ R.help=()=>{const S=(t,b)=>`<h2>${t}</h2><div class="card help">${b}</div>`;
   ${S("Experimental mode in one minute",`<ul><li>This is the <b>Experimental</b> copy of the hub. Runs made here use the Experimental settings from <b>Tinker</b>; Working mode stays as it is until you install a change.</li>
    <li>Each Experimental run keeps the settings it started with, so changing Tinker in the middle of a job does not affect that job.</li>
    <li>Press <b>Working mode</b> in the sidebar to go back to the normal hub.</li></ul>`)}
-  ${S("Tinker: try other models and prompts",`<ul><li><b>Models</b>: pick the story model, prompt model, vision model, image engine and others. Type a name or choose from the list (Ollama models on this PC show up).</li>
+  ${S("Genre episodes in Experimental (Bhay, Kisse, Rahasya …)",`<ol>
+   <li><b>Script</b>: the local model <code>gemma4:26b-a4b-it-qat</code> writes it (it thinks before answering, so this takes a few minutes). Leave the name empty and the episode is named from the story's English title, for example <code>Kisse-Clink-Steel-Tiffin</code>. A name you type always wins.</li>
+   <li><b>Emotion marks</b>: the AI marks the feeling of each line, 15 lines at a time.</li>
+   <li><b>Scenes</b>: a new scene starts where a sentence ends, about every 30 s (<b>Tinker → Models → Scene length</b>). The director (<code>gemma4:12b-it-qat</code>) writes one line per scene saying <i>what happens</i>, then turns it into the picture prompt. Rain, candles, mirrors and other things the story never names are rewritten or cut. Prompts say what to paint, never “no …”, because the painter ignores “no”.</li>
+   <li><b>Picture check</b>: <code>gemma3:12b</code> looks at every picture and answers simple questions (what is the main subject, how many people, any words in it …). The code decides pass or fail. A wrong picture gets a new prompt and is painted again, at most twice. If it is still wrong, the best version is kept and <b>flagged</b> on the Ratings page, and the video is still made.</li>
+   <li><b>Ending</b>: with <b>Whole video 0</b> the music plays 10 s after the voice. The picture fades into a soft blurred copy in the series colour, the SUBSCRIBE button is clicked and the bell rings. Change it in <b>Tinker → Models</b>: <i>Ending after the voice</i> and <i>Subscribe + bell animation</i>. Reels and Sukoon have no bell.</li>
+   <li><b>Make it again</b>: on the <b>Video</b> page, switch on <b>Plan the scenes and paint the pictures again</b>. The old scenes and video are moved to <code>_old_&lt;time&gt;</code>, never deleted.</li>
+   <li>Everything is saved in <code>D:\\MukhtalifGPT\\Series\\&lt;series&gt;\\Episodes\\&lt;name&gt;</code>. The graphics card is freed between steps, and every AI model is unloaded before the voice and the painter start.</li></ol>`)}
+  ${S("Tinker: try other models and prompts",`<ul><li><b>Models</b>: pick the script writer, scene director, scene picture prompts, prompt model, vision model, image engine, scene length and the ending. Type a name or choose from the list (Ollama models on this PC show up).</li>
    <li><b>Prompts</b>: the long instructions the AI gets for scripts, scenes and checks. Edit, then <b>Save for Experimental</b>. Keep the words in <code>{braces}</code>; the code fills them in.</li>
    <li><b>Series settings</b> and <b>Writing rules</b>: per-series tables (music moods, effects, pacing) and the rules for each series' scripts.</li>
    <li><b>Install into Working</b>: the box at the top lists everything that differs from Working mode. Tick what worked and press <b>Install selected into Working</b>. Each file is backed up first (<code>…_old_&lt;time&gt;</code>), no restart needed. Not possible while a job is running.</li>
@@ -1094,6 +1102,7 @@ R.help=()=>{const S=(t,b)=>`<h2>${t}</h2><div class="card help">${b}</div>`;
   ${S("Good to know",`<ul><li>A word your voice says wrong: add it to <code>engines\\voice\\say_as.json</code> with a respelling – the captions keep the real spelling.</li>
    <li>After an update: <b>restart_hub.bat</b> (it asks if a job is running), then reload this page (F5).</li>
    <li>Each step in Activity shows how long it took.</li>
+   <li>What changed and what was tested: <code>CHANGELOG.md</code>. What is still wrong: <code>KNOWN_PROBLEMS.md</code>. Where everything is: <code>PROJECT_MAP.md</code> (all in the hub folder).</li>
    <li>Full details: <code>README.txt</code> in the hub folder; for the next developer: <code>HANDOFF_HUB.txt</code>.</li></ul>`)}
   </div>`};
 
