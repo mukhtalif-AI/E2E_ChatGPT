@@ -164,6 +164,10 @@ class Video:
         self.badge = text_mask(plan.get("label") or "भय", tf, 46)
         self.red = np.array(MOOD["label"], np.float32)
         self._halo = {}
+        self.sub = None
+        if plan.get("subscribe") and not plan.get("window"):      # the Subscribe + bell ending (not on reels)
+            from subscribe_end import SubscribeEnd
+            self.sub = SubscribeEnd(plan["subscribe"], W, H)
 
     def preload(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -270,6 +274,8 @@ class Video:
                 for m in ms:
                     self.put(img, m, (W - m.shape[1]) / 2, y, (0.93, 0.92, 0.88), al)
                     y += m.shape[0] * 0.78
+        if self.sub is not None:
+            self.sub.draw(img, tl)
         return img
 
 

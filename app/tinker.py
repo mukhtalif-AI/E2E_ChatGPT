@@ -38,11 +38,18 @@ MODELS = [
      "Writes each picture prompt from the scene's 'what happens' line, and fixes invented props. Empty = Script writer model."),
     ("scene_seconds", "Scene length in seconds (genre videos)", ["20", "25", "30", "35", "40", "45", "60"],
      "Experimental: scenes end at a sentence end near this length; shorter = more pictures. Empty = 30."),
+    ("end_seconds", "Ending after the voice in seconds (genre videos)", ["4", "5", "7", "10", "15", "30", "60"],
+     "Experimental, when the Create page's 'Whole video' is 0: the music plays this long after the voice, then fades. "
+     "The Subscribe + bell animation plays in it and needs about 7. Empty = 7."),
+    ("subscribe_end", "Subscribe + bell animation at the end (genre videos)", ["on", "off"],
+     "Experimental: a Subscribe button is clicked and the bell rings over the last seconds (art and sounds made by "
+     "the hub, nothing downloaded). Not on reels. Empty = on."),
     ("vision_llm", "Picture judge (vision)", "ollama", "Looks at painted pictures and picks or repaints."),
     ("image_engine", "Image engine (ComfyUI)", "engines", "ComfyUI workflow used to paint pictures."),
 ]
 SECRET_KEYS = {"local_model", "story_engine", "gemini_model"}
-CFG_KEYS = {"llm", "prompt_model", "vision_llm", "image_engine", "director_model", "scene_picture_model", "scene_seconds"}
+CFG_KEYS = {"llm", "prompt_model", "vision_llm", "image_engine", "director_model", "scene_picture_model", "scene_seconds",
+            "end_seconds", "subscribe_end"}
 
 PROMPT_MODULES = ("story", "tools")
 PROMPT_LABELS = {

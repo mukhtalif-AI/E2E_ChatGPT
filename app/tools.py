@@ -513,6 +513,8 @@ def shape_mix(ctx, name, track="", tail="1min", music_db=None):
     outro = float(np.clip(sh.get("outro_db", story + 3), story - 4, story + 10))
     tails = {"1min": 60.0, "5min": 300.0, "usual": float(np.clip(sh.get("tail_s", 60), 30, 3600))}
     tail_s = tails.get(tail, 60.0)
+    if str(tail).startswith("secs:"):                      # Experimental genre ending: the voice + a few seconds
+        tail_s = float(np.clip(float(tail[5:] or END_SECONDS), 1, 3600))
     fade_out = float(np.clip(sh.get("fade_out_s", 8.0), 4, tail_s * 0.6))
     sr = 48000
     v = _decode(cfg, vp, sr, 1)
@@ -520,7 +522,8 @@ def shape_mix(ctx, name, track="", tail="1min", music_db=None):
         tail_s = max(60.0, float(tail[6:]) * 60 - lead - len(v) / sr)
         fade_out = float(np.clip(sh.get("fade_out_s", 8.0), 4, tail_s * 0.6))
     say(f"   music: {os.path.basename(track)}  | starts {lead:.1f} s before you, {intro:.0f} dB -> {story:.0f} dB under "
-        f"your voice, back to {outro:.0f} dB after you stop, {tail_s / 60:.0f} min more")
+        f"your voice, back to {outro:.0f} dB after you stop, "
+        f"{f'{tail_s:.0f} s' if tail_s < 90 else f'{tail_s / 60:.0f} min'} more")
     n = int((lead + len(v) / sr + tail_s) * sr)
     m = _decode(cfg, tamed(ctx, track), sr, 2)
     if len(m) < sr * 4:
@@ -551,8 +554,9 @@ def shape_mix(ctx, name, track="", tail="1min", music_db=None):
     vs = lead + float(np.argmax(speech)) * 0.5
     ve = lead + (len(speech) - float(np.argmax(speech[::-1]))) * 0.5
     end = n / sr
-    pts = [(0, 0), (fade_in, g(intro)), (vs, g(intro)), (vs + 3, g(story)), (ve, g(story)), (ve + 4, g(outro)),
-           (max(ve + 4, end - fade_out), g(outro)), (end, 0)]
+    rise = min(4.0, 0.3 * max(0.1, end - ve))                              # back up after you stop (short endings: faster)
+    pts = [(0, 0), (fade_in, g(intro)), (vs, g(intro)), (vs + 3, g(story)), (ve, g(story)), (ve + rise, g(outro)),
+           (max(ve + rise, end - fade_out), g(outro)), (end, 0)]
     px, py = [p[0] for p in pts], [p[1] for p in pts]
     a_v = int(lead * sr)
     raw = os.path.join(d, "_shape_mix.f32")
@@ -1523,6 +1527,44 @@ DIRECTION = {
 EMOTIONS = ["डर", "फुसफुसाहट", "रहस्य", "उदास", "प्यार", "गुस्सा", "उत्साह", "सामान्य"]
 
 
+EMO_BATCH = 15     # lines per emotion-marks request (Experimental)
+
+
+def _emo_salvage(t):
+    """the complete {"n": {...}} entries of a cut or broken JSON reply"""
+    d = {}
+    for m in re.finditer(r'"(\d+)"\s*:\s*(\{[^{}]*\})', str(t or "")):
+        try:
+            v = json.loads(m.group(2))
+        except ValueError:
+            continue
+        if isinstance(v, dict):
+            d[m.group(1)] = v
+    return d
+
+
+def _emo_reply(cfg, prompt, say):
+    """emotion-marks JSON from the model: JSON mode, then once as text; a broken reply keeps its complete entries"""
+    import story
+    err = None
+    for as_json in (True, False):
+        try:
+            t, _ = story.ask(cfg, prompt, "auto", 0.2, as_json=as_json, say=say, ctx_len=16384)
+        except TypeError:                                    # an older story.py without ctx_len
+            t, _ = story.ask(cfg, prompt, "auto", 0.2, as_json=as_json, say=say)
+        try:
+            d = _loads(t)
+            if isinstance(d, dict):
+                return d
+        except ValueError as e:
+            err = e
+        d = _emo_salvage(t)
+        if d:
+            say(f"   (the AI's reply was cut or broken; kept the {len(d)} complete lines)")
+            return d
+    raise err or ValueError("no usable JSON in the model's reply")
+
+
 def mark_emotions(ctx, name, genre="", emotions=True, pauses=True):
     """Add sparse context-aware delivery tags and punctuation-only pause cues."""
     import story
@@ -1538,8 +1580,11 @@ def mark_emotions(ctx, name, genre="", emotions=True, pauses=True):
     if not idx:
         return say("   (no Hindi story lines to mark)")
     marks, paced = {}, {}
-    for k in range(0, len(idx), 60):
-        part = idx[k:k + 60]
+    # Experimental: small batches - one 60-line reply ran past the local model's context and came back cut
+    exp = _is_exp(cfg)
+    step = EMO_BATCH if exp else 60
+    for k in range(0, len(idx), step):
+        part = idx[k:k + step]
         first, last = idx.index(part[0]), idx.index(part[-1])
         lo, hi = max(0, first - 2), min(len(idx), last + 3)
         context = "\n".join(f"{idx[j] + 1}. {content[idx[j]]}" for j in range(lo, hi))
@@ -1557,8 +1602,11 @@ def mark_emotions(ctx, name, genre="", emotions=True, pauses=True):
                   "omit fields when unchanged. Example: {\"1\":{\"e\":\"डर\",\"t\":\"same words with punctuation only\"}}\n\n"
                   "SURROUNDING PASSAGE (context only):\n" + context + "\n\nTARGET LINES:\n" + targets)
         try:
-            t, _ = story.ask(cfg, prompt, "auto", 0.2, as_json=True, say=say)
-            d = json.loads(t[t.find("{"):t.rfind("}") + 1])
+            if exp:
+                d = _emo_reply(cfg, prompt, say)
+            else:
+                t, _ = story.ask(cfg, prompt, "auto", 0.2, as_json=True, say=say)
+                d = json.loads(t[t.find("{"):t.rfind("}") + 1])
         except Exception as e:
             say(f"   (emotion marks skipped for lines {k + 1}-{k + len(part)}: {e})")
             continue
@@ -2187,6 +2235,8 @@ def _word_time(tim, words, a=None, b=None):
 
 
 # ------------------------------------------------------------------ story-beat scenes + two-step director (Experimental, 16 Oct)
+END_SECONDS = 7               # Experimental genre videos, 'Whole video' 0: music after the voice (Tinker: end_seconds)
+SUBSCRIBE_END = {"dur": 5.5, "sub_click": 1.3, "bell_click": 2.6}   # Subscribe + bell ending (engine subscribe_end.py)
 SCENE_SECONDS = 30            # Experimental genre videos: about one picture per this many seconds (Tinker: scene_seconds)
 _SENT_END = re.compile(r"[।?!॥]\s*[\"'”’)]*\s*$")
 SCENE_PICTURE_ASK = (
@@ -2620,6 +2670,8 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     """music bed (shaped like your episodes, a bit lower) + per-scene ambience loops + rare hits -> narration_music.wav"""
     import numpy as np
     cfg, say = ctx["cfg"], ctx["say"]
+    if _is_exp(cfg) and not str(tail).startswith("total:"):  # Experimental, 'Whole video' 0: the voice + a short ending
+        tail = f"secs:{_end_seconds(cfg)}"
     folders = GENRES.get(genre, GENRES["bhay"])["music"]
     track = track or _horror_track(cfg, folders)
     track, music_db = _usable_music(ctx, track, folders, music_db)
@@ -2739,6 +2791,72 @@ def _subtitle_text_for_timing(text, timing):
     return result
 
 
+def _is_exp(cfg):
+    return bool(cfg.get("experimental_mode") or cfg.get("_experimental_workspace"))
+
+
+def _end_seconds(cfg):
+    try:
+        return max(1.0, float(cfg.get("end_seconds") or END_SECONDS))
+    except (TypeError, ValueError):
+        return float(END_SECONDS)
+
+
+def _subscribe_sounds(sr=48000):
+    """a mouse click and a two-tone notification bell, made from sine waves (no sound file, nothing to license)"""
+    import numpy as np
+    t = np.arange(int(0.05 * sr)) / sr
+    click = np.random.default_rng(7).normal(0, 1, len(t)) * np.exp(-t / 0.003) * 0.6 \
+        + np.sin(2 * np.pi * 2100 * t) * np.exp(-t / 0.008)
+    t = np.arange(int(2.2 * sr)) / sr
+    bell = np.zeros(len(t))
+    for delay, f0, amp in ((0.0, 1318.5, 1.0), (0.16, 1046.5, 0.8)):          # E6 then C6: ding-dong
+        tt = t - delay
+        on = tt >= 0
+        for ratio, a, dec in ((1, 1, 1.1), (2.0, 0.45, 0.6), (2.76, 0.3, 0.4), (5.4, 0.12, 0.18)):
+            bell[on] += amp * a * np.sin(2 * np.pi * f0 * ratio * tt[on]) * np.exp(-tt[on] / dec) * np.minimum(1, tt[on] / 0.002)
+    return (click / np.abs(click).max()).astype(np.float32), (bell / np.abs(bell).max()).astype(np.float32)
+
+
+def _subscribe_end(ctx, narration, audio, total, lines):
+    """Experimental: the Subscribe + bell ending over the last seconds of the video. Its click and bell sounds go into
+    a copy of the audio (narration_music_end.wav) -> (plan entry, audio to use); (None, audio) when there is no room"""
+    import wave
+    import numpy as np
+    cfg, say = ctx["cfg"], ctx["say"]
+    S = dict(SUBSCRIBE_END)
+    last = max([float(x["end"]) for x in lines] or [0.0])
+    start = min(last + 0.8, total - S["dur"] - 0.3)
+    if start < last + 0.2:
+        say(f"   (no Subscribe ending: only {total - last:.1f} s after the voice; it needs about {S['dur'] + 1.2:.0f} s "
+            f"- Tinker > Models > Ending after the voice)")
+        return None, audio
+    S["start"] = round(start, 3)
+    sr = 48000
+    try:
+        a = _decode(cfg, audio, sr, 2).copy()
+        click, bell = _subscribe_sounds(sr)
+        for at, snd, gain in ((S["sub_click"], click, 0.3), (S["bell_click"], click, 0.3), (S["bell_click"] + 0.05, bell, 0.3)):
+            i = int((start + at) * sr)
+            j = min(len(a), i + len(snd))
+            if j > i:
+                a[i:j] += snd[:j - i, None] * gain
+        pk = float(np.abs(a).max())
+        if pk > 0.98:
+            a *= 0.98 / pk
+        outp = os.path.join(narration, "narration_music_end.wav")
+        with wave.open(outp, "wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(sr)
+            w.writeframes((np.clip(a, -1, 1) * 32767).astype("<i2").tobytes())
+    except Exception as e:
+        say(f"   (Subscribe sounds skipped: {e}; the animation still plays)")
+        return S, audio
+    say(f"   Subscribe + bell ending at {int(start // 60)}:{start % 60:04.1f} ({S['dur']:g} s)")
+    return S, outp
+
+
 def horror_video(ctx, name, pictures, narration, out, title="", genre="bhay", subtitle_text=""):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
@@ -2780,8 +2898,13 @@ def horror_video(ctx, name, pictures, narration, out, title="", genre="bhay", su
     lines = [{"start": x["start"] + lead, "end": x["end"] + lead, "text": texts[i]}
              for i, x in enumerate(tm) if i < len(texts) and texts[i].strip()]
     G = GENRES.get(genre, GENRES["bhay"])
+    sub = None
+    if _is_exp(cfg) and str(cfg.get("subscribe_end") or "on") != "off":
+        sub, audio = _subscribe_end(ctx, narration, audio, total, lines)
     plan = {"audio": audio, "fps": 24, "title": title, "label": G["label"], "mood": G["mood"], "duration": total,
             "scenes": scenes, "lines": lines}
+    if sub:
+        plan["subscribe"] = sub
     os.makedirs(os.path.dirname(out), exist_ok=True)
     pj = os.path.join(pictures, "video_plan.json")
     json.dump(plan, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -3054,7 +3177,7 @@ def apply_settings(cfg):
     except Exception:
         st = {}
     for key in ("llm", "story_model", "vision_llm", "prompt_model", "director_model", "scene_picture_model",
-                "scene_seconds"):
+                "scene_seconds", "end_seconds", "subscribe_end"):
         if st.get(key):
             cfg[key] = st[key]
     return st
