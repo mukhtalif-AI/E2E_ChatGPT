@@ -54,7 +54,7 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | File | Size | What it does |
 |---|---|---|
 | `server.py` | ~1170 lines | The web server. Serves both pages, all `/api/...` routes, the job queue (one GPU job at a time + a light lane), restart/resume, git snapshot on restart. Runs each job step by calling `tools.<fn>` (or `experimental_workspace.exp_*`). |
-| `tools.py` | ~4350 lines, 238 KB | Every job step. `plan(kind, body)` turns a request into a list of steps; each step is one function below it. Also holds the series tables `GENRES`, `STYLES`, `DIRECTION`, `VOICES`. See the section map further down. |
+| `tools.py` + `steps\` | ~625 + 12 files (split 17 Oct) | Every job step. `plan(kind, body)` turns a request into a list of steps; each step is one function. `tools.py` holds the series tables `GENRES`, `STYLES`, `DIRECTION`, `VOICES` and the prompts, and re-exports everything in `steps\`. See "Where the `tools.py` code lives" further down. |
 | `story.py` | ~1260 lines | Script writing (`local_chat` sends `think: false` to Gemma 4 / Qwen3 when a step asks for it): Sukoon (Hindi/English), the six genres, recipes, topic bank, ledger (no repeats), Gemini with Ollama fallback, check pass. Holds `GENRE_TEXT`, `GENRE_TELLINGS`, `LEVELS`. |
 | `path_config.py` | small | Reads `config.json`, works out every folder path. |
 | `comfy.py` | small | Talks to ComfyUI (starts it if needed) to paint pictures. |
@@ -91,29 +91,27 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | `ui/experimental/AGENTS.md` | Rules for AI helpers: change Experimental first, keep Working intact. |
 | `ui/motions/` | Preview clips for the 8 reel camera motions. |
 
-## Map of `tools.py` (by line, 16 Oct night)
+## Where the `tools.py` code lives (split 17 Oct)
 
-Line numbers move with every edit; search for the function name.
+`tools.py` is still the front door: every name below is also `tools.<name>` (re-exported at the end of `tools.py`),
+so the server, saved jobs, feedback, narrator and Tinker work as before. **Edit a function in the file listed here.**
+Rules for code in `app\steps\` (write `tools.X` for tables, prompts and swapped functions): `TOOLS_SPLIT_PLAN.md`.
 
-| Starts at | Section | Main functions and tables |
+| File | What | Main functions |
 |---|---|---|
-| 23 | paths and model call | `narration_dir`, `model_chat` (8k context when pictures are sent) |
-| 69 | presets and tables | `STYLES` (picture looks, no "no" words), `GENRES`, `VOICES`, `voice_sets`, `translate` |
-| 361 | thumbnail look index | `style_index`, `look_text` |
-| 421 | music index and mix | `audio_index`, `shape_mix` (voice + music; tail `secs:` = seconds after the voice) |
-| 591 | genre names | `unique_genre_name` |
-| 628 | **job planner** | `plan(kind, body, cfg)` - every job kind lives here |
-| 1137 | scripts, repair, reels, elements | `llm_story`, `fit_script`, `repair_*`, `studio_reels`, `write_stories` |
-| 1504 | script prep | `write_script`, `DIRECTION`, `mark_emotions` (`EMO_BATCH` 15 lines in Experimental), `avoid_hard_words` |
-| 1754 | GPU and voices | `free_gpu` (always calls `free_llm`), `free_llm`, `sv_speak` (Hindi voice), `en_speak` (English) |
-| 1931 | genre story | `horror_story` (renames the episode from the AI title), `sfx_fetch` |
-| 2029 | scene asks and checks | `SCENES_ASK`, `PICTURE_RULES`, `AMB_SOURCES`, `END_SECONDS` 10, `SUBSCRIBE_END`, `SCENE_SECONDS` 30, `SCENE_PICTURE_ASK`, `INVENTED`, `_beat_parts` (sentence-end scenes), `_invented` |
-| 2444 | genre scenes, sound, video | `_set_aside_scenes` (Plan again), `horror_scenes`, `horror_sound`, `_end_seconds`, `_subscribe_end`, `horror_video` |
-| 2975 | voice per series, training | `genre_voice_sets`, `voice_scan`, `sv_dataset`, `train_all_series`, `sv_train` |
-| 3212 | model settings, reels, English setup | `set_llm`, `genre_reels`, `en_setup`, `llm_prompts` |
-| 3374 | artwork and pictures | `art_prompt`, `pick_art`, `comfy_images`, `pick_scenes` (Experimental: `picture_check.pick_scenes`), `repaint` |
-| 3781 | Sukoon video and slideshow | `studio_prepare`, `studio_video`, `slideshow`, `make_ass` |
-| 4055 | status, suggestions, library | `status`, `suggestions`, `library`, `episodes`, `remove_item`, `system_action` |
+| `tools.py` (~625 lines) | paths, model call, all tables and long prompts | `narration_dir`, `slug`, `model_chat`, `STYLES`, `GENRES`, `VOICES`, `DIRECTION`, `SCENES_ASK` and the other Tinker prompts, `END_SECONDS`, `SCENE_SECONDS` |
+| `steps\planner.py` | **job planner** | `plan(kind, body, cfg)`, `presets`, `voice_sets`, `unique_genre_name`, `save_upload` |
+| `steps\script.py` | scripts, translation, elements, emotion marks | `llm_story`, `fit_script`, `write_script`, `write_stories`, `translate`, `mark_emotions` (`EMO_BATCH`) |
+| `steps\voice.py` | GPU and voices, word rack | `free_gpu`, `free_llm`, `sv_speak`, `en_speak`, `avoid_hard_words`, `rack_save` |
+| `steps\scenes.py` | genre scene planning and sound cues | `horror_scenes`, `sfx_fetch`, `_sfx_names`, `_beat_parts`, `_invented`, `_ask_step`, `_loads`, `PICTURE_RULES`, `INVENTED` |
+| `steps\genre.py` | genre story, sound, video, reels | `horror_story`, `horror_sound`, `_horror_track`, `horror_video`, `_subscribe_end`, `genre_reels` |
+| `steps\mix.py` | music index and voice + music mix | `audio_index`, `shape_mix`, `harshness` |
+| `steps\pictures.py` | artwork and pictures | `art_prompt`, `pick_art`, `comfy_images`, `pick_scenes` (Experimental: `picture_check.pick_scenes`), `repaint`, `no_steam` |
+| `steps\sukoon_video.py` | Sukoon video and slideshow | `studio_prepare`, `studio_video`, `slideshow`, `make_ass` |
+| `steps\fixes.py` | repair page, reels from a video | `repair_*`, `remix_like_before`, `narration_lines`, `studio_reels`, `reel_motions` |
+| `steps\voice_series.py` | voice per series, training | `genre_voice_sets`, `voice_scan`, `sv_dataset`, `train_all_series`, `sv_train` |
+| `steps\thumbs.py` | thumbnail look index | `style_index`, `look_text` |
+| `steps\hub.py` | status, suggestions, library, model settings | `status`, `suggestions`, `library`, `episodes`, `remove_item`, `system_action`, `set_llm` |
 
 ## How a job flows (from clicking Create to the final video)
 

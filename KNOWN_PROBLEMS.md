@@ -52,7 +52,7 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 15. **Kareeb (ASMR) has no trained series voice**; it uses the plain voice clone.
 16. **Adding or changing a genre touches about 7 places in 4 files** (no single genre registry).
 17. **Music comes only from your library** plus CC0 downloads in Experimental. Thin mood folders repeat tracks.
-18. **`tools.py` is 4350 lines / 238 KB** and keeps growing. Hard to read, and every AI session has to re-read it.
+18. **`tools.py` was 4350 lines / 238 KB.** Split on 17 Oct into `tools.py` (~625 lines: tables, prompts, paths) and 12 files in `app\steps\` (see `PROJECT_MAP.md`). Checked with `tests\smoke_tools.py` on a copy; not yet run in a real job after a hub restart.
 19. **Two copies of the site** (`ui/index.html` 138 KB and `ui/experimental/index.html` 270 KB) drift further apart.
 20. **Experimental values can leak into Working for a moment**: Tinker swaps module values while an Experimental job
     runs, so a Working-page preview at that moment sees them. Jobs never overlap, so finished outputs are safe.

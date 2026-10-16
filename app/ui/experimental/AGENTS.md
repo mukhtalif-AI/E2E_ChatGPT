@@ -13,4 +13,5 @@
 - Back up each file next to itself as `<file>_old_<YYYYMMDD_HHMMSS>_<what>` before editing. Never delete without the user's OK.
 - Experimental data lives under `config.json` `paths.experimental_root` (`D:\MukhtalifGPT`); `D:\HubGPT` is read only.
 - Picture prompts and repaint prompts must say what to paint, never "no X": Z-Image Turbo ignores negatives.
+- Since 17 Oct most of `app/tools.py` lives in `app/steps/*.py` (map in `PROJECT_MAP.md`). Edit a function where it lives. In `app/steps/` write `tools.X` for tables, prompts and the swapped functions (rules in `TOOLS_SPLIT_PLAN.md`), and run `tests/smoke_tools.py` after a change.
 - Real Experimental jobs carry `cfg["experimental_mode"]`; test scripts must not set flags that real runs lack.
