@@ -50,6 +50,50 @@ def _safe(value, fallback="Other"):
     return value[:60] or fallback
 
 
+SERIES_PREFIX = {"bhay": "Bhay", "rahasya": "Rahasya", "kisse": "Kisse", "romanch": "Romanch", "kareeb": "Kareeb",
+                 "gyaan": "Gyaan", "sukoon": "Sukoon"}
+
+
+def _make_episode(episode_dir, L, job_id, kind, series, b, input_name="input.json"):
+    for path in (L.get("experimental_input", "00_Input"), L.get("experimental_script", "01_Script"), L.get("experimental_narration", "02_Narration"), L.get("experimental_artwork", "03_Artwork"), L.get("episode_output", "Output")):
+        os.makedirs(os.path.join(episode_dir, path), exist_ok=True)
+    with open(os.path.join(episode_dir, L.get("experimental_input", "00_Input"), input_name), "w", encoding="utf-8") as f:
+        json.dump({"job_id": job_id, "kind": kind, "series": series, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+                   "request": {k: v for k, v in b.items() if k not in ("data",)}}, f, ensure_ascii=False, indent=2)
+
+
+def _episode_of_narration(base, L, series, name):
+    """the episode folder that already holds this voice (Video / Pictures pages on an existing narration)"""
+    if not name:
+        return ""
+    for ep in glob.glob(os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), "*")):
+        if os.path.isfile(os.path.join(ep, L.get("experimental_narration", "02_Narration"), L.get("narrations", "narrations"), name, "timing.json")):
+            return ep
+    return ""
+
+
+def _short_name(base, L, series, b):
+    """<Series>-<title>: the typed name, else the story topic, else <Series>-<MMDD-HHMM>; -2, -3 when taken"""
+    from tools import slug
+    prefix = SERIES_PREFIX.get(series, series.title())
+    recipe = b.get("recipe") if isinstance(b.get("recipe"), dict) else {}
+    title = str(b.get("name") or "").strip() or str(b.get("topic") or "").strip() or str(recipe.get("topic") or "").strip()
+    if title:
+        name = re.sub(r"-{2,}", "-", re.sub(r"[\s_]+", "-", slug(title, 40))).strip("-.")
+        if not re.match(re.escape(prefix) + r"\s*-", name, re.I):
+            name = f"{prefix}-{name}"
+    else:
+        name = f"{prefix}-{time.strftime('%m%d-%H%M')}"
+    name = name[:48].rstrip("-.")
+    episodes = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"))
+    scripts = os.path.join(base, L.get("experimental_library", "Library"), L.get("scripts", "scripts"))
+    candidate, n = name, 2
+    while os.path.exists(os.path.join(episodes, candidate)) or os.path.exists(os.path.join(scripts, candidate + ".txt")):
+        candidate = f"{name}-{n}"
+        n += 1
+    return candidate
+
+
 def prepare(kind, body, cfg, job_id):
     """Build an isolated job config and plan without changing the stable CFG."""
     from tools import plan, slug
@@ -71,18 +115,26 @@ def prepare(kind, body, cfg, job_id):
         b["_prompt_versions"] = {"error": str(exc)}
     episode_kinds = {"episode", "genre", "horror", "experimental", "voice", "pictures", "image", "slideshow", "studio"}
     episode_dir = ""
+    genre_run = kind in ("genre", "horror")
+    reused = ""                            # a genre tool run (scenes / pictures / video) on a voice that already exists
     if kind in episode_kinds:
-        original = b.get("name") or b.get("title") or b.get("topic") or kind
-        short = slug(original)
-        # The job id makes every run its own durable episode folder.
-        episode_name = short if kind == "experimental" else f"{job_id}_{short}"
-        b["name"] = episode_name
-        episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), episode_name)
-        for path in (L.get("experimental_input", "00_Input"), L.get("experimental_script", "01_Script"), L.get("experimental_narration", "02_Narration"), L.get("experimental_artwork", "03_Artwork"), L.get("episode_output", "Output")):
-            os.makedirs(os.path.join(episode_dir, path), exist_ok=True)
-        with open(os.path.join(episode_dir, L.get("experimental_input", "00_Input"), "input.json"), "w", encoding="utf-8") as f:
-            json.dump({"job_id": job_id, "kind": kind, "series": series, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-                       "request": {k: v for k, v in b.items() if k not in ("data",)}}, f, ensure_ascii=False, indent=2)
+        if genre_run:
+            stages = set(b.get("stages") or ["script", "voice"])
+            if not stages & {"script", "voice"}:
+                reused = _episode_of_narration(base, L, series, slug(b.get("name") or ""))
+            if reused:
+                episode_dir = reused
+            else:                          # short name at queue time (<Series>-<title>), never renamed later
+                b["name"] = _short_name(base, L, series, b)
+                episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), b["name"])
+        else:
+            original = b.get("name") or b.get("title") or b.get("topic") or kind
+            short = slug(original)
+            # The job id makes every run its own durable episode folder.
+            episode_name = short if kind == "experimental" else f"{job_id}_{short}"
+            b["name"] = episode_name
+            episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), episode_name)
+            _make_episode(episode_dir, L, job_id, kind, series, b)
 
     job_cfg = tinker.apply_models(cfg, snap)
     job_cfg["experimental_mode"] = True
@@ -103,6 +155,12 @@ def prepare(kind, body, cfg, job_id):
     finally:
         if snap:
             tinker.leave()
+    if genre_run and episode_dir:
+        # made after planning, so the planner's own name check does not see this folder and add " (2)"
+        _make_episode(episode_dir, L, job_id, kind, series, b, "input_" + job_id + ".json" if reused else "input.json")
+        if reused:                         # the planner puts Output under Episodes\<voice name>: keep it in this episode
+            plan = _replace_paths(plan, os.path.join(job_cfg["episodes_dir"], slug(b.get("name") or "")) + os.sep,
+                                  episode_dir + os.sep)
     if kind == "experimental" and b.get("narration_stack_trial", True):
         # Experimental-only diagnostic stage. Keep the stable planner and voice engine untouched.
         for index, step in enumerate(plan.get("steps", [])):
@@ -137,6 +195,13 @@ def prepare(kind, body, cfg, job_id):
             plan = _replace_paths(plan, old_video, out_dir)
             plan["outputs"] = [out_dir]
         plan["outputs"] = [new if p == old else p for p in plan.get("outputs", [])]
+    if genre_run and b.get("replan"):      # Video page "Plan the scenes and paint the pictures again"
+        steps = plan.get("steps", [])
+        video = next((s["args"].get("out", "") for s in steps if s.get("fn") == "horror_video"), "")
+        for s in steps:
+            if s.get("fn") == "horror_scenes":
+                s["args"]["replan"] = True
+                s["args"]["video"] = video
     metadata = {"root": base, "series": series, "episode_dir": episode_dir,
                 "media_dir": job_cfg["media_dir"], "sukoonvoice_media": job_cfg["sukoonvoice_media"], "layout": L,
                 "log": os.path.join(base, L.get("experimental_activity", "Activity"), L.get("logs", "Logs"), f"job_{job_id}.log")}

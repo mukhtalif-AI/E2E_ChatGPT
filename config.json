@@ -50,8 +50,10 @@
     "voice_music_default": "D:\\Audio asset\\BGM\\Calm\\Drifting at 432 Hz - Unicorn Heads.mp3",
     "elements_root": "D:\\Audio asset\\Elements",
     "programs_root": "E:\\Program_Files",
-    "experimental_root": "D:\\HubGPT",
-    "legacy_roots": ["D:\\HubGPT"],
+    "experimental_root": "D:\\MukhtalifGPT",
+    "legacy_roots": [
+      "D:\\HubGPT"
+    ],
     "voice_library_source": "E:\\Projects\\SukoonVoice\\libs\\cb",
     "hub_logs_root": "logs"
   },

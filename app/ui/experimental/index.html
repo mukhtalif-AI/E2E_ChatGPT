@@ -511,7 +511,7 @@ R.voice=async(preN)=>{await loadLib();await pre();
   $("#vName").addEventListener("change",()=>{const g=guessSer($("#vName").value,vser());if(g!=vser()){setChip("vSer",g);vApply()}});
   $("#vGo").onclick=e=>{if(vser()!="sukoon"){const g=vser(),t=$("#vScript").value.trim();if(!t)return toast("Paste or open a script",1);
       const sm=chipVal("vSnd")||"auto";
-      return startGo("genre",{genre:g,stages:sm=="none"?["script","voice"]:sm=="auto"?["script","voice","scenes","sound"]:["script","voice","sound"],name:$("#vName").value||(SPFX[g]+" - "+new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")),script:t,
+      return startGo("genre",{genre:g,stages:sm=="none"?["script","voice"]:sm=="auto"?["script","voice","scenes","sound"]:["script","voice","sound"],name:$("#vName").value.trim(),script:t,
         takes:+chipVal("vTakes"),exaggeration:+$("#vEx").value,pause_scale:+$("#vPause").value,dramatic:$("#vDrama").checked,emotions:$("#vEmo").checked,
         music_track:chipVal("vSnd")=="pick"&&$("#vMusic").value!="none"?$("#vMusic").value:"",tail:chipVal("vSTail")||"1min"},e.currentTarget)}
     const en=chipVal("vLang")=="en",hi=$("#vHi").value.trim();const useHi=en&&hi&&!$("#vHiBox").classList.contains("hidden");
@@ -604,9 +604,10 @@ R.video=async(preN)=>{await loadLib();await pre();const L=P.lib,pr=P.presets,tab
   <div class="simple" style="margin:0 0 14px"><div class="card">${serBar("wSer",guessSer(preN))}</div></div>
   <div id="wSerBox" class="simple hidden" style="margin:0"><div class="card">
    <label>Narration</label><select id="wNar">${narrOpts(preN)}</select>
-   <div class="row"><div><label>Title on the video</label><input id="wTitle" type="text" placeholder="(the story's title)"></div><div style="flex:0 0 130px"><label>Scenes</label><input id="wScenes" type="number" min="0" max="24" value="0" title="0 = about one per 70 s"></div></div>
+   <div class="row"><div><label>Title on the video</label><input id="wTitle" type="text" placeholder="(the story's title)"></div><div style="flex:0 0 130px"><label>Scenes</label><input id="wScenes" type="number" min="0" max="24" value="0" title="0 = automatic: a new scene about every 30 s, at a sentence end (Tinker > Models > Scene length)"></div></div>
    <div class="row"><div style="flex:0 0 130px"><label>Reels (9:16)</label><input id="wReels" type="number" min="0" max="6" value="2"></div><div style="flex:0 0 150px"><label>Reel length (s)</label><input id="wReelLen" type="number" min="15" max="60" value="30"></div></div>
-   <div class="actions"><button class="btn primary" id="wGo">${svg("video")} Make the video</button><span class="hint">scenes are planned once; pictures already painted are kept</span></div></div></div>
+   <div class="actions"><label class="switch"><input type="checkbox" id="wReplan"> Plan the scenes and paint the pictures again</label></div>
+   <div class="actions"><button class="btn primary" id="wGo">${svg("video")} Make the video</button><span class="hint">off: scenes are planned once and painted pictures are kept · on: the old scenes and video are kept in an _old_ folder / name, nothing is deleted</span></div></div></div>
   <div id="wSukBox">
   <div class="tabs"><button class="tab ${tab=="st"?"on":""}" data-t="st">One picture</button><button class="tab ${tab=="ss"?"on":""}" data-t="ss">Many pictures</button></div>
   <div id="tst" class="simple ${tab=="st"?"":"hidden"}" style="margin:0"><div class="card">
@@ -647,7 +648,7 @@ R.video=async(preN)=>{await loadLib();await pre();const L=P.lib,pr=P.presets,tab
   const wApply=()=>{const g=wser(),suk=g=="sukoon";store.set("toolSer",g);$("#wSerBox").classList.toggle("hidden",suk);$("#wSukBox").classList.toggle("hidden",!suk);$("#wGo").lastChild.textContent=" Make the "+serName(g)+" video"};
   $("#wSer").addEventListener("change",wApply);$("#wNar").addEventListener("change",()=>{setChip("wSer",guessSer($("#wNar").value,wser()));wApply()});wApply();
   $("#wGo").onclick=e=>{const n=$("#wNar").value;if(!n)return toast("choose a narration",1);
-    startGo("genre",{genre:wser(),stages:["scenes","sound","pictures","video","reels"],name:base(n),title_text:$("#wTitle").value,scenes:+$("#wScenes").value||0,reels:+$("#wReels").value,reel_len:+$("#wReelLen").value},e.currentTarget)};
+    startGo("genre",{genre:wser(),stages:["scenes","sound","pictures","video","reels"],name:base(n),title_text:$("#wTitle").value,scenes:+$("#wScenes").value||0,reels:+$("#wReels").value,reel_len:+$("#wReelLen").value,replan:$("#wReplan").checked},e.currentTarget)};
   $$(".tab").forEach(t=>t.onclick=()=>{store.set("vtab",t.dataset.t);$$(".tab").forEach(x=>x.classList.toggle("on",x==t));$("#tst").classList.toggle("hidden",t.dataset.t!="st");$("#tss").classList.toggle("hidden",t.dataset.t!="ss")});
   $("#sFont").onchange=()=>useFont($("#sFont").value,$("#sFontP"));
   dropImg($("#sDrop"),r=>{if(r[0]){P.sel.sArt=r[0];R.video(preN)}});
@@ -825,7 +826,7 @@ R.genreClassic=async(gid)=>{await pre();gid=gid||store.get("gid","bhay");store.s
     $$("#hIdeaList .idea").forEach(c=>c.onclick=()=>{const x=r.ideas[+c.dataset.i];P.hRecipe=x.recipe;P.hNote=x.idea||"";$("#hTopic").value=x.recipe.topic;if(!$("#hName").value&&x.title_en)$("#hName").value=PFX+" - "+x.title_en;$$("#hIdeaList .idea").forEach(d=>d.style.outline="");c.style.outline="2px solid var(--acc, #8ab4f8)"})}
    catch(err){toast(err.message,1)}finally{b.disabled=false;b.textContent="3 story ideas"}};
   $("#hGo").onclick=e=>{if(mine()&&!$("#hScript").value.trim())return toast("Paste your story, or let the AI write it",1);
-    startGo("genre",{genre:gid,name:$("#hName").value||(PFX+" - "+new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")),script:mine()?$("#hScript").value:"",topic:mine()?"":$("#hTopic").value,
+    startGo("genre",{genre:gid,name:$("#hName").value.trim(),script:mine()?$("#hScript").value:"",topic:mine()?"":$("#hTopic").value,
       recipe:mine()?null:(P.hRecipe||null),notes:mine()?"":(P.hNote||""),speech_min:+$("#hMin").value,voice_style:$("#hStyle").value,
       title_text:$("#hTitle").value,scenes:+$("#hScenes").value||0,exaggeration:+$("#hEx").value,pause_scale:+$("#hPause").value,
       acoustic_context:$("#hAcoustic").checked,
@@ -1476,7 +1477,7 @@ R.make=async(gid,carry)=>{await pre();try{await loadLib()}catch(e){}const D=awai
     if(id)drawQueue(true)};
   $("#mGo").onclick=async e=>{const x=mkVals(),own=x.source=="mine";
     if(own&&!x.script.trim())return toast("Paste or pick a script - or choose “Let the AI write it”",1);
-    const name=x.name.trim()||(suk?"":PFX+" - "+new Date().toISOString().slice(0,16).replace(/[:T]/g,"-"));let kind,body;
+    const name=x.name.trim();let kind,body;            // blank: the hub names it <Series>-<topic> or <Series>-<MMDD-HHMM>
     if(suk){kind="episode";const music=x.music;
       body={name,script:own?x.script:"",topic:own?"":x.topic,recipe:own?null:(MK.recipe||null),notes:own?"":MK.note,writer:x.writer,auto_topic:!own&&!x.topic.trim()&&!MK.recipe,
         category:x.category,fit:x.fit,speech_min:x.speech_min,total_min:x.total_min,lang:en?"":x.script_lang,language:x.language,en_speaker:x.en_speaker,title_text:x.title,reels:x.reels,

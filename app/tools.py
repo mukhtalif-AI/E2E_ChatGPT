@@ -584,7 +584,7 @@ def unique_genre_name(cfg, media, genre, requested):
     base = slug(requested)
     prefix = {"bhay": "Bhay", "rahasya": "Rahasya", "kisse": "Kisse", "romanch": "Romanch",
               "kareeb": "Kareeb", "gyaan": "Gyaan"}.get(genre, str(genre).title())
-    if not base.lower().startswith(prefix.lower() + " - "):
+    if not re.match(re.escape(prefix) + r"\s*-", base, re.I):     # "Bhay - x" and Experimental's short "Bhay-x"
         base = f"{prefix} - {base}"
     scripts = os.path.join(media, (cfg.get("layout") or {}).get("scripts", "scripts"))
     pictures = os.path.join(media, (cfg.get("layout") or {}).get("pictures", "pictures"))
@@ -2172,7 +2172,8 @@ SCENE_FIX_ASK = (
     "This picture prompt for a scene of a {desc} video adds things the story never mentions in this scene: {bad}.\n"
     "PROMPT: {prompt}\nWHAT HAPPENS: {happens}\nSTORY TEXT OF THE SCENE:\n{text}\n\n"
     "Rewrite the prompt (35-60 English words) for the same moment WITHOUT those things, using only what the story "
-    "text names. Start with the main subject. Answer ONLY JSON: {{\"prompt\": \"...\"}}")
+    "text names. Describe what the camera sees, not the story: start with the shot size and the main subject, "
+    "then the place and the light. Answer ONLY JSON: {{\"prompt\": \"...\"}}")
 # an English word in a picture prompt -> words that must be in the scene's own text (Hindi, or English loan words)
 # for it to stay; weather may also come from the scene before or after
 INVENTED = {
@@ -2280,9 +2281,28 @@ def story_ask(cfg, prompt, engine, temp, say):
     import story
     ctx_len = 16384 if len(prompt) > 9000 else 8192     # long stories cut into many scenes need a longer context
     try:
-        return story.ask(cfg, prompt, engine, temp, True, say=say, ctx_len=ctx_len)
+        t, m = story.ask(cfg, prompt, engine, temp, True, say=say, ctx_len=ctx_len)
     except TypeError:                                    # an older story.py without ctx_len
-        return story.ask(cfg, prompt, engine, temp, True, say=say)
+        t, m = story.ask(cfg, prompt, engine, temp, True, say=say)
+    if not str(t or "").strip():                         # Gemma 4 sometimes answers nothing in JSON mode: ask once more as text
+        try:
+            t, m = story.ask(cfg, prompt, engine, temp, False, say=say, ctx_len=ctx_len)
+        except TypeError:
+            t, m = story.ask(cfg, prompt, engine, temp, False, say=say)
+    return t, m
+
+
+def _loads(t):
+    """JSON from a model reply: plain, in ``` fences or with words around it (Gemma 4)"""
+    t = re.sub(r"^```\w*\s*|\s*```$", "", str(t or "").strip())
+    try:
+        return json.loads(t)
+    except ValueError:
+        pass
+    m = re.search(r"\{.*\}", t, re.S)
+    if m:
+        return json.loads(m.group(0))
+    raise ValueError("the model gave an empty reply" if not t else "no JSON in the model's reply: " + t[:120])
 
 
 def _clean_scene(cfg, say, desc, i, prompt, happens, text, near):
@@ -2293,7 +2313,7 @@ def _clean_scene(cfg, say, desc, i, prompt, happens, text, near):
     try:
         t, _ = _ask_step(cfg, "scene_picture_model", SCENE_FIX_ASK.format(
             desc=desc, bad=", ".join(bad), prompt=prompt[:600], happens=happens[:300], text=str(text)[:900]), 0.5)
-        new = str(json.loads(t).get("prompt") or "").strip()
+        new = str(_loads(t).get("prompt") or "").strip()
         if new and not _invented(new, text, near):
             say(f"   scene {i + 1}: the picture added {', '.join(bad)} (not in this part of the story) - rewritten")
             return new
@@ -2317,7 +2337,11 @@ def _picture_prompts(cfg, say, desc, parts, sc):
     try:
         t, model = _ask_step(cfg, "scene_picture_model",
                              SCENE_PICTURE_ASK.format(desc=desc, n=len(parts), scenes="\n".join(rows)), 0.6, say)
-        pr = [str(x or "").strip() for x in (json.loads(t).get("prompts") or [])]
+        pr = []
+        for x in (_loads(t).get("prompts") or []):         # some models answer [{"prompt": "..."}] instead of ["..."]
+            if isinstance(x, dict):
+                x = x.get("prompt") or next((v for v in x.values() if isinstance(v, str)), "")
+            pr.append(str(x or "").strip())
         say(f"   picture prompts written from each scene's 'what happens' line by {model}")
         return pr
     except Exception as e:
@@ -2325,16 +2349,39 @@ def _picture_prompts(cfg, say, desc, parts, sc):
         return []
 
 
-def horror_scenes(ctx, name, narration, out, count=0, genre="bhay"):
+def _set_aside_scenes(out, video, say):
+    """'Plan the scenes again': the old plan, pictures, prompts and _alt go to <scenes>\\_old_<time> and the old
+    video gets an _old_<time> name, so nothing is lost and the new run paints and renders fresh"""
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    keep = os.path.join(out, "_old_" + ts)
+    moved = 0
+    for f in os.listdir(out):
+        if f.startswith("_old_"):
+            continue
+        os.makedirs(keep, exist_ok=True)
+        shutil.move(os.path.join(out, f), os.path.join(keep, f))
+        moved += 1
+    if moved:
+        say(f"   planning again: the old scenes ({moved} files/folders) moved to {keep}")
+    if video and os.path.isfile(video):
+        old = os.path.splitext(video)[0] + "_old_" + ts + ".mp4"
+        os.replace(video, old)
+        say(f"   the old video kept as {os.path.basename(old)}")
+
+
+def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False, video=""):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
-    if os.path.exists(os.path.join(out, "shots.json")) and not ctx.get("replan"):
-        return say("   the scenes are already planned for this voice - kept (pictures that exist are kept too)")
+    if os.path.exists(os.path.join(out, "shots.json")):
+        if not (ctx.get("replan") or replan):
+            return say("   the scenes are already planned for this voice - kept (pictures that exist are kept too)")
+        _set_aside_scenes(out, video, say)
     os.makedirs(out, exist_ok=True)
     tm = json.load(open(os.path.join(narration, "timing.json"), encoding="utf-8"))
     total = tm[-1]["end"] if tm else 600
     n = int(count) or max(8, min(18, round(total / 70)))
-    exp = bool(cfg.get("_experimental_workspace"))     # Experimental: scenes end at sentence ends, two-step director
+    # Experimental: scenes end at sentence ends, two-step director (hub jobs carry experimental_mode, tests the workspace)
+    exp = bool(cfg.get("experimental_mode") or cfg.get("_experimental_workspace"))
     if exp and not int(count):
         try:
             secs = float(cfg.get("scene_seconds") or SCENE_SECONDS)
@@ -2367,7 +2414,7 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay"):
     d = {}
     try:
         t, model = _ask_step(cfg, "director_model", ask, 0.6, say)
-        d = json.loads(t)
+        d = _loads(t)
         say(f"   planned by {model}")
     except Exception as e:
         say(f"   (the AI could not plan the scenes: {e} - simple pictures)")
@@ -2391,7 +2438,10 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay"):
     for i, p in enumerate(parts):
         x = sc[i] if i < len(sc) and isinstance(sc[i], dict) else {}
         happens = str(x.get("happens") or "").strip()
-        scene = str((two[i] if i < len(two) else "") or x.get("prompt") or happens
+        own = x.get("prompt")
+        if isinstance(own, dict):
+            own = own.get("prompt") or next((v for v in own.values() if isinstance(v, str)), "")
+        scene = str((two[i] if i < len(two) else "") or own or happens
                     or "a dark empty Indian village lane at night, one weak lamp, fog").strip()
         if exp:
             near = " ".join(parts[j]["text"] for j in (i - 1, i + 1) if 0 <= j < len(parts))
