@@ -5,10 +5,10 @@ Status on 16 Oct 2026, ~23:55:
 | Step | State |
 |---|---|
 | 0. Commit what you have | **done**: all code is committed up to `0d0501b` (23:40); only these doc updates are not |
-| 1. Smoke test script | not done (no `tests\` folder yet) |
+| 1. Smoke test script | not done (the job runner below); a separate quick check for the split, `tests\smoke_tools.py`, was added 17 Oct |
 | 2. Backups into one place | **done** 16 Oct ~19:25: 124 items (42 MB) moved into `_backups\2026-10-16_cleanup\`, then deleted on your OK. New backups still go next to the file. Kept: `secrets.json_old_*`, voice `config*.before_*` / `config - *.json`, `_tmp\model_test_20261016`, logs, `.cache\pip` (1.4 GB) |
 | 3. .gitignore | **partly done**: `/_backups/` added; `*.bak`, `**/*.before_*`, `engines/video/output/`, `.pytest_cache` not added (nothing needs them yet) |
-| 4. Split tools.py | not done; `tools.py` grew to ~4350 lines on 16 Oct, so the line numbers in the table below are out of date (see `PROJECT_MAP.md` for current ones) |
+| 4. Split tools.py | **plan written 17 Oct: `TOOLS_SPLIT_PLAN.md`** (12 modules, rules, checks, rollback; replaces the table in Step 4 below); nothing moved yet; `tools.py` grew to ~4350 lines on 16 Oct, so the line numbers in the table below are out of date (see `PROJECT_MAP.md` for current ones) |
 
 Each remaining step is small, can be undone, and should be followed by the smoke test. Say which steps you want and
 in what order. Steps 0, 2 and 3 below are kept as they were written, for the record.

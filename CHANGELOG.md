@@ -27,6 +27,12 @@ judge (code value `picture_check.CHECK_MODEL`). Working mode still uses `config.
 | Picture checklists and repaint prompts | `scene_picture_model` | **off** (see the think row) |
 | Picture judge (`picture_check_model` in the hub config, else gemma3:12b) | gemma3:12b, falls back to `vision_llm` | none (Gemma 3) |
 
+## 17 Oct 2026
+
+| Change | Files | Status | Backup suffix |
+|---|---|---|---|
+| Plan for splitting `tools.py` (Cleanup step 4) and a quick smoke test for it. **No app code changed.** The plan lists 12 new modules under `app\steps\` in order (least connected first), the rules that keep `tools` the front door (re-export by name, tables and prompts stay in `tools.py`, swappable names called as `tools.X`), how each move is verified, the risks and the rollback. `tests\smoke_tools.py` imports every module the way the hub does, checks every name the server, feedback, tinker, narrator and the other modules use on `tools`, checks the feedback/narrator wrappers, compares the planned steps of 11 sample jobs in Working and Experimental with `tests\tools_baseline.json`, and runs `horror_sound` for real on a copy of the newest finished episode (writes only into `_tmp\smoke_<time>`; no GPU/Ollama/ComfyUI). | new `TOOLS_SPLIT_PLAN.md`, `tests\smoke_tools.py`, `tests\tools_baseline.json` | plan only; smoke test **tested on a copy**: 76 of 76 pass on the current code (cloud copy of the hub folder, Linux Python 3.10, stand-in music, episode Kisse-1016-2155) and it caught a deliberately bad moved file; **run on the PC** (hub Python 3.13.11): baseline re-saved with `--quick` (64 of 64 pass), full run 76 of 76 pass, horror_sound took 20 s | none (new files) |
+
 ## 16 Oct 2026 (Experimental mode)
 
 | Change | Files | Status | Backup suffix |
