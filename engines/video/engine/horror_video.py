@@ -168,6 +168,7 @@ class Video:
         if plan.get("subscribe") and not plan.get("window"):      # the Subscribe + bell ending (not on reels)
             from subscribe_end import SubscribeEnd
             self.sub = SubscribeEnd(plan["subscribe"], W, H)
+            self.sub.background(self.sc[-1]["image"], self.vig, plan.get("mood") or "horror")   # blurred, in the series colour
 
     def preload(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -230,6 +231,8 @@ class Video:
             + self.grain[k % len(self.grain)]
         np.clip(out, 0, 255, out=out)
         out = out.astype(np.uint8)
+        if self.sub is not None:
+            out = self.sub.backdrop(out, tl, self.len)
         self.overlay(out, t, tl)
         return out
 
@@ -266,7 +269,8 @@ class Video:
                 self.put(img, self.title, (W - self.title.shape[1]) / 2, H * 0.17 + self.logo.shape[0] * 0.95,
                          (0.86, 0.86, 0.88), a * min(1.0, max(0.0, (tl - 1.5) / 1.5)))
         elif tl < self.len - 5:                                   # small badge, top left
-            self.put(img, self.badge, 60, int(H * 0.09), self.red * 1.2, 0.55 * min(1.0, (tl - T) / 2))
+            hide = self.sub.bg_mix(tl) if self.sub is not None else 0.0
+            self.put(img, self.badge, 60, int(H * 0.09), self.red * 1.2, 0.55 * min(1.0, (tl - T) / 2) * (1 - hide))
         for (a, b, ms) in self.caps:                              # the spoken line, bottom, inside the safe area
             if a - 0.25 <= t <= b:
                 al = min(1.0, (t - a + 0.25) / 0.25, (b - t) / 0.3)

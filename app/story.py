@@ -352,6 +352,10 @@ def local_chat(cfg, prompt, temp=0.85, as_json=False, ctx_len=8192):
     # advertised think control, so leave its request unchanged.
     if model.lower().startswith("qwen3") and not any(tag in model.lower() for tag in ("vl", "vision")):
         body["think"] = True
+    # Gemma 4 thinks by default in Ollama: ~3000 hidden tokens (60-100 s on the 3060) before a short answer.
+    # A step that only needs a quick answer sets cfg["_no_think"] (picture checklists and prompt rewrites).
+    if cfg.get("_no_think") and model.lower().startswith(("gemma4", "qwen3")):
+        body["think"] = False
     if as_json:
         body["format"] = "json"
     req = urllib.request.Request(cfg.get("ollama_url", "http://127.0.0.1:11434").rstrip("/") + "/api/generate",

@@ -108,6 +108,16 @@ def should_show(s):
     return str(s.get("happens") or s.get("scene_prompt") or s.get("prompt") or "").strip()[:400]
 
 
+def _ask_quick(cfg, key, prompt, temp, say=lambda *a: None):
+    """tools._ask_step without Gemma 4's hidden thinking (it made every short answer take 1-2 minutes)"""
+    c = dict(cfg, _no_think=True)
+    try:
+        return tools._ask_step(c, key, prompt, temp, say)
+    finally:
+        if c.get("_ollama_used"):                       # free_llm must still unload the model afterwards
+            cfg["_ollama_used"] = True
+
+
 def checklists(cfg, say, desc, records):
     """one checklist per record that has none yet (one text-model call), stored in record["checklist"]"""
     todo = [s for s in records if not isinstance(s.get("checklist"), dict)]
@@ -117,8 +127,8 @@ def checklists(cfg, say, desc, records):
             for i, s in enumerate(todo)]
     got = []
     try:
-        t, model = tools._ask_step(cfg, "scene_picture_model",
-                                   CHECKLIST_ASK.format(desc=desc, n=len(todo), scenes="\n".join(rows)), 0.2, say)
+        t, model = _ask_quick(cfg, "scene_picture_model",
+                              CHECKLIST_ASK.format(desc=desc, n=len(todo), scenes="\n".join(rows)), 0.2, say)
         got = tools._loads(t).get("checks") or []
         say(f"   picture checklists written from each scene's 'what happens' line by {model}")
     except Exception as e:
@@ -240,7 +250,7 @@ def _best(results):
 def _rewrite(cfg, say, desc, s, v, full, tried=()):
     """a new scene prompt from 'what happens' + what went wrong (said positively), else None"""
     try:
-        t, _ = tools._ask_step(cfg, "scene_picture_model", REPAIR_ASK.format(
+        t, _ = _ask_quick(cfg, "scene_picture_model", REPAIR_ASK.format(
             desc=desc, should=should_show(s), text=str(s.get("text") or "")[:700], prompt=full[:600],
             seen=v.get("seen") or "-", problems="; ".join(v.get("problems") or []),
             tried=("THESE REWRITES WERE ALSO PAINTED AND STILL CAME OUT WRONG, so try a clearly different wording: "
@@ -394,7 +404,9 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
             for c in tries:
                 fb = f"{f[:-4]}_{c}.png"
                 sd = random.randint(1, 2 ** 31)
+                t0 = time.time()
                 tools.comfy_generate(cfg, full, fb, engine, sd, w, h, steps=8, negative=neg)
+                say(f"   repainted {os.path.basename(fb)}  ({time.time() - t0:.0f} s, seed {sd})")
                 open(fb[:-4] + ".prompt.txt", "w", encoding="utf-8").write(
                     f"{full}\n\nseed {sd}  engine {engine}  {w}x{h}  steps 8  (picture check repaint {rnd})\n")
                 painted.setdefault(s["file"], []).append(fb)

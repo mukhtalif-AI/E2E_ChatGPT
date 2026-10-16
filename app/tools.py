@@ -1936,7 +1936,19 @@ def horror_story(ctx, name, topic="", minutes=15, notes="", engine="auto", recip
     if story.nwords(script) < 150:
         raise RuntimeError("the story came out too short - try again")
     summ = story.summarise(cfg, script, say)
-    if auto_name:
+    if auto_name and cfg.get("experimental_mode"):
+        # Experimental: <Series>-<short English title>; the episode folder is renamed now, before anything is in it
+        import experimental_workspace
+        final_name = experimental_workspace.title_name(ctx, genre, name, [summ.get("title_en"),
+                                                                          info["recipe"].get("topic"), topic])
+        if final_name and final_name != name:
+            _rename_job_values(ctx.get("job") or {}, name, final_name)
+            for k, v in list(cfg.items()):   # this run's paths (narration folder) point into the episode folder
+                if isinstance(v, str) and name in v:
+                    cfg[k] = v.replace(name, final_name)
+            name = final_name
+            say(f"   episode named from the story title: {name}")
+    elif auto_name:
         prefix = {"bhay": "Bhay", "rahasya": "Rahasya", "kisse": "Kisse", "romanch": "Romanch",
                   "kareeb": "Kareeb", "gyaan": "Gyaan"}.get(genre, genre.title())
         title = summ.get("title_en") or summ.get("title_hi") or info["recipe"].get("topic") or topic or "Story"
@@ -2235,8 +2247,8 @@ def _word_time(tim, words, a=None, b=None):
 
 
 # ------------------------------------------------------------------ story-beat scenes + two-step director (Experimental, 16 Oct)
-END_SECONDS = 7               # Experimental genre videos, 'Whole video' 0: music after the voice (Tinker: end_seconds)
-SUBSCRIBE_END = {"dur": 5.5, "sub_click": 1.3, "bell_click": 2.6}   # Subscribe + bell ending (engine subscribe_end.py)
+END_SECONDS = 10              # Experimental genre videos, 'Whole video' 0: music after the voice (Tinker: end_seconds)
+SUBSCRIBE_END = {"dur": 6.5, "sub_click": 2.2, "bell_click": 3.8}   # Subscribe + bell ending (engine subscribe_end.py)
 SCENE_SECONDS = 30            # Experimental genre videos: about one picture per this many seconds (Tinker: scene_seconds)
 _SENT_END = re.compile(r"[।?!॥]\s*[\"'”’)]*\s*$")
 SCENE_PICTURE_ASK = (
@@ -2803,18 +2815,21 @@ def _end_seconds(cfg):
 
 
 def _subscribe_sounds(sr=48000):
-    """a mouse click and a two-tone notification bell, made from sine waves (no sound file, nothing to license)"""
+    """a soft mouse click and a soft two-tone chime, made from sine waves (no sound file, nothing to license).
+    Kept low and mellow (A5 then F5, few overtones, soft attack) so it is not piercing."""
     import numpy as np
-    t = np.arange(int(0.05 * sr)) / sr
-    click = np.random.default_rng(7).normal(0, 1, len(t)) * np.exp(-t / 0.003) * 0.6 \
-        + np.sin(2 * np.pi * 2100 * t) * np.exp(-t / 0.008)
-    t = np.arange(int(2.2 * sr)) / sr
+    t = np.arange(int(0.04 * sr)) / sr
+    click = np.random.default_rng(7).normal(0, 1, len(t)) * np.exp(-t / 0.002) * 0.25 \
+        + np.sin(2 * np.pi * 1100 * t) * np.exp(-t / 0.006)
+    t = np.arange(int(2.4 * sr)) / sr
     bell = np.zeros(len(t))
-    for delay, f0, amp in ((0.0, 1318.5, 1.0), (0.16, 1046.5, 0.8)):          # E6 then C6: ding-dong
+    for delay, f0, amp in ((0.0, 880.0, 1.0), (0.22, 698.5, 0.85)):           # A5 then F5: a soft ding-dong
         tt = t - delay
         on = tt >= 0
-        for ratio, a, dec in ((1, 1, 1.1), (2.0, 0.45, 0.6), (2.76, 0.3, 0.4), (5.4, 0.12, 0.18)):
-            bell[on] += amp * a * np.sin(2 * np.pi * f0 * ratio * tt[on]) * np.exp(-tt[on] / dec) * np.minimum(1, tt[on] / 0.002)
+        for ratio, a, dec in ((1, 1, 1.3), (2.0, 0.18, 0.5), (3.0, 0.05, 0.25)):
+            bell[on] += amp * a * np.sin(2 * np.pi * f0 * ratio * tt[on]) * np.exp(-tt[on] / dec) * np.minimum(1, tt[on] / 0.008)
+    for _ in range(2):                                                          # gentle low-pass: rounds off the edge
+        bell = np.convolve(bell, np.ones(5) / 5, mode="same")
     return (click / np.abs(click).max()).astype(np.float32), (bell / np.abs(bell).max()).astype(np.float32)
 
 
@@ -2826,8 +2841,8 @@ def _subscribe_end(ctx, narration, audio, total, lines):
     cfg, say = ctx["cfg"], ctx["say"]
     S = dict(SUBSCRIBE_END)
     last = max([float(x["end"]) for x in lines] or [0.0])
-    start = min(last + 0.8, total - S["dur"] - 0.3)
-    if start < last + 0.2:
+    start = max(last + 2.4, total - S["dur"] - 0.6)          # near the very end; the picture fades out first (1.8 s)
+    if start + S["dur"] > total + 0.05:
         say(f"   (no Subscribe ending: only {total - last:.1f} s after the voice; it needs about {S['dur'] + 1.2:.0f} s "
             f"- Tinker > Models > Ending after the voice)")
         return None, audio
@@ -2836,7 +2851,7 @@ def _subscribe_end(ctx, narration, audio, total, lines):
     try:
         a = _decode(cfg, audio, sr, 2).copy()
         click, bell = _subscribe_sounds(sr)
-        for at, snd, gain in ((S["sub_click"], click, 0.3), (S["bell_click"], click, 0.3), (S["bell_click"] + 0.05, bell, 0.3)):
+        for at, snd, gain in ((S["sub_click"], click, 0.12), (S["bell_click"], click, 0.12), (S["bell_click"] + 0.08, bell, 0.13)):
             i = int((start + at) * sr)
             j = min(len(a), i + len(snd))
             if j > i:

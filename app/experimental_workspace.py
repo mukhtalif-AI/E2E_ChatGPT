@@ -94,6 +94,54 @@ def _short_name(base, L, series, b):
     return candidate
 
 
+_TITLE_FILLER = {"the", "a", "an", "of", "and", "in", "on", "at", "to", "for", "with", "from", "by", "is", "was",
+                 "his", "her", "my", "our", "their", "its", "that", "this"}
+
+
+def latin_title(title, n=32):
+    """'The Clink of the Steel Tiffin' -> 'Clink-Steel-Tiffin': Latin letters only, filler words dropped, Windows-safe"""
+    import unicodedata
+    text = unicodedata.normalize("NFKD", str(title or "")).encode("ascii", "ignore").decode()
+    words = re.findall(r"[A-Za-z0-9]+", text.replace("'", ""))
+    out = ""
+    for w in [w for w in words if w.lower() not in _TITLE_FILLER] or words:
+        w = w[:1].upper() + w[1:]
+        if out and len(out) + 1 + len(w) > n:
+            break
+        out = f"{out}-{w}" if out else w[:n]
+    return out
+
+
+def title_name(ctx, series, current, titles):
+    """After the script step: rename the episode from its placeholder (<Series>-<MMDD-HHMM> or the topic) to
+    <Series>-<short English title>, -2, -3 when taken. Renames the episode folder; returns the new name or ''."""
+    meta = ((ctx.get("job") or {}).get("params") or {}).get("_experimental_workspace") or {}
+    ep = meta.get("episode_dir") or ""
+    if not ep or os.path.basename(os.path.normpath(ep)) != current or not os.path.isdir(ep):
+        return ""
+    short = next((x for x in (latin_title(t) for t in titles) if x), "")
+    if not short:
+        return ""
+    prefix = SERIES_PREFIX.get(series, str(series).title())
+    name = f"{prefix}-{short}"[:48].rstrip("-.")
+    if name.lower() == current.lower():
+        return ""
+    cfg = ctx["cfg"]
+    parent = os.path.dirname(os.path.normpath(ep))
+    scripts = cfg.get("scripts_dir") or os.path.join(cfg.get("media_dir", ""), "scripts")
+    candidate, n = name, 2
+    while (os.path.exists(os.path.join(parent, candidate)) or os.path.exists(os.path.join(scripts, candidate + ".txt"))
+           or os.path.exists(os.path.join(scripts, candidate + ".story.json"))):
+        candidate = f"{name}-{n}"
+        n += 1
+    try:
+        os.rename(ep, os.path.join(parent, candidate))
+    except OSError as exc:
+        ctx["say"](f"   kept the name {current}: the episode folder could not be renamed ({exc})")
+        return ""
+    return candidate
+
+
 def prepare(kind, body, cfg, job_id):
     """Build an isolated job config and plan without changing the stable CFG."""
     from tools import plan, slug
@@ -124,7 +172,9 @@ def prepare(kind, body, cfg, job_id):
                 reused = _episode_of_narration(base, L, series, slug(b.get("name") or ""))
             if reused:
                 episode_dir = reused
-            else:                          # short name at queue time (<Series>-<title>), never renamed later
+            else:                          # short name at queue time; renamed from the story title after the script step
+                if "script" in stages and not str(b.get("name") or "").strip() and not str(b.get("script") or "").strip():
+                    b["auto_name"] = True      # no typed name: horror_story renames to <Series>-<English title>
                 b["name"] = _short_name(base, L, series, b)
                 episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), b["name"])
         else:
