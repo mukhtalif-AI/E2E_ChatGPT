@@ -186,11 +186,14 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     shots = json.load(open(os.path.join(pictures, "shots.json"), encoding="utf-8"))["shots"]
     voice_db = 20 * np.log10(float(np.sqrt(np.mean(mix.astype(np.float64) ** 2))) + 1e-9)
     added = 0
+    exp = _is_exp(cfg)
+    if exp:                                                 # one bed per place: runs, no restart, crossfade at changes
+        added += _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say)
     for i, s in enumerate(shots):
         a = int((lead + float(s["start"])) * sr)
         b = int((lead + float(shots[i + 1]["start"] if i + 1 < len(shots) else s["end"] + 4)) * sr)
         b = min(b, len(mix))
-        if s.get("ambience") and os.path.exists(s["ambience"]) and b > a:
+        if not exp and s.get("ambience") and os.path.exists(s["ambience"]) and b > a:
             amb = tools._decode(cfg, s["ambience"], sr, 2)
             if len(amb) > sr:
                 need = b - a
@@ -264,6 +267,75 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
         pass
     say(f"   {added} ambience / sound effects placed -> {mix_p}")
     return rc == 0
+
+
+def _bed_loop(amb, need, sr):
+    """the bed repeated to 'need' samples with a ~1 s equal-power seam (a plain repeat clicks / restarts audibly)"""
+    import numpy as np
+    if len(amb) >= need:
+        return amb[:need]
+    xf = min(sr, len(amb) // 4)
+    ramp = np.sin(np.linspace(0, np.pi / 2, xf))[:, None].astype(np.float32)
+    out = np.zeros((need, amb.shape[1]), np.float32)
+    pos, first = 0, True
+    while pos < need:
+        seg = amb.astype(np.float32).copy()
+        if not first:
+            seg[:xf] *= ramp
+        seg[-xf:] *= ramp[::-1]
+        n = min(len(seg), need - pos)
+        out[pos:pos + n] += seg[:n]
+        pos += len(amb) - xf
+        first = False
+    return out
+
+
+def _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say, xfade=3.0, edge=2.0):
+    """Experimental (17 Oct 2026 sound cross-check): scenes in a row with the same bed share ONE loop that keeps
+    running (before, every scene restarted its bed with a 2 s fade out and in). A change of bed is a 3 s equal-power
+    crossfade; the start and end of a bed fade over 2 s as before."""
+    import numpy as np
+    runs = []                                           # [file, a, b] in samples, consecutive scenes merged
+    for i, s in enumerate(shots):
+        a = int((lead + float(s["start"])) * sr)
+        b = min(len(mix), int((lead + float(shots[i + 1]["start"] if i + 1 < len(shots) else s["end"] + 4)) * sr))
+        f = s.get("ambience") if s.get("ambience") and os.path.exists(s["ambience"]) else ""
+        if runs and runs[-1][0] == f and runs[-1][2] >= a - sr:
+            runs[-1][2] = b
+        elif b > a:
+            runs.append([f, a, b])
+    added, half = 0, int(xfade * sr / 2)
+    for j, (f, a, b) in enumerate(runs):
+        if not f:
+            continue
+        amb = tools._decode(cfg, f, sr, 2)
+        if len(amb) <= sr:
+            continue
+        cross_in = j > 0 and runs[j - 1][0] and runs[j - 1][2] >= a - sr
+        cross_out = j + 1 < len(runs) and runs[j + 1][0] and runs[j + 1][1] <= b + sr
+        a2 = max(0, a - half) if cross_in else a
+        b2 = min(len(mix), b + half) if cross_out else b
+        need = b2 - a2
+        if need <= 0:
+            continue
+        loop = _bed_loop(amb, need, sr)
+        g = 10 ** ((voice_db - 22 - 20 * np.log10(float(np.sqrt(np.mean(amb ** 2))) + 1e-9)) / 20)
+        t = np.arange(need, dtype=np.float32)
+        if cross_in:
+            fi = np.sin(np.pi / 2 * np.minimum(1, t / (2 * half)))
+        else:
+            fi = np.minimum(1, t / (edge * sr))
+        if cross_out:
+            fo = np.sin(np.pi / 2 * np.minimum(1, (need - t) / (2 * half)))
+        else:
+            fo = np.minimum(1, (need - t) / (edge * sr))
+        mix[a2:b2] += (loop * g * (fi * fo)[:, None] * bed(a2, b2)).astype(np.float32)
+        added += 1
+    beds = [r for r in runs if r[0]]
+    if beds:
+        say(f"   ambience: {len(beds)} bed run(s) over {len(shots)} scenes "
+            f"({len({r[0] for r in beds})} different), crossfaded where the place changes")
+    return added
 
 
 def _subtitle_text_for_timing(text, timing):
