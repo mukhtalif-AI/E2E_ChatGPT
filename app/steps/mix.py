@@ -24,7 +24,7 @@ def load_audio_index(cfg):
 
 def audio_index(ctx, rebuild=False):
     cfg = ctx["cfg"]
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # app\steps\mix.py -> project root
     cmd = [cfg["gpu_python"], "-s", "-u", os.path.join(root, "app", "audio_index.py"), os.path.join(root, "config.json")]
     if rebuild:
         cmd.append("--rebuild")
