@@ -669,6 +669,9 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         seen.append(scene)
         # the moment first (image models weigh the start most), the shared style after -> varied but coherent
         pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
+        if anchor and exp and not re.search(r"\b(man|woman|men|women|person|people|figure|silhouette|boy|girl|child|"
+                                            r"narrator|he|she|his|her|face|hand|hands|body)\b", scene, re.I):
+            anchor = ""                     # 17 Oct: an object or empty-place shot got the character painted into it
         if anchor:
             pr += f" Character continuity anchor: {anchor}. Keep this character design unchanged."
         cues = []

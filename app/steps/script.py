@@ -207,6 +207,15 @@ def _emo_salvage(t):
 def _emo_reply(cfg, prompt, say):
     """emotion-marks JSON from the model: JSON mode, then once as text; a broken reply keeps its complete entries"""
     import story
+    c = dict(cfg, _no_think=True)          # 17 Oct: thinking cost 2-4 min per 15-line batch for a short JSON answer
+    try:
+        return _emo_reply_ask(c, prompt, say, story)
+    finally:
+        if c.get("_ollama_used"):                       # free_llm must still unload the model afterwards
+            cfg["_ollama_used"] = True
+
+
+def _emo_reply_ask(cfg, prompt, say, story):
     err = None
     for as_json in (True, False):
         try:

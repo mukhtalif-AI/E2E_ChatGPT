@@ -27,20 +27,22 @@ import tools
 
 CHECK_MODEL = "gemma3:12b"     # picture judge (Tinker/cfg picture_check_model overrides): 16 Oct test on 16 Bhay
                                # pictures caught 7/7 wrong ones, 2 good ones failed, 7 s each (gemma4:12b 9/10 but 31 s)
-MAX_ROUNDS = 2                 # repaint rounds for a failing scene, then flag it
+MAX_ROUNDS = 1                 # repaint rounds for a failing scene, then flag it (17 Oct: round 2 fixed 7 of 41)
 HORROR = {"bhay", "rahasya"}   # series whose scary scenes are checked for being scary
 
 CHECKLIST_ASK = (
     "You prepare a picture check for a {desc} video. For EACH numbered scene below you get what its picture "
     "SHOULD SHOW and the story text read while it is on screen.\n"
     "For each scene write what a correct picture must contain, as an object with these keys:\n"
-    "\"subject\": the main subject in 2-6 English words (a person, an object or a place),\n"
-    "\"must_show\": a list of at most 3 short things that must be visible,\n"
+    "\"subject\": the main subject in 2-6 plain English words as a camera sees it: 'a young woman and a boy', not "
+    "'sister teaching brother'; no names, no family words, no ideas or feelings,\n"
+    "\"must_show\": a list of at most 3 short OBJECTS, PLACES or PEOPLE a camera can see. Never feelings, moods, "
+    "expressions, sounds, smells, silence, names or ideas ('sad tone', 'eerie silence', 'smell of mud' are wrong),\n"
     "\"must_not_show\": a list of at most 3 short things that would make this picture wrong (for example people "
     "in a room that should be empty, a living person when it should be a photograph, a film negative or a shadow),\n"
     "\"max_people\": how many real people may stand in the scene, or null when the scene does not say. Use a number "
     "ONLY when the scene says it: 0 when it says the place is empty or deserted, otherwise the number of people it "
-    "names. People inside a photograph, painting, film negative or mirror, shadows, silhouettes, faces behind glass "
+    "names, and never fewer than the people your own subject and must_show ask for. People inside a photograph, painting, film negative or mirror, shadows, silhouettes, faces behind glass "
     "and close-ups of eyes or hands are not counted. A street, a building or an object with nothing said about "
     "people is null,\n"
     "\"shot\": close-up, medium or wide,\n"
@@ -161,10 +163,17 @@ def verdict(a, c, genre):
     if bad:
         hard.append("shows " + ", ".join(bad)[:120])
     if _bool(a.get("text_or_letters", False)):
-        hard.append("text or letters in the picture")
+        if WRITING.search(" ".join([str(c.get("subject") or "")] + [str(x) for x in c.get("must_show") or []])):
+            soft.append(("text or letters in the picture", 1.0))   # a diary, letter or note scene SHOULD show writing
+        else:
+            hard.append("text or letters in the picture")
     if _bool(a.get("broken_bodies", False)):
         hard.append("broken hands, limbs or faces")
-    miss = _list(a.get("missing"))
+    must = [str(x).lower() for x in c.get("must_show") or []]
+    mustnt = [str(x).lower() for x in c.get("must_not_show") or []]
+    # the judge sometimes lists MUST NOT SHOW items (or its own words) as missing: only real must-show items count
+    miss = [x for x in _list(a.get("missing")) if str(x).lower() not in mustnt
+            and (not must or any(_same(str(x), m) for m in must))]
     if miss:
         soft.append(("missing " + ", ".join(miss)[:120], min(3.0, 1.5 * len(miss))))
     want, got = c.get("shot") or "", str(a.get("shot") or "").strip().lower()
@@ -180,6 +189,16 @@ def verdict(a, c, genre):
         score = min(score, 5.0)
     return {"pass": not hard, "score": round(max(0.0, score), 1), "problems": hard + [t for t, _ in soft],
             "seen": str(a.get("seen") or "")[:240]}
+
+
+WRITING = re.compile(r"diary|letter|note|script|writing|written|handwrit|ink|page|book|receipt|paper|text|"
+                     r"number|numeral|sign|newspaper|currency|rupee|scroll|poem", re.I)
+
+
+def _same(a, b):
+    """does the judge's 'missing' item name this must-show item (any shared word of 4+ letters)"""
+    wa = {w for w in re.findall(r"[a-z]{4,}", a.lower())}
+    return bool(wa & set(re.findall(r"[a-z]{4,}", b.lower()))) or a.lower() in b.lower() or b.lower() in a.lower()
 
 
 def check_model(cfg):
