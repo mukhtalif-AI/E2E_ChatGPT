@@ -140,11 +140,77 @@ AMB_SOURCES = {
 }
 
 
-def _amb_fits(path, text):
-    """False when the bed's file name names a sound source (bird, train, river...) that this scene never has"""
+def _amb_fits(path, text, folder=False):
+    """False when the bed's file name names a sound source (bird, train, river...) that this scene never has.
+    folder=True (Experimental) also reads the category folder: 'Rain/soft_loop.wav' is a rain bed too."""
     n = os.path.basename(str(path or "")).lower()
+    if folder:
+        n = os.path.basename(os.path.dirname(str(path or ""))).lower() + "/" + n
     t = str(text or "").lower()
     return all(any(w in t for w in words) for src, words in AMB_SOURCES.items() if src in n)
+
+
+# Experimental: what the director may pick, per series (17 Oct 2026 sound cross-check). Before, every file in the library
+# was offered to every series and any library name was taken, so Kisse and Gyaan got horror pads, a sobbing loop became a
+# bed, a fan loop became an effect and a door knock a 'hit'.
+STINGER_CATS = ("braam", "riser", "impact", "whoosh")
+STINGER_WORDS = ("braam", "drop", "riser", "impact", "whoosh", "swoosh", "sweep", "boom", "stinger")
+NEUTRAL_AMB = ("fan_hum", "night_crickets")       # a quiet home or a night outside: any story series may use them
+TONE_SERIES = ("bhay", "rahasya")                  # unsorted root files (dark pads, drones, heartbeats) only here
+STORY_SERIES = ("bhay", "rahasya", "kisse", "romanch")
+# effects: everyday sounds (a knock, footsteps, a phone) are shared by every series - the story gives them their weight;
+# only the strong mood sounds below stay with the series that list them (user, 17 Oct 2026)
+MOOD_CATS = ("whisper", "scream_far", "breathing", "chains", "dog_howl", "gunshot_far", "heartbeat", "laugh_child",
+             "riser", "braam", "whoosh", "impact")
+MUSIC_WORDS = ("neffex", "soundlings", "instrumental", "music", "between the spaces")
+MAX_BEDS = 3                                       # Experimental: at most this many different beds in one episode
+SHORT_SCENE = 45                                   # seconds: a scene this short between two same-bed scenes keeps that bed
+MAX_BED_RUN = 150                                  # seconds one bed may play before a scene without it (a breather)
+NOT_A_BED = ("heartbeat",)                         # a heartbeat is a moment, not a place: never a bed for minutes
+THOUGHT_WORDS = ("सोचा", "सोच रह", "सोचने", "मन में", "मन ही मन", "याद आ", "महसूस", "लगा कि", "लगता था", "दिल में",
+                 "i thought", "i wondered", "i remembered", "in my mind", "i felt", "i realised", "i realized")
+BED_RULE = ("AMBIENCE RULE: the bed is the PLACE, not the mood. Keep the SAME bed for every scene in the same place; "
+            "change it only when the story moves somewhere else. Use at most 3 different beds in the whole story, "
+            "and \"\" when no listed bed fits the place or the scene is only thoughts, memories or feelings.\n")
+
+
+def _sound_cat(path):
+    """the SFX category folder of a file ('' for the unsorted root); treated copies keep the folder name"""
+    import sfx_lib
+    c = os.path.basename(os.path.dirname(str(path or "")))
+    return c if c in sfx_lib.CATS else ""
+
+
+def _series_sounds(sfx, genre, amb, cue_names, hits_on):
+    """-> (ambience names, cue names, hit names) this series may use"""
+    import sfx_lib
+    cats = set(sfx_lib.SERIES.get(genre, ([], 0))[0])
+    amb_ok = cats | (set(NEUTRAL_AMB) if genre in STORY_SERIES else set())
+    root_ok = genre in TONE_SERIES
+    music = lambda k: any(w in os.path.basename(sfx[k]).lower() for w in MUSIC_WORDS)
+    a = [k for k in amb if (_sound_cat(sfx[k]) in amb_ok if _sound_cat(sfx[k]) else root_ok and not music(k))
+         and not any(w in k for w in NOT_A_BED)]
+    shared = lambda cat: cat not in MOOD_CATS or cat in cats   # an everyday sound, or a mood sound this series lists
+    c = [k for k in cue_names if (shared(_sound_cat(sfx[k])) if _sound_cat(sfx[k]) else root_ok and not music(k))]
+    h = [k for k in cue_names if hits_on and (_sound_cat(sfx[k]) in STINGER_CATS or
+                                              (not _sound_cat(sfx[k]) and any(w in k for w in STINGER_WORDS)))]
+    return a, c, h
+
+
+def _pick_name(name, allowed):
+    """the director's sound name -> a name from the allowed list, or '' (exact, then a near spelling, then a category)"""
+    import difflib
+    n = re.sub(r"\s+", " ", str(name or "").strip().lower())
+    if not n:
+        return ""
+    if n in allowed:
+        return n
+    near = difflib.get_close_matches(n, allowed, 1, 0.8)
+    if near:
+        return near[0]
+    cat = n.split(":")[0].strip().replace(" ", "_")
+    same = sorted(k for k in allowed if k.startswith(cat + ":"))
+    return same[0] if same else ""
 
 
 def _fix_cue_words(cfg, text, words, sfx):
@@ -157,6 +223,38 @@ def _fix_cue_words(cfg, text, words, sfx):
         return w if w and _words_in(text, w) else ""
     except Exception:
         return ""
+
+
+def _sentence_of(text, words):
+    """the sentence of this scene that holds the cue words (for the sense check), else the scene's start"""
+    for sen in re.split(r"(?<=[।.!?])\s+|\n+", str(text or "")):
+        if sen.strip() and _words_in(sen, words):
+            return sen.strip()
+    return str(text or "")[:220]
+
+
+def _cue_check(cfg, shots, genre, G, say):
+    """Experimental (17 Oct 2026 sound cross-check): the self-review's effect check (does the sound really happen at
+    those words?) runs on the plan, before the mix, and cues it calls wrong or unneeded are dropped. Before, it ran
+    only after the video was made (Kisse 1016_142933: 7 of 8 effects flagged afterwards)."""
+    try:
+        import self_review
+    except Exception:
+        return
+    rows = [(s, c) for s in shots for c in s["cues"]]
+    cues = [{"line": _sentence_of(s["text"], c["words"]), "words": c["words"], "sound": os.path.basename(c["file"]),
+             "file": c["file"]} for s, c in rows]
+    sense = self_review._cue_sense(cfg, cues, genre, G, say)
+    if not sense:                                     # the model could not answer: the plan stays as it is
+        return
+    bad = {i for i, v in sense.items() if v.get("verdict") != "ok"}
+    for i in sorted(bad):
+        if i < len(rows):
+            s, c = rows[i]
+            say(f"   effect {os.path.basename(c['file'])} on '{c['words']}' left out: {sense[i]['verdict']}"
+                f" ({sense[i].get('why') or '-'})")
+    for s in shots:
+        s["cues"] = [c for c in s["cues"] if not any(c is rows[i][1] for i in bad if i < len(rows))]
 
 
 def sfx_fetch(ctx, genre=""):
@@ -423,6 +521,21 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     G = tools.GENRES.get(genre, tools.GENRES["bhay"])
     if not G.get("hits"):
         hits = []
+    if exp:                                           # only this series' sounds, and the code holds the director to them
+        amb, cue_names, hits = _series_sounds(sfx, genre, amb, cue_names, bool(G.get("hits")))
+        say(f"   sounds offered to the director: {len(amb)} ambience beds, {len(cue_names)} effects, {len(hits)} hits "
+            "(this series' own lists)")
+    dropped = {"ambience": [], "effect": [], "hit": []}
+
+    def sound_name(kind, raw, allowed):
+        """Experimental: a name from this series' list (near spellings fixed), else '' and the name is logged"""
+        raw = str(raw or "").strip()
+        if not exp:
+            return raw.lower() if raw.lower() in sfx else ""
+        k = _pick_name(raw, allowed)
+        if raw and not k:
+            dropped[kind].append(raw)
+        return k
     try:                                              # the story's level (mature allows blood in the pictures too)
         cfg["_picture_level"] = json.load(open(os.path.join(tools.ctx_folder(ctx, "scripts"), tools.slug(name) + ".story.json"),
                                                encoding="utf-8")).get("level") or "standard"
@@ -435,12 +548,20 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
                             mom=max(2, round(total / 150)), rules=_pic_rules(cfg),
                             parts="\n".join(f"{i + 1}. ({int(p['start'] // 60)}:{int(p['start'] % 60):02d}) {p['text'][:1200]}"
                                             for i, p in enumerate(parts)))
+    if exp:
+        ask = ask.replace("\nAMBIENCE: ", "\n" + BED_RULE + "AMBIENCE: ", 1)
     cut = [i + 1 for i, p in enumerate(parts) if len(p["text"]) > 1200]
     if cut:
         say(f"   ⚠ scene(s) {', '.join(map(str, cut))} are longer than 1200 letters - the director only reads the start")
     d = {}
     try:
         t, model = _ask_step(cfg, "director_model", ask, 0.6, say)
+        if exp:                                       # kept, so a plan with no sound can be looked into afterwards
+            try:
+                with open(os.path.join(out, "director_reply.txt"), "w", encoding="utf-8") as f:
+                    f.write(str(t or ""))
+            except OSError:
+                pass
         d = _loads(t)
         say(f"   planned by {model}")
     except Exception as e:
@@ -454,7 +575,7 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     character_anchors = d.get("character_anchors") or {}
     if look:
         say(f"   the look of this story: {look}")
-    shots, seen, fixed_cues, dropped_cues = [], [], 0, 0
+    shots, seen, fixed_cues, dropped_cues, capped_beds = [], [], 0, 0, 0
     look_p = _look_for_prompt(look)
     if exp and look_p:
         whole = " ".join(p["text"] for p in parts)
@@ -485,10 +606,15 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         if anchor:
             pr += f" Character continuity anchor: {anchor}. Keep this character design unchanged."
         cues = []
-        for c in (x.get("cues") or []):
-            if not (isinstance(c, dict) and str(c.get("sfx", "")).lower() in sfx and str(c.get("words", "")).strip()):
+        for c in (x.get("cues") or [] if not exp or cpp > 0 else []):
+            if not (isinstance(c, dict) and str(c.get("words", "")).strip()):
                 continue
-            w, f = str(c.get("words", "")), sfx[str(c.get("sfx", "")).lower()]
+            k = sound_name("effect", c.get("sfx"), cue_names)
+            if not k:
+                continue
+            w, f = str(c.get("words", "")), sfx[k]
+            if exp:                                    # '*' and quote marks around the words never match the timing
+                w = re.sub(r"[*_~\"“”‘’]+", "", w).strip()
             if not _words_in(p["text"], w):              # e.g. "Rain" for a Hindi story: never found -> never placed
                 w2 = _fix_cue_words(dcfg, p["text"], w, f)
                 if not w2:
@@ -499,18 +625,27 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             cues.append({"words": w, "file": f})
             if len(cues) >= max(cpp, 0):
                 break
-        amb_f = sfx.get(str(x.get("ambience") or "").lower(), "")
-        if amb_f and not _amb_fits(amb_f, p["text"] + " " + scene):
+        amb_f = sfx.get(sound_name("ambience", x.get("ambience"), amb), "")
+        hit_f = sfx.get(sound_name("hit", x.get("hit"), hits), "")
+        if exp and hit_f and i == 0:                   # a hit is never played on the first scene (nothing before it)
+            dropped["hit"].append(os.path.basename(hit_f) + " (scene 1)")
+            hit_f = ""
+        if amb_f and not _amb_fits(amb_f, p["text"] + " " + scene, exp):
             prev = next((s["ambience"] for s in reversed(shots) if s.get("ambience")), "")
-            keep = prev if prev and _amb_fits(prev, p["text"] + " " + scene) else ""
+            keep = prev if prev and _amb_fits(prev, p["text"] + " " + scene, exp) else ""
             say(f"   scene {i + 1}: bed {os.path.basename(amb_f)} names a sound this scene does not have - "
                 + (f"kept the previous bed {os.path.basename(keep)}" if keep else "no bed (music only)"))
             amb_f = keep
+        used = {s["ambience"] for s in shots if s.get("ambience")}
+        if exp and amb_f and amb_f not in used and len(used) >= MAX_BEDS:   # a 4th bed -> the place's bed stays
+            prev = next((s["ambience"] for s in reversed(shots) if s.get("ambience")), "")
+            amb_f = prev if prev and _amb_fits(prev, p["text"] + " " + scene, exp) else ""
+            capped_beds += 1
         shots.append({"file": f"{i + 1:03d}.png", "prompt": pr, "scene_prompt": scene, "character_anchor": anchor,
                       "character": character, "happens": happens,
                       "text": p["text"], "start": p["start"],
                       "end": p["end"], "ambience": amb_f,
-                      "hit": sfx.get(str(x.get("hit") or "").lower(), ""), "lightning": bool(x.get("lightning")),
+                      "hit": hit_f, "lightning": bool(x.get("lightning")),
                       "cues": cues})
         # Lead with the scene-specific text in logs; the shared look prefix made every
         # line appear identical when only the first 90 characters were printed.
@@ -522,6 +657,41 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     if fixed_cues or dropped_cues:
         say(f"   sound effect words checked against the narration: {fixed_cues} re-copied from the story text, "
             f"{dropped_cues} dropped (that sound does not happen there)")
+    if exp and any(s["cues"] for s in shots):
+        _cue_check(cfg, shots, genre, G, say)
+    if exp and shots:
+        flick = 0
+        for i in range(1, len(shots) - 1):           # A B A with a short B -> A A A (no jump to a bed and straight back)
+            a, b, c = shots[i - 1]["ambience"], shots[i]["ambience"], shots[i + 1]["ambience"]
+            if a and a == c and b != a and shots[i]["end"] - shots[i]["start"] <= SHORT_SCENE \
+                    and _amb_fits(a, shots[i]["text"] + " " + shots[i]["scene_prompt"], True):
+                shots[i]["ambience"] = a
+                flick += 1
+        inner = 0
+        for s in shots:                               # a scene that is only inner thought has no place: no bed
+            sens = [x for x in re.split(r"(?<=[।.!?])\s+|\n+", s["text"]) if x.strip()]
+            th = sum(1 for x in sens if any(w in x.lower() for w in THOUGHT_WORDS))
+            if s["ambience"] and sens and th / len(sens) >= 0.5:
+                s["ambience"] = ""
+                inner += 1
+        breaks, run = 0, 0.0
+        for j, s in enumerate(shots):                 # one bed playing on and on gets a scene's breather
+            same = j > 0 and s["ambience"] and s["ambience"] == shots[j - 1]["ambience"]
+            run = run + (s["end"] - s["start"]) if same else (s["end"] - s["start"] if s["ambience"] else 0.0)
+            if same and run > MAX_BED_RUN:
+                s["ambience"], run = "", 0.0
+                breaks += 1
+        beds = [s["ambience"] for s in shots]
+        changes = sum(1 for j in range(1, len(beds)) if beds[j] != beds[j - 1])
+        say(f"   ambience: {len({b for b in beds if b})} different bed(s) in {len(shots)} scenes, {changes} change(s)"
+            + (f"; {capped_beds} extra bed(s) over the limit of {MAX_BEDS} kept the previous one" if capped_beds else "")
+            + (f"; {flick} short scene(s) kept the bed around them" if flick else "")
+            + (f"; {inner} inner-thought scene(s) without a bed" if inner else "")
+            + (f"; {breaks} breather(s) after {MAX_BED_RUN} s of one bed" if breaks else ""))
+    for kind, names in dropped.items():
+        if names:
+            say(f"   ⚠ {len(names)} {kind} name(s) from the director are not in this series' list - left out: "
+                + ", ".join(sorted(set(names))[:6]))
     moments = []
     for i, p in enumerate(parts):                          # the object that carries the feeling, at its words
         x = sc[i] if i < len(sc) and isinstance(sc[i], dict) else {}
