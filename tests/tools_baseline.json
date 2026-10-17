@@ -1,6 +1,6 @@
 {
- "saved": "2026-10-16 20:14:18",
- "tools_lines": 4351,
+ "saved": "2026-10-17 04:42:16",
+ "tools_lines": 625,
  "names": [
   "AMB_SOURCES",
   "AMB_WORDS",
@@ -255,6 +255,7 @@
    "sfx_fetch",
    "horror_scenes",
    "exp_cue_times",
+   "exp_emotion_map",
    "horror_sound",
    "comfy_images",
    "pick_scenes",
@@ -348,6 +349,7 @@
    "sfx_fetch",
    "horror_scenes",
    "exp_cue_times",
+   "exp_emotion_map",
    "horror_sound",
    "comfy_images",
    "pick_scenes",
@@ -379,6 +381,7 @@
    "sfx_fetch",
    "horror_scenes",
    "exp_cue_times",
+   "exp_emotion_map",
    "horror_sound",
    "comfy_images",
    "pick_scenes",
@@ -410,6 +413,7 @@
    "sfx_fetch",
    "horror_scenes",
    "exp_cue_times",
+   "exp_emotion_map",
    "horror_sound",
    "comfy_images",
    "pick_scenes",
@@ -441,6 +445,7 @@
    "sfx_fetch",
    "horror_scenes",
    "exp_cue_times",
+   "exp_emotion_map",
    "horror_sound",
    "comfy_images",
    "pick_scenes",
@@ -467,6 +472,7 @@
    "sfx_fetch",
    "horror_scenes",
    "exp_cue_times",
+   "exp_emotion_map",
    "horror_sound"
   ],
   "working:episode/script": [

@@ -157,4 +157,4 @@ How far each part was tested is in `CHANGELOG.md`; open problems are in `KNOWN_P
 - **Plan the scenes again**: Video page switch; the old scenes and video are moved aside, never deleted.
 - Backups: `*_old_20261016_picturecheck`, `_gemma3`, `_191309_26b`, `_162952_subend` (+ `_subend2`, `_subend3`),
   `_163735_emo`, `_222253_titlename`, `_232000_think`, `_142552_prompts`, `_185351_replan`.
-
+- **Emotion map** (17 Oct, `app\emotion_music.py`, step `exp_emotion_map` before the sound; plan `EMOTION_MUSIC_PLAN.md`): mood + weight 0-3 per scene, music sections (max 3, no jumping back) and turn lines, in `emotion_map.json` next to `shots.json`. Bhay, Rahasya, Kisse, Romanch only. The sound does not use it yet.

@@ -333,6 +333,16 @@ def _feedback_steps(plan, b, series):
                                           "genre": a.get("genre", "")}})
             break
     for index, step in enumerate(steps):
+        if step.get("fn") == "horror_sound" and b.get("emotion_music", True):
+            a = step.get("args") or {}
+            import emotion_music
+            if emotion_music.settings(a.get("genre", "") or series).get("on"):
+                steps.insert(index, {"fn": "exp_emotion_map",
+                                     "label": "emotion map: how heavy each part of the story is (music sections, turns)",
+                                     "args": {"name": a.get("name", ""), "pictures": a.get("pictures", ""),
+                                              "genre": a.get("genre", "") or series}})
+            break
+    for index, step in enumerate(steps):
         if step.get("fn") == "horror_video":
             a = step.get("args") or {}
             steps.insert(index + 1, {"fn": "exp_after_video",
@@ -350,6 +360,16 @@ def exp_cue_times(ctx, name, pictures, genre=""):
         return self_review.cue_times(ctx, name, pictures, genre)
     except Exception as exc:                # never stop a run over this; horror_sound keeps the old estimate
         ctx["say"]("   (word timing skipped: {})".format(exc))
+        return True
+
+
+def exp_emotion_map(ctx, name, pictures, genre=""):
+    """EMOTION_MUSIC_PLAN.md step 1: writes emotion_map.json next to shots.json; the sound is not changed yet"""
+    import emotion_music
+    try:
+        return emotion_music.step(ctx, name, pictures, genre)
+    except Exception as exc:                # never stop a run over this; the music stays as before
+        ctx["say"]("   (emotion map skipped: {})".format(exc))
         return True
 
 
