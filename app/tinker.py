@@ -76,7 +76,7 @@ TABLES = {
     "tools.GENRES": "Series machine settings: music folders, voice, expressiveness (ex), pause, temperature, drama",
     "tools.STYLES": "Image styles: [label, style prompt]",
     "tools.DIRECTION": "Narration direction per series (where to pause and breathe)",
-    "story.STORY_PLAN": "Experimental genre stories: plan first + logic check (on, outline_think, check_think, ctx, max_fixes)",
+    "story.STORY_PLAN": "Experimental genre stories: plan first + logic check (on, outline_think, check_think, ctx, max_fixes, review = old editorial pass too)",
     "tools.SERIES_LOOK": "Experimental: fixed picture look per series (on, keep_era, look) instead of the director's look",
     "sfx_lib.SERIES": "Sound effects per series: [effect list, effects per minute]",
     "audio_screen.LIMITS": "Audio screening limits: speech band share, piercing highs, music ducking, clarity dB",

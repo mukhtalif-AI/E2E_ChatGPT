@@ -979,14 +979,14 @@ def _used_topics(L):
     return {str(e.get("topic", "")).strip().lower() for e in L if e.get("topic")}
 
 
-def _fresh_topic(cfg, name, channel, examples, L, also=(), engine="auto"):
+def _fresh_topic(cfg, name, channel, examples, L, also=(), engine="auto", rule=""):
     """every listed seed of this series is used: the AI invents a new one, unlike every earlier story ("" if it fails)"""
     used = [f"- {e.get('topic', '')}: {(e.get('summary') or {}).get('memory_story', '')}" for e in L[-30:]] \
         + [f"- {t}" for t in also]
     prompt = (f"You plan episodes for '{name}', {channel}. These stories were ALREADY made - the new one must not "
               "repeat or closely resemble any of them (not the same situation, kind of person, central object, place "
               "or twist):\n" + "\n".join(used) + "\n\nThe kind of story seeds this series uses: "
-              + "; ".join(examples[:5]) + ".\nGive ONE fresh story seed for the next episode, set in India. Answer "
+              + "; ".join(examples[:5]) + "." + (f"\nSeries rule: {rule}" if rule else "") + "\nGive ONE fresh story seed for the next episode, set in India. Answer "
               'ONLY JSON: {"topic": "(one short English line, under 15 words)"}')
     c = dict(cfg, _no_think=True)                              # a one-line answer: no 60-100 s of hidden thinking
     try:
@@ -1002,13 +1002,13 @@ def _fresh_topic(cfg, name, channel, examples, L, also=(), engine="auto"):
     return ""
 
 
-def _pick_seed(cfg, name, channel, topics, L, rng, also=(), engine="auto"):
+def _pick_seed(cfg, name, channel, topics, L, rng, also=(), engine="auto", rule=""):
     """an unused seed from the series list; when all are used, a new one from the AI (never the same seed again)"""
     used = _used_topics(L) | {str(a).strip().lower() for a in also}
     left = [t for t in topics if t.strip().lower() not in used]
     if left:
         return rng.choice(left)
-    return (_fresh_topic(cfg, name, channel, topics, L, also, engine)
+    return (_fresh_topic(cfg, name, channel, topics, L, also, engine, rule)
             or _least_used(topics, [e.get("topic") for e in L] + list(also), rng))
 
 
@@ -1120,8 +1120,11 @@ def _trim_dangling(ln):
 # rewrites only the lines that break the plan (instead of the full "preserve the events" rewrite).
 # check_think off + max_tokens: with thinking on, the logic check (Gemma 4 26B) thought for 12.7k tokens, hit the 16k
 # context, answered nothing, and was asked again the same way: ~12 min with no result (17 Oct, job 1017_191847)
+# review: the old editorial pass (what last night's full stories had) also runs on a planned story, before the logic
+# check - without it the planned Rahasya-Mirror-Doppelganger (17 Oct) went out as a raw first draft. "on": False = the
+# old writer (no plan, review only).
 STORY_PLAN = {"on": True, "outline_think": False, "check_think": False, "ctx": 16384, "max_fixes": 12,
-              "max_tokens": 4096}
+              "max_tokens": 4096, "review": True}
 
 OUTLINE_ASK = (
     "Before tonight's story is written, plan it. The brief for the story is below.\n\n{brief}\n\n"
@@ -1305,17 +1308,15 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
     text, model = ask(cfg, prompt, engine, 0.95, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
     script = _long_enough(cfg, text, int(float(minutes) * wpm(cfg, "hi", "bhay")), prompt, engine, say, clean_horror)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
-    if plan and not stopped():
-        script = logic_check(cfg, script, plan, "भय (horror)", "local" if model == local_model(cfg) else "auto", say,
-                             clean_horror)
-    elif not stopped():
+    if (not plan or STORY_PLAN.get("review", True)) and not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             fixed, _ = ask(cfg, "Check this complete Hindi horror story: natural spoken Hindi, steadily building dread, "
                            "clear cause and effect, a fair hook, no repeated ideas, and an ending that lands. Preserve "
                            "the events and approximate length. Return the corrected full story only, with no notes or "
                            "commentary after the final line.\n\nSTORY:\n\n"
-                           + script, review_engine, 0.4, say=say)
+                           + script, review_engine, 0.4, say=say,
+                           ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
             fixed = clean_horror(fixed)
             if nwords(fixed) >= nwords(script) * 0.8:
                 script = fixed
@@ -1324,6 +1325,9 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
                 say("   (check pass came back too short - kept the first version)")
         except Exception as e:
             say(f"   (editorial check unavailable - kept the first version: {e})")
+    if plan and not stopped():
+        script = logic_check(cfg, script, plan, "भय (horror)", "local" if model == local_model(cfg) else "auto", say,
+                             clean_horror)
     return script, {"recipe": r, "model": model, "minutes": minutes, "genre": "horror"}
 
 
@@ -1357,6 +1361,11 @@ GENRE_TEXT = {
                           "answer and reveals it slowly. A real-feeling mystery: a puzzle in the first lines, clues "
                           "planted fairly, rising tension, one strong twist that the clues support, a satisfying "
                           "reveal. Real Indian places and names, no real people or recent real crimes, no gore."),
+                # kept apart from 'rules' so an edited genre_rules.json still has it; the plan, the writer and a fresh
+                # seed all get it (17 Oct: an AI seed 'reflection moves by itself' became a mirror-world horror story)
+                "never": ("NOT HORROR: no ghosts, spirits, curses, magic, possession, mirror worlds or time loops. Every "
+                          "strange event has a real, human explanation (a person, a trick, a hidden record, a motive) "
+                          "that the reveal makes clear - that is what makes it रहस्य and not भय."),
                 "shape": "hook -> once: subscribe to रहस्य (no numbers) -> the people and the place -> the strange event "
                          "-> clues and wrong turns -> the twist -> the reveal -> a last line that lingers",
                 "topics": ["a letter that arrives 20 years late", "the missing page of a railway register",
@@ -1425,7 +1434,7 @@ GENRE_TELLINGS = {
 # back each time (किस्से 16-17 Oct: three stories in a row were 'an old object reveals a hidden sacrifice')
 GENRE_ANGLES = {
     "rahasya": ["the culprit is someone the listener meets in the first minute", "nobody was killed: the mystery is a "
-                "disappearance or a swap", "the narrator is hiding something until the end", "a small everyday object "
+                "disappearance or a person passing as someone else", "the narrator is hiding something until the end", "a small everyday object "
                 "is the key clue", "the twist is about why, not who", "a boring old record holds the answer",
                 "two separate cases turn out to be one"],
     "kisse": ["the truth comes out in one conversation, not in a found letter, diary or box", "it happens now, in the "
@@ -1472,7 +1481,7 @@ def genre_rules(cfg, gid):
 
 def _rules_for(G, level):
     """a series' writing rules; at the mature level its 'no gore' goes (the mature line allows what it forbade)"""
-    r = str(G.get("rules") or "")
+    r = (str(G.get("rules") or "") + " " + str(G.get("never") or "")).strip()
     if level == "mature" and G.get("mature"):
         r = re.sub(r",?\s*\bno gore\b", "", r, flags=re.I).replace(" .", ".").strip()
     return r
@@ -1500,7 +1509,8 @@ def genre_recipe(cfg, gid, topic="", seed=None, also=(), engine="auto"):
     rng = random.Random(seed)
     G = genre_rules(cfg, gid)
     L = [e for e in ledger(cfg) if e.get("genre") == gid]
-    r = {"genre": gid, "topic": topic or _pick_seed(cfg, G["name"], G["channel"], G["topics"], L, rng, also, engine),
+    r = {"genre": gid, "topic": topic or _pick_seed(cfg, G["name"], G["channel"], G["topics"], L, rng, also, engine,
+                                               G.get("never", "")),
          "telling": _least_used(G.get("tellings") or HORROR_BANK["tellings"],
                                 [e.get("recipe", {}).get("telling") for e in L], rng)}
     if G.get("angles"):
@@ -1539,17 +1549,14 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
     text, model = ask(cfg, prompt, engine, 0.9, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
     script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
-    if plan and not stopped():
-        script = logic_check(cfg, script, plan, G["name"], "local" if model == local_model(cfg) else "auto", say,
-                             clean_horror)
-    elif not stopped():
+    if (not plan or STORY_PLAN.get("review", True)) and not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             review = ("Review this complete Hindi " + G["name"] + " audio story. Preserve its events, voice, and length. "
                       "Check the story shape, cause and effect, character consistency, repeated ideas, natural spoken "
                       "Hindi, and a satisfying ending. For knowledge content, remove unsupported factual claims. "
                       "Return the corrected full script only, with no notes or commentary after the final line.\n\nSCRIPT:\n\n" + script)
-            fixed, _ = ask(cfg, review, review_engine, 0.25, say=say)
+            fixed, _ = ask(cfg, review, review_engine, 0.25, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
             fixed = clean_horror(fixed)
             if nwords(fixed) >= nwords(script) * 0.8:
                 script = fixed
@@ -1558,6 +1565,9 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
                 say("   editorial review was too short; kept the original draft")
         except Exception as e:
             say(f"   editorial review unavailable; kept the original draft ({e})")
+    if plan and not stopped():
+        script = logic_check(cfg, script, plan, G["name"], "local" if model == local_model(cfg) else "auto", say,
+                             clean_horror)
     return script, {"recipe": r, "model": model, "minutes": minutes, "genre": gid, "level": level}
 
 

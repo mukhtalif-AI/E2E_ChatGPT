@@ -54,10 +54,10 @@ def check(c, msg):
     global ok; print(("PASS " if c else "FAIL ") + msg); ok += bool(c)
 # 1 experimental, good plan + check
 out = run({"experimental_mode": True})
-check([c[0] for c in calls] == ["outline", "write", "check"], f"exp calls {[c[0] for c in calls]}")
-check(calls[0][3] is True and calls[2][3] is True, "outline and check no-think")
-check(calls[0][5] == calls[2][5] == S.STORY_PLAN["max_tokens"] and calls[1][5] is None, "plan + check capped, writer not")
-check(all(c[2] == 16384 for c in calls), "16k context for plan, write, check")
+check([c[0] for c in calls] == ["outline", "write", "review", "check"], f"exp calls {[c[0] for c in calls]}")
+check(calls[0][3] is True and calls[3][3] is True, "outline and check no-think")
+check(calls[0][5] == calls[3][5] == S.STORY_PLAN["max_tokens"] and calls[1][5] is None and calls[2][5] is None, "plan + check capped, writer + review not")
+check(all(c[2] == 16384 for c in calls), "16k context for plan, write, review, check")
 check("पिछले पाँच सालों से" in out and "पिछले तीन महीनों से" not in out, "line fixed by number")
 check("यह सवाल मेरे मन में अटक गया" in out, "line found by its text when the number was off")
 check(sum("logic fix" in l for l in log) == 2 and any("2 line(s) fixed, 2 answer(s) not usable" in l for l in log), "2 fixed, 2 skipped logged")
@@ -75,9 +75,17 @@ MODE["check"] = "bad"; out = run({"experimental_mode": True})
 check(out == S.clean_horror(real) or S.nwords(out) == S.nwords(S.clean_horror(real)), "bad check -> script kept")
 check(any("logic check unavailable" in l for l in log), "logged")
 MODE["check"] = "good"
+# 4b review off in the table -> plan, write, check only (the 13b8319 writer)
+S.STORY_PLAN["review"] = False
+run({"experimental_mode": True})
+check([c[0] for c in calls] == ["outline", "write", "check"], f"review off calls {[c[0] for c in calls]}")
+S.STORY_PLAN["review"] = True
+# 4c rahasya never-supernatural rule reaches the plan + writer prompts
+G = S.genre_rules({"media_dir": TMP}, "rahasya")
+check("NOT HORROR" in S._rules_for(G, "standard") and "NOT HORROR" in S._rules_for(G, "mature"), "rahasya not-horror rule kept")
 # 5 bhay experimental
 out = run({"experimental_mode": True}, "bhay")
-check([c[0] for c in calls] == ["outline", "write", "check"], f"bhay exp calls {[c[0] for c in calls]}")
+check([c[0] for c in calls] == ["outline", "write", "review", "check"], f"bhay exp calls {[c[0] for c in calls]}")
 out = run({}, "bhay")
 check([c[0] for c in calls] == ["write", "review"], "bhay working unchanged")
 # 6 plan off via table
