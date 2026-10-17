@@ -12,7 +12,7 @@ SERIES = ["sukoon", "bhay", "kisse", "rahasya", "romanch", "kareeb", "gyaan"]
 
 _COMMON = {"language": "hi", "source": "ai", "speech_min": 15, "total_min": 0, "fit": True, "writer": "auto",
            "level": "standard", "voice": "auto", "acoustic": True, "takes": 3, "ex": 0.5, "pause": 0.7,
-           "dramatic": True, "emotions": True, "music": "", "tail": "1min", "music_db": 14, "shape": False,
+           "dramatic": True, "emotions": True, "music": "", "tail": "1min", "music_db": 18, "shape": False,
            "reels": 2, "reel_len": 30, "scenes": 0, "best_pictures": False, "art_choices": 3, "art_style": "",
            "typo": "mukhtalif", "font": "", "en_speaker": "Ryan", "script_lang": "hi", "category": ""}
 

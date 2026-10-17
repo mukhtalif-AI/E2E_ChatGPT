@@ -1381,14 +1381,14 @@ const mkOff=(on,why,html)=>on?html:`<div class="mkoff" title="${esc(why)}">${htm
 async function mkDefaults(force){if(!MK.d||force){try{const r=await api("/api/create/defaults");MK.d=r.defaults;MK.file=r.file}catch(e){MK.d=MK.d||{}}}return MK.d}
 function mkFallback(gid){const suk=gid=="sukoon",ex={bhay:.5,rahasya:.5,kisse:.55,romanch:.5,kareeb:.3,gyaan:.5},pa={bhay:.75,rahasya:.6,kisse:.65,romanch:.75,kareeb:1,gyaan:.55};   // only until the hub is restarted with create_form.py
   return {language:"hi",source:suk?"mine":"ai",speech_min:suk?12:15,total_min:suk?30:0,fit:true,writer:"auto",level:"standard",voice:suk?"v3":"auto",acoustic:true,takes:3,
-    ex:suk?.35:ex[gid]||.5,pause:suk?1:pa[gid]||.7,dramatic:!suk,emotions:!suk,music:"",tail:suk?"usual":"1min",music_db:14,shape:suk,reels:suk?3:2,reel_len:30,scenes:0,
+    ex:suk?.35:ex[gid]||.5,pause:suk?1:pa[gid]||.7,dramatic:!suk,emotions:!suk,music:"",tail:suk?"usual":"1min",music_db:18,shape:suk,reels:suk?3:2,reel_len:30,scenes:0,
     best_pictures:false,art_choices:3,art_style:"",typo:"mukhtalif",font:"",en_speaker:"Ryan",script_lang:"hi",category:""}}
 function mkVals(){const ch=(id,d)=>chipVal(id)||d,num=(id,d)=>{const x=$("#"+id);return x&&x.value!==""?+x.value:d},on=id=>!!($("#"+id)&&$("#"+id).checked);
   return {language:ch("mLng","hi"),source:ch("mSrc","ai"),name:$("#mName").value,script:$("#mScript").value,topic:$("#mTopic").value,category:ch("mCat",""),level:ch("mLevel","standard"),
     speech_min:num("mMin",15),voice:$("#mVoice").value,acoustic:on("mAcoustic"),total_min:num("mTotal",0),fit:on("mFit"),writer:ch("mWriter","auto"),reels:num("mReels",2),
     reel_len:num("mReelLen",30),scenes:num("mScenes",0),title:$("#mTitle").value,best_pictures:on("mBest"),art_style:ch("mStyle",""),art_choices:num("mArtN",3),art_idea:$("#mIdea").value,
     takes:+ch("mTakes","3"),ex:num("mEx",.5),pause:num("mPause",1),dramatic:on("mDrama"),emotions:on("mEmo"),script_lang:ch("mSLang","hi"),en_speaker:ch("mSpk","Ryan"),
-    music:$("#mMusic").value,shape:on("mShape"),tail:ch("mTail","1min"),music_db:num("mDb",14),typo:$("#mTypo").value,font:$("#mFont").value}}
+    music:$("#mMusic").value,shape:on("mShape"),tail:ch("mTail","1min"),music_db:num("mDb",18),typo:$("#mTypo").value,font:$("#mFont").value}}
 R.episode=()=>R.make("sukoon");
 R.genre=gid=>R.make(gid||store.get("gid","bhay"));
 R.make=async(gid,carry)=>{await pre();try{await loadLib()}catch(e){}const D=await mkDefaults();
@@ -1442,7 +1442,7 @@ R.make=async(gid,carry)=>{await pre();try{await loadLib()}catch(e){}const D=awai
      <div class="row"><div><label>Music</label>${suk?musicSel("mMusic"):musicSel("mMusic").replace(/Default \([^)]*\)/,"Default: the "+G.name+" mood folders")}</div><div style="flex:0;align-self:end"><button class="btn small" onclick="audition('mMusic')">▶ Listen</button></div></div>
      ${mkOff(suk&&shapeOk,why.shape,`<div style="margin-top:10px">${sw("mShape","Like my Sukoon episodes",v.shape)}</div>`)}
      <label>Music after the story</label>${chips("mTail",{"1min":"1 min","5min":"5 min",usual:"like my Sukoon episodes"},v.tail)}<div class="hint" id="mTailH"></div>
-     ${mkOff(suk,why.db,`<label>Music under the voice by (when not “like my episodes”)</label>${range("mDb",8,24,1,+v.music_db||14," dB")}`)}
+     ${mkOff(suk,why.db,`<label>Music under the voice by (when not “like my episodes”)</label>${range("mDb",8,24,1,+v.music_db||18," dB")}`)}
      ${mkOff(suk,why.typo,`<div class="row"><div><label>Typography</label><select id="mTypo">${opt(pr.typos||{},v.typo)}</select></div><div><label>Font</label>${fontSel("mFont",v.font||"")}</div></div>`)}
      <audio id="mAud" class="hidden"></audio>`)}
    <div class="actions" style="margin-top:16px;align-items:center"><button class="btn" id="mSaveDef">Save as the ${esc(G.name)} defaults</button><button class="btn ghost" id="mResetDef">Back to the ${esc(G.name)} defaults</button><span class="hint">every ${esc(G.name)} episode starts with these · also in Tinker &gt; Series settings &gt; create_form.DEFAULTS</span></div>
