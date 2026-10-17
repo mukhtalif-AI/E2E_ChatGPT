@@ -33,14 +33,15 @@ CATS = {
     "tapping_soft": ("soft tapping asmr", 3, 20, "cue"), "brush_soft": ("soft brushing asmr", 3, 20, "cue"),
     "riser": ("cinematic riser", 2, 10, "cue"), "braam": ("cinematic braam", 2, 10, "cue"),
     "whoosh": ("whoosh transition", 0.5, 3, "cue"), "impact": ("cinematic impact hit", 1, 6, "cue"),
+    "atmo": ("dark ambient atmosphere drone", 10, 60, "amb"),    # 17 Oct 2026: soundscapes moved out of the music folders
 }
 # which sounds each series wants in its library, and how busy its sound is (cues per minute of story at most)
 SERIES = {
     "bhay": (["door_knock", "door_creak", "door_slam", "footsteps", "footsteps_outside", "whisper", "scream_far", "breathing",
               "heartbeat", "glass_break", "clock_tick", "dog_howl", "crow", "chains", "bell_temple", "thunder", "rain",
-              "wind", "night_crickets", "forest_night", "fan_hum", "tubelight", "water_drip", "riser", "braam", "impact"], 4),
+              "wind", "night_crickets", "forest_night", "fan_hum", "tubelight", "water_drip", "riser", "braam", "impact", "atmo"], 4),
     "rahasya": (["door_knock", "door_slam", "footsteps", "phone_ring", "phone_vibrate", "car_pass", "car_door", "siren_far",
-                 "gunshot_far", "typing", "paper", "clock_tick", "rain", "thunder", "office", "heartbeat", "riser",
+                 "gunshot_far", "typing", "paper", "clock_tick", "rain", "thunder", "office", "heartbeat", "atmo", "riser",
                  "impact", "whoosh"], 3),
     "kisse": (["door_knock", "footsteps", "train", "baby_cry", "laugh_child", "kitchen", "bell_temple", "rain", "wind",
                "village", "market", "birds_morning", "fire_crackle", "hospital", "cafe", "phone_ring", "pages"], 2.5),
