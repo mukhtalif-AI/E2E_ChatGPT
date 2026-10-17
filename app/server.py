@@ -274,6 +274,16 @@ class Jobs:
                "stopped": lambda: j["id"] in self.stop_flag,
                "run_cmd": lambda cmd, cwd=None, env=None: self.run_cmd(j, cmd, cwd, env, say),
                "add_job": lambda kind, title, steps: self.add(kind, title, steps)}
+        def time_summary():
+            """where this run's time went, slowest step first (jobs.json "timings" holds the same numbers)"""
+            t = [x for x in (j.get("timings") or []) if isinstance(x, (list, tuple)) and len(x) == 2]
+            total = sum(x[1] for x in t)
+            if total < 60:
+                return
+            say(f"\nTIME  {int(total // 60)} min {int(total % 60)} s in {len(t)} steps, slowest first:")
+            for fn, sec in sorted(t, key=lambda x: -x[1])[:10]:
+                say(f"   {fn:<18} {int(sec // 60):>3} min {int(sec % 60):02d} s   {100 * sec / total:3.0f} %")
+
         steps = j.get("steps") or []
         if not steps:
             say("-- this job has no steps saved, so there is nothing to run - start it again")
@@ -288,7 +298,7 @@ class Jobs:
                     tools.free_llm(ctx)
                     return False
                 j["step"] = i; j["step_label"] = st.get("label", st["fn"]); self.save()
-                say(f"\n[{i + 1}/{len(steps)}] {st.get('label', st['fn'])}")
+                say(f"\n[{i + 1}/{len(steps)}] {st.get('label', st['fn'])}   ({time.strftime('%H:%M:%S')})")
                 t_step = time.time()
                 try:
                     if st["fn"].startswith("exp_") and (j.get("params") or {}).get("_experimental_workspace"):
@@ -323,6 +333,10 @@ class Jobs:
                 pass
             return False
         finally:
+            try:
+                time_summary()
+            except Exception:
+                pass
             if tinker_on:
                 import tinker
                 tinker.leave()

@@ -311,8 +311,12 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
     os.makedirs(alt, exist_ok=True)
     save = lambda: json.dump(meta, open(sj, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
+    tm = {"start": time.time(), "checklists": 0.0, "checks": 0.0, "rewrites": 0.0, "repaints": 0.0,
+          "n_checks": 0, "n_repaints": 0}          # where this step's time goes, said at the end
     tools.free_gpu(ctx)
+    t0 = time.time()
     checklists(cfg, say, desc, [s for s in records if not s.get("picked")])
+    tm["checklists"] += time.time() - t0
     save()
     tools.free_llm(ctx)
     refs = {}
@@ -324,10 +328,13 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
         f = os.path.join(out, s["file"])
         results = {}
         for x in files:
+            t0 = time.time()
             try:
                 results[x] = check(cfg, x, s, desc, genre, refs.get(s.get("character")))
             except Exception as e:
                 say(f"   (vision AI could not check {os.path.basename(x)}: {e})")
+            tm["checks"] += time.time() - t0
+            tm["n_checks"] += 1
         if not results:
             return None
         best = _best(results)
@@ -370,6 +377,7 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
         if not v["pass"]:
             failing.append(s)
     save()
+    first_failed = len(failing)
 
     w, h = tools.SIZES.get(meta.get("size", "16:9"), tools.SIZES["16:9"])[:2]
     engine = cfg.get("image_engine", "z_image_turbo")
@@ -383,7 +391,9 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
             f = os.path.join(out, s["file"])
             pt = f[:-4] + ".prompt.txt"
             full = open(pt, encoding="utf-8").read().split("\n\n")[0].strip() if os.path.exists(pt) else s["prompt"]
+            t0 = time.time()
             new = _rewrite(cfg, say, desc, s, s["check"], full, s.get("repair_tried") or [])
+            tm["rewrites"] += time.time() - t0
             if not new:
                 continue
             jobs.append((s, new, _full_prompt(f, s, new)))
@@ -407,6 +417,8 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
                 t0 = time.time()
                 tools.comfy_generate(cfg, full, fb, engine, sd, w, h, steps=8, negative=neg)
                 say(f"   repainted {os.path.basename(fb)}  ({time.time() - t0:.0f} s, seed {sd})")
+                tm["repaints"] += time.time() - t0
+                tm["n_repaints"] += 1
                 open(fb[:-4] + ".prompt.txt", "w", encoding="utf-8").write(
                     f"{full}\n\nseed {sd}  engine {engine}  {w}x{h}  steps 8  (picture check repaint {rnd})\n")
                 painted.setdefault(s["file"], []).append(fb)
@@ -454,4 +466,10 @@ def pick_scenes(ctx, out, genre="bhay", redo=True):
             f"flagged (Ratings page): " + "; ".join(f"{s['file']} ({s['flag'][:80]})" for s in flagged))
     _unload(ctx)
     tools.free_gpu(ctx)
+    mins = lambda k: f"{tm[k] / 60:.1f} min"
+    rest = time.time() - tm["start"] - tm["checklists"] - tm["checks"] - tm["rewrites"] - tm["repaints"]
+    say(f"   picture check time: checklists {mins('checklists')}, checks {mins('checks')} ({tm['n_checks']} pictures), "
+        f"prompt rewrites {mins('rewrites')}, repaints {mins('repaints')} ({tm['n_repaints']} pictures), "
+        f"model loads and the rest {rest / 60:.1f} min; {first_failed} scene(s) failed the first check, "
+        f"repaints fixed {max(0, first_failed - len(flagged))}, {len(flagged)} flagged")
     return True
