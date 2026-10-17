@@ -182,6 +182,10 @@ def cue_times(ctx, name, pictures, genre=""):
             at, method, conf = word_time(words, tim, c.get("words", ""), s.get("start", 0), s.get("end", 1e9))
             if at is None:
                 continue
+            if c.get("in_gap") and method == "spoken word":   # a sound taken out of the speech: in the pause before
+                ends = [float(x.get("end", x["start"])) for x in (words or {}).get("words") or [] if float(x["start"]) < at - 0.05]
+                if ends and at - max(ends) >= 0.3:
+                    at = round(max(ends) + min(0.15, (at - max(ends)) / 4), 2)
             c.update({"at": at, "at_method": method, "at_confidence": conf, "at_old_estimate": old})
             n += 1
             by[method] = by.get(method, 0) + 1

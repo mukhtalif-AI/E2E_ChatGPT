@@ -324,6 +324,22 @@ def exp_audio_review(ctx, name, series="", director=""):
 def _feedback_steps(plan, b, series):
     """Experimental genre runs: effects placed at the spoken word, then the AI self-review after the video."""
     steps = plan.get("steps", [])
+    if any(s.get("fn") == "horror_sound" for s in steps) and b.get("sound_words", True):
+        # 17 Oct: 'ठक... ठक...' in the script is heard as an effect, not read aloud
+        for index, step in enumerate(steps):
+            if step.get("fn") == "sv_speak" and not (step.get("args") or {}).get("redo"):
+                a = step.get("args") or {}
+                steps.insert(index, {"fn": "exp_sound_words",
+                                     "label": "sound words in the script (ठक... ट्रिंग...) become effects, not speech",
+                                     "args": {"name": a.get("name", ""), "genre": b.get("genre") or series}})
+                break
+        for index, step in enumerate(steps):
+            if step.get("fn") == "horror_sound":
+                a = step.get("args") or {}
+                steps.insert(index, {"fn": "exp_sound_word_cues",
+                                     "label": "effects where the script had sound words",
+                                     "args": {"name": a.get("name", ""), "pictures": a.get("pictures", "")}})
+                break
     for index, step in enumerate(steps):
         if step.get("fn") == "horror_sound" and b.get("word_timed_sfx", True):
             a = step.get("args") or {}
@@ -360,6 +376,25 @@ def exp_cue_times(ctx, name, pictures, genre=""):
         return self_review.cue_times(ctx, name, pictures, genre)
     except Exception as exc:                # never stop a run over this; horror_sound keeps the old estimate
         ctx["say"]("   (word timing skipped: {})".format(exc))
+        return True
+
+
+def exp_sound_words(ctx, name, genre=""):
+    """before the voice: sound words out of the spoken script (sound_words.py), the script as it was kept in _old"""
+    import sound_words
+    try:
+        return sound_words.step(ctx, name, genre)
+    except Exception as exc:                # never stop a run over this; the script is read as written
+        ctx["say"]("   (sound words not checked: {})".format(exc))
+        return True
+
+
+def exp_sound_word_cues(ctx, name, pictures):
+    import sound_words
+    try:
+        return sound_words.cues(ctx, name, pictures)
+    except Exception as exc:
+        ctx["say"]("   (sound word effects skipped: {})".format(exc))
         return True
 
 

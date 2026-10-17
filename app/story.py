@@ -1147,6 +1147,10 @@ OUTLINE_ASK = (
 QUOTE_RULE = ("Quotes: say who is speaking before a quote, close every quote on the same line, and put the narrator's "
               "own next sentence on a new line, so a listener always knows who is talking.")
 
+SOUND_WORD_RULE = ("Sounds: never write a sound as a word to be read aloud (no 'ठक... ठक...', 'ट्रिंग ट्रिंग', "
+                   "'खुर्र...', 'टिक-टिक', 'धड़ाम'). Say what is heard in a normal sentence instead (दरवाज़े पर तीन बार "
+                   "दस्तक हुई / फ़ोन की घंटी बजी / लकड़ी पर कुछ घिसटने की आवाज़ आई); the video plays the real sound there.")
+
 LOGIC_ASK = (
     "You check a finished Hindi {series} audio story for LOGIC only, against the plan it was written from. "
     "Look for: a fact that differs from the plan or from an earlier line (dates, years, ages, durations, money, "
@@ -1258,10 +1262,10 @@ def story_outline(cfg, prompt, series, engine, say):
 
 
 def with_plan(prompt, plan):
-    """the writing prompt with the plan to follow (and the quote rule) just before 'Now write'"""
+    """the writing prompt with the plan to follow (and the quote and sound-word rules) just before 'Now write'"""
     block = ("PLAN TO FOLLOW (write the story from it, beat by beat in this order; keep every fixed fact exactly; "
              "only this one twist, no extra twist; every clue gets its answer before the end; nothing new in the "
-             "last part):\n" + plan + "\n\n" + QUOTE_RULE + "\n\n")
+             "last part):\n" + plan + "\n\n" + QUOTE_RULE + "\n" + SOUND_WORD_RULE + "\n\n")
     k = prompt.rfind("Now write")
     return prompt[:k] + block + prompt[k:] if k > 0 else prompt + "\n\n" + block
 
