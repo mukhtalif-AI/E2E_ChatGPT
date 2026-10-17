@@ -70,6 +70,8 @@ class Jobs:
         self.children = {}                     # job id -> programs it started
         self.threads = {}                      # job id -> worker thread running it
         self.abandoned = set()                 # worker threads given up on after Stop (a step would not let go)
+        self.pause_flag = set()                # job ids to pause before their next step
+        self.lingering = {}                    # job id -> its given-up thread, still finishing one call
         if os.path.exists(JOBS_FILE):
             try:
                 self.jobs = json.load(open(JOBS_FILE, encoding="utf-8"))
@@ -91,6 +93,9 @@ class Jobs:
                 if j.get("status") in ("running", "queued"):
                     j["status"] = "stopped"
                     j["note"] = "stopped: this job was saved without its steps and cannot carry on - start it again"
+        for j in self.jobs:                            # Pause was pressed just before the hub closed: keep it paused
+            if j.pop("pausing", None) and j.get("status") in ("running", "queued"):
+                j["status"] = "paused"; j["note"] = f"paused - Resume carries on from step {int(j.get('step') or 0) + 1}"
         for j in self.jobs:                            # Stop was pressed just before the hub closed: keep it stopped
             if j.pop("stopping", None) and j.get("status") in ("running", "queued"):
                 j["status"] = "stopped"; j["note"] = "stopped by you"
@@ -153,8 +158,12 @@ class Jobs:
                 queued = False
                 procs = [self.procs.get(jid)] + list(self.children.get(jid, []))
                 tid = self.threads.get(jid)
+            elif j["status"] == "paused":
+                j["status"] = "stopped"; j["note"] = "stopped by you"
+                queued = True
             else:
                 return False
+            self.pause_flag.discard(jid); j.pop("pausing", None)
         if queued:
             self.save()
             return True
@@ -171,6 +180,47 @@ class Jobs:
         self.save()
         return True
 
+    def pause(self, jid):
+        """a running job finishes the step it is on, then waits as "paused" (the graphics card goes to the next job);
+        a waiting job is simply held back"""
+        with self.lock:
+            j = next((x for x in self.jobs if x["id"] == jid), None)
+            if not j or j.get("stopping"):
+                return False
+            if j["status"] == "queued":
+                j["status"] = "paused"; j["note"] = f"paused - Resume carries on from step {int(j.get('step') or 0) + 1}"
+            elif j["status"] == "running":
+                self.pause_flag.add(jid); j["pausing"] = True
+                j["note"] = "pausing after this step..."
+            else:
+                return False
+        self.save()
+        return True
+
+    def resume(self, jid):
+        """carry on a paused, stopped or failed job in its own folder: finished steps are skipped, the step it was
+        on runs again. Pressed while a pause is pending, it cancels the pause."""
+        with self.lock:
+            j = next((x for x in self.jobs if x["id"] == jid), None)
+            if not j:
+                return False, "no such job"
+            if j["status"] == "running" and j.get("pausing"):
+                self.pause_flag.discard(jid); j.pop("pausing", None); j["note"] = ""
+            elif j["status"] not in ("paused", "stopped", "failed"):
+                return False, f"this job is {j['status']}"
+            elif not j.get("steps"):
+                return False, "this job has no steps saved - start it fresh from its page"
+            elif jid in self.lingering:
+                return False, "a step of this job is still finishing a request after Stop - try Resume in a minute"
+            else:
+                done = int(j.get("step") or 0)
+                j["status"] = "queued"; j["ended"] = None; j["resumed"] = 0
+                j["user_resumes"] = int(j.get("user_resumes") or 0) + 1
+                j.pop("pausing", None); j.pop("stopping", None)
+                j["note"] = f"resumed from step {done + 1}" + (f" (steps 1-{done} are kept)" if done else "")
+        self.save()
+        return True, ""
+
     def _stop_watchdog(self, j, tid, wait=20):
         """a step stuck inside one long call (a slow web request) cannot be stopped mid-call: after `wait` s the
         job is marked stopped anyway and a fresh worker takes over the queue; the old thread ends when it returns"""
@@ -182,7 +232,7 @@ class Jobs:
         with self.lock:
             if self.threads.get(j["id"]) != tid or j["status"] != "running":
                 return
-            self.abandoned.add(tid)
+            self.abandoned.add(tid); self.lingering[j["id"]] = tid
             self.threads.pop(j["id"], None)
             j["status"] = "stopped"; j["ended"] = time.time(); j.pop("stopping", None)
             j["note"] = "stopped by you (a step was still finishing a request; it ends on its own)"
@@ -212,12 +262,16 @@ class Jobs:
                 raise_in_thread(me, None)                # a Stop that arrived too late must not hit the lines below
                 self.children.pop(j["id"], None)
                 if me in self.abandoned:                 # Stop already marked it and started a new worker
-                    self.abandoned.discard(me)
+                    self.abandoned.discard(me); self.lingering.pop(j["id"], None)
                     return
                 self.threads.pop(j["id"], None)
+                paused = ok == "paused"
+                self.pause_flag.discard(j["id"]); j.pop("pausing", None)
                 if j["id"] in self.stop_flag:
                     j["status"] = "stopped"; self.stop_flag.discard(j["id"])
                     j["note"] = "stopped by you"
+                elif paused:
+                    j["status"] = "paused"; j["note"] = f"paused - Resume carries on from step {int(j.get('step') or 0) + 1}"
                 else:
                     j["status"] = "done" if ok else "failed"
                 j.pop("stopping", None)
@@ -231,7 +285,7 @@ class Jobs:
             except JobStopped:                           # never let a late Stop end the queue itself
                 _JOB_LOCAL.jid = None
                 if me in self.abandoned:
-                    self.abandoned.discard(me)
+                    self.abandoned.discard(me); self.lingering.pop(j["id"], None)
                     return
                 if j.get("status") == "running":
                     j["status"] = "stopped"; j["ended"] = time.time(); j.pop("stopping", None)
@@ -255,7 +309,7 @@ class Jobs:
 
         say(f"== {j['title']}   ({time.strftime('%d %b %H:%M:%S')})")
         if j.get("step"):
-            say(f"-- continuing after a hub restart: steps 1-{j['step']} are already done")
+            say(f"-- continuing: steps 1-{j['step']} are already done, their files are kept")
         run_cfg, run_media = dict(CFG), MEDIA
         if (j.get("params") or {}).get("_experimental_workspace"):
             import experimental_workspace
@@ -297,6 +351,11 @@ class Jobs:
                     say("\n-- stopped by you")
                     tools.free_llm(ctx)
                     return False
+                if j["id"] in self.pause_flag and i > 0:
+                    say(f"\n-- paused by you after step {i} ({time.strftime('%H:%M:%S')}); Resume carries on from step {i + 1}")
+                    j["step"] = i; self.save()
+                    tools.free_llm(ctx)
+                    return "paused"
                 j["step"] = i; j["step_label"] = st.get("label", st["fn"]); self.save()
                 say(f"\n[{i + 1}/{len(steps)}] {st.get('label', st['fn'])}   ({time.strftime('%H:%M:%S')})")
                 t_step = time.time()
@@ -905,11 +964,16 @@ class H(BaseHTTPRequestHandler):
                     plan = tools.plan(kind, body, CFG)          # -> title, steps, outputs
                     j = JOBS.add(kind, plan["title"], plan["steps"], plan.get("outputs"), body)
                 return self.send(200, {"id": j["id"]})
-            m = re.match(r"^/api/jobs/([\w]+)/(stop|again)$", p)
+            m = re.match(r"^/api/jobs/([\w]+)/(stop|again|pause|resume)$", p)
             if m:
                 jid, act = m.groups()
                 if act == "stop":
                     return self.send(200, {"ok": JOBS.stop(jid)})
+                if act == "pause":
+                    return self.send(200, {"ok": JOBS.pause(jid)})
+                if act == "resume":
+                    ok, why = JOBS.resume(jid)
+                    return self.send(200, {"ok": ok, "error": why})
                 j = JOBS.get(jid)
                 if not j:
                     return self.send(404, {"error": "no such job"})
