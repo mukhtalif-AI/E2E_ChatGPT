@@ -257,3 +257,14 @@ before the next one.
 **Settled (17 Oct ~04:33):** "1 and 3" means both lists, all four ideas: a track per section + intensity changes
 (List A) and silence before a twist + a warmer return (List B). Romanch keeps its lighter setting from 3.4 (small dip
 at a confession, no full drop). Nothing is open. First step: step 1 (emotion map only, no sound change).
+
+## 8. Built (17 Oct 2026, Experimental only; tested on copies, not yet in a hub run)
+
+| Step | Where | State |
+|---|---|---|
+| 1 Emotion map | `app\emotion_music.py` (`build`, `step`), step `exp_emotion_map` | commit `310256e`; marks-only and saved-answer maps on 4 episodes |
+| 2 Missing sounds | `app\sound_needs.py` -> `Activity\Reports\sound_needs_*.md` | commit `0459ae8`; first report: Eerie short 5, Tension short 5, Love short 2 |
+| 3-5 Mixer | `emotion_music.mix`, called by `steps\genre.py horror_sound` | commit `31feb68`; `tests\test_emotion_music.py` 28/28, `tests\emotion_on_copy.py` on Kisse and Bhay copies |
+| 6 Tinker | table `emotion_music.SERIES`, prompt `emotion_music.MAP_ASK` | commit `31feb68`; override checked, cap of 3 holds |
+
+Next: restart the hub, run one Experimental Kisse episode, listen, rate the bgm; fetch Eerie / Tension / Love tracks on the Sounds page.
