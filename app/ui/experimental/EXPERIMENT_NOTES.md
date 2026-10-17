@@ -159,3 +159,25 @@ How far each part was tested is in `CHANGELOG.md`; open problems are in `KNOWN_P
   `_163735_emo`, `_222253_titlename`, `_232000_think`, `_142552_prompts`, `_185351_replan`.
 - **Emotion map** (17 Oct, `app\emotion_music.py`, step `exp_emotion_map` before the sound; plan `EMOTION_MUSIC_PLAN.md`): mood + weight 0-3 per scene, music sections (max 3, no jumping back) and turn lines, in `emotion_map.json` next to `shots.json`. Bhay, Rahasya, Kisse, Romanch only. The sound does not use it yet.
 - **Music that follows the emotion** (17 Oct, `emotion_music.mix`, called by `horror_sound`): pauses lift the music and words duck it, turn lines get a dip / a short silence / a full drop with a soft note, up to 3 tracks with crossfades, two-pass loudness. Tinker: `emotion_music.SERIES`, `emotion_music.MAP_ASK`. Shared files touched (Experimental only by their own checks): `steps\genre.py`, `feedback.py`, `self_review.py`, `tinker.py`.
+
+## Sound, 17 Oct 2026 (plan: `MASTER_SOUND_PLAN.md`; status per change in `CHANGELOG.md`)
+
+First real run of all of this: Kisse-Blue-Ink-Diary (13:36). Emotion music, the mood folder and 18 dB ran live there;
+ambience and effects were planned but none were placed.
+- **Scene planner sound rules** (`steps\scenes.py`): beds only from the series' own list (+ fan / night crickets for
+  story series); everyday effects shared by every series, mood sounds only where `sfx_lib.SERIES` lists them; hits
+  only braam / riser / impact / whoosh, never in scene 1. One bed per place, at most 3 per story, no bed in an
+  inner-thought scene, a breather after 150 s of one bed; bed names also checked by category folder; the self-review's
+  effect sense check runs on the plan before the mix; raw director answer in `director_reply.txt`. A category name
+  picks the first file of it that fits the scene (14:47). A second small ask adds effects only (8 parts per ask, 14:48).
+- **Continuous beds** (`steps\genre.horror_sound`): scenes in a row with the same bed play as one loop, 3 s crossfade
+  where it changes. Working keeps per-scene beds.
+- **Effect words across a line break** (`self_review._line_of`).
+- **Music**: folder from the emotion map's first section, else the most common feeling mark; per-series
+  `Library\music_used.json`, last 3 episodes skipped; 18 dB under the voice by default (`create_form.DEFAULTS`).
+  After a weight-3 line the music returns in the series' return mood only if that is not brighter than the scenes
+  after it; the silence before a heavy line scales with the story's own pause and the line's length (14:43).
+- **'atmo' ambience category** (`sfx_lib.py`) for Bhay and Rahasya; its folder `SFX\atmo` is filled only when the
+  soundscape move runs (`tests\soundscape_move.py`, not run yet) or a library top-up downloads into it.
+- Shared-file boundary: all of the above checks `experimental_mode`; Gyaan, Kareeb, Sukoon and Working keep one track.
+  Gyaan and Kareeb Experimental runs do see the new effect lists.

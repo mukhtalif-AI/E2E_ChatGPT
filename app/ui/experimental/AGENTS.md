@@ -15,3 +15,4 @@
 - Picture prompts and repaint prompts must say what to paint, never "no X": Z-Image Turbo ignores negatives.
 - Since 17 Oct most of `app/tools.py` lives in `app/steps/*.py` (map in `PROJECT_MAP.md`). Edit a function where it lives. In `app/steps/` write `tools.X` for tables, prompts and the swapped functions (rules in `TOOLS_SPLIT_PLAN.md`), and run `tests/smoke_tools.py` after a change.
 - Real Experimental jobs carry `cfg["experimental_mode"]`; test scripts must not set flags that real runs lack.
+- Sound work (17 Oct): `MASTER_SOUND_PLAN.md` is the one build order for music, ambience and effects; read its status table first. A sound change is only "ran live" when a real hub job used it after a restart: say which job.

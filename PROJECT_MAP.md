@@ -33,7 +33,12 @@ E:\Projects\hub_chatgpt
   secrets.json       Gemini / Pixabay / Freesound keys, script engine choice (never committed)
   README.txt         how to use the app (pages, folders, troubleshooting)
   HANDOFF_HUB.txt    developer history v1 -> v4.3 (13-15 Oct)
-  PROJECT_MAP.md     this file
+  PROJECT_MAP.md     this file (CHANGELOG.md, KNOWN_PROBLEMS.md, CLEANUP_PLAN.md beside it)
+  MASTER_SOUND_PLAN.md   the one build order for music, ambience and effects (+ EMOTION_MUSIC_PLAN.md,
+                     SOUNDSCAPE_MOVE_LIST.md); TOOLS_SPLIT_PLAN.md = how the tools.py split was done
+  tests\            smoke_tools.py (+ tools_baseline.json) checks the step code, test_emotion_music.py,
+                     emotion_on_copy.py / soundfix_on_copy.py (sound on a copied episode), split_move.py,
+                     soundscape_move.py (moves soundscapes out of BGM, --undo; not run yet)
   app\               the hub itself (Python server + two web pages)  -> see "Files in app" below
   engines\voice\     your Hindi voice (Chatterbox Multilingual + your trained LoRA models in models\)
   engines\video\     the video renderer (Sukoon living art, genre videos, reels, subtitles), own .venv
@@ -58,7 +63,7 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | `story.py` | ~1260 lines | Script writing (`local_chat` sends `think: false` to Gemma 4 / Qwen3 when a step asks for it): Sukoon (Hindi/English), the six genres, recipes, topic bank, ledger (no repeats), Gemini with Ollama fallback, check pass. Holds `GENRE_TEXT`, `GENRE_TELLINGS`, `LEVELS`. |
 | `path_config.py` | small | Reads `config.json`, works out every folder path. |
 | `comfy.py` | small | Talks to ComfyUI (starts it if needed) to paint pictures. |
-| `sfx_lib.py` | small | Sound-effect library by folder; `SERIES` = which effects each genre uses and how often. |
+| `sfx_lib.py` | small | Sound-effect library by folder; `CATS` = effect kinds (incl. ambience beds such as `atmo`, added 17 Oct), `SERIES` = which effects each genre uses and how often. Experimental scene plans offer everyday effects to every series and mood sounds only where `SERIES` lists them. |
 | `audio_index.py` | small | Measures your music/SFX and your real Audacity Sukoon episodes (music level shape). |
 | `pacing.py` | small | Story and narration pacing index (words per minute from your narrations). |
 | `repair.py` | small | Repair page: checks a finished video/reel (voice, subtitles, jumps) and fixes ticked items. |
@@ -131,16 +136,19 @@ Rules for code in `app\steps\` (write `tools.X` for tables, prompts and swapped 
 `studio_prepare` -> `studio_video` (engine `engines\video\engine\sleep_pipeline.py`: living art, subtitles, reels).
 
 ### Genre episode (`kind: "genre"`, series bhay / rahasya / kisse / romanch / kareeb / gyaan, Hindi only)
-Experimental run, as in the Kisse-1016-2155 log (14 steps): script (26B; episode renamed to `<Series>-<title words>`)
--> emotion marks -> free the card -> voice -> SFX library top-up -> scene plan (scenes end at a sentence end about
-every 30 s; director writes a 'what happens' line per scene; a second ask turns it into the picture prompt; invented
-props or weather are rewritten) -> SFX on Whisper word times -> music + ambience + SFX (10 s after the voice, plus the
-subscribe click and chime) -> ComfyUI paints -> picture check (checklist, judge, up to 2 repaints, flag) -> free the
+Experimental run, as in the Kisse-Blue-Ink-Diary log (17 Oct, 15 steps): script (26B; episode renamed to
+`<Series>-<title words>`) -> emotion marks -> free the card -> voice -> SFX library top-up -> scene plan (scenes end
+at a sentence end about every 30 s; director writes a 'what happens' line per scene and picks beds and effects only
+from the series' lists; a second ask turns it into the picture prompt; invented props or weather are rewritten;
+since 14:48 a second small ask adds effects) -> SFX on Whisper word times -> emotion map (Bhay, Rahasya, Kisse,
+Romanch) -> music + ambience + SFX (music folder from the story's mood, up to 3 tracks following the emotion map,
+one continuous bed per place, 18 dB under the voice, 10 s after the voice, plus the subscribe click and chime)
+-> ComfyUI paints -> picture check (checklist, judge, up to 2 repaints, flag) -> free the
 card -> video (with the blurred-backdrop subscribe and bell ending) -> AI self-review -> reels.
 Generic step names:
 `horror_story` (AI writes, via `story.write_genre` or `write_horror` for bhay) or `write_script` ->
 `fit_script` -> `avoid_hard_words` -> `mark_emotions` -> `free_gpu` -> `sv_speak` (series voice) ->
-`sfx_fetch` -> `horror_scenes` (scene plan + cues) -> [Experimental: `exp_cue_times`] -> `horror_sound` ->
+`sfx_fetch` -> `horror_scenes` (scene plan + cues) -> [Experimental: `exp_cue_times`, `exp_emotion_map`] -> `horror_sound` ->
 `comfy_images` -> `pick_scenes` -> `free_gpu` -> `horror_video` (engine `horror_video.py`) ->
 [Experimental: `exp_after_video`, AI self-review] -> `genre_reels`.
 The `stages` list (script, voice, scenes, sound, pictures, video, reels) lets a page redo only part of it.
@@ -167,6 +175,10 @@ The `stages` list (script, voice, scenes, sound, pictures, video, reels) lets a 
 | Series voice models | `D:\SukoonVoice\series.json`, `engines\voice\models\` | Settings > voice training |
 | Ratings | `D:\MukhtalifGPT\Activity\ratings.sqlite` | Review / Ratings pages |
 | Sound screening limits | `audio_screen.LIMITS` | Tinker |
+| Emotion music per series (on, strength, turn budgets, drop seconds, soft note, return mood, max 3 tracks) and the map prompt | `emotion_music.SERIES`, `emotion_music.MAP_ASK` | Tinker |
+| Music level under the voice (default 18 dB) | `create_form.DEFAULTS` `music_db`, the Create form slider | Tinker > Series settings, the form |
+| Music use count per series (Experimental) | `D:\MukhtalifGPT\Library\music_used.json` (old shared `bhay_music_used.json` still written) | written by the hub |
+| Per-episode emotion map | `emotion_map.json` next to `shots.json` (director's raw answer: `director_reply.txt`) | written by the hub |
 
 Adding a new genre today touches about 7 places (GENRES, STYLES, GENRE_TEXT, unique_genre_name, horror_sound
 cue_db, sfx_lib.SERIES, horror_video MOODS) plus music folders. See `KNOWN_PROBLEMS.md`.

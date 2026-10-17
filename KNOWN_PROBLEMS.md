@@ -1,17 +1,20 @@
 # Known problems and decisions
 
-Last updated: 16 Oct 2026, ~23:55. Short on purpose. When something here is fixed, move it to "What is right" with the date.
+Last updated: 17 Oct 2026, ~15:50. Short on purpose. When something here is fixed, move it to "What is right" with the date.
 Quality problems per series (what to fix, what to hide) are in `reviews/fix_or_mask_plan.md` (project folder).
 What changed and how far each change was tested: `CHANGELOG.md`.
 
 ## What is wrong or unknown right now
 
 ### Not yet proven
-1. **Very little has been checked by you.** One full Experimental genre job ran on the new code (Kisse-1016-2155,
-   21:55 to 23:29). It ran before the emotion-marks fix and the 10 s ending. The four jobs queued at 23:48 (Bhay,
-   Kisse, Rahasya, Gyaan) are the first real runs of the late changes: title names, emotion batches, thinking off for
-   picture checks, the subscribe and bell ending. Nothing from 16 Oct is tagged "verified on PC" yet. Fix: watch one
-   of those videos, rate it on the Review page, and change the tags in `CHANGELOG.md`.
+1. **Very little has been checked by you.** You have heard one real run of the 17 Oct sound code: Kisse-Blue-Ink-Diary
+   (13:36). Nothing is tagged "verified on PC" yet. The fixes made from it (lighter return and silence length,
+   category bed pick, second effects ask) and the 'atmo' category have **not run in a hub job** and need a restart.
+   Never heard in a real episode: the continuous ambience bed, effects matched across two lines, any Bhay, Rahasya or
+   Romanch emotion music. Fix: restart while no job runs, make one Kisse and one Bhay, rate them on the Review page,
+   and change the tags in `CHANGELOG.md`.
+1a. **Kisse-Blue-Ink-Diary may not have finished.** Its job record still says "running", its log stopped at 15:18
+   while the video was drawing (84 %), and `Output` holds only `Kisse-Blue-Ink-Diary_silent.mp4`. Look at Activity.
 2. **"Plan the scenes and paint the pictures again" has never been used in a real job** (tested on a copy only).
 3. **The corner narrator has not run on the PC.** No series has it switched on.
 
@@ -33,9 +36,20 @@ What changed and how far each change was tested: `CHANGELOG.md`.
    the code value gemma3:12b.
 
 ### Scenes, sound and script
-9. **Kisse-1016-2155 has no ambience or sound effects.** The new director planned 14 scenes and 1 close-up but no
-   sound cues (log: "no sound effect cues in this plan", then "0 ambience / sound effects placed"). The old planner
-   wrote cues, so the director rework may have dropped them. Not looked into yet; check whether the new Bhay job has cues.
+9. **Genre runs still come out with no ambience or sound effects.** Kisse-1016-2155 and Kisse-Blue-Ink-Diary both
+   logged "no sound effect cues in this plan" and "0 ambience / sound effects placed"; the director's big ask gave no
+   effects in 7 of the last 10 runs. Blue Ink Diary's only bed (a train-horn file picked as the first of its category)
+   was dropped. Fixes written 17 Oct, not live yet: a category name now picks a file that fits the scene, and a second
+   small ask just for effects. Until a run proves them, expect music only.
+9a. **The emotion mixer has no clarity guard** (`MASTER_SOUND_PLAN.md` step 3, not built): nothing stops the music
+   rising above the voice-clarity limit in the pauses it lifts, and an effect that *is* the heavy line's sound is
+   silenced with everything else.
+9b. **The music library still mixes music and soundscapes.** The soundscape move (decision B) has not run: the 12
+   soundscapes and 5 non-music files are still in `BGM`. The new 'atmo' ambience category points at `SFX\atmo`,
+   which does not exist yet. 'The Hungry Ghost' (Sad, "maybe" list) was Blue Ink Diary's first track.
+9c. **Two music use counters.** The new per-series `D:\MukhtalifGPT\Library\music_used.json` (Experimental Bhay,
+   Rahasya, Kisse, Romanch) and the old shared `bhay_music_used.json` (in `D:\MukhtalifGPT` and in `Library`) are both
+   still written. The music analysis and fit-based pick (`MASTER_SOUND_PLAN.md` section 3) are plan only.
 10. **Sukoon scripts can come out without full stops (।).** Reported 16 Oct, not looked into yet. Genre scenes are cut
     where a line ends in । ? ! (`tools._SENT_END`); without them a cut falls after ~45 s wherever the line is. How the
     voice pauses and subtitles behave on such a script has not been checked.
@@ -52,7 +66,7 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 15. **Kareeb (ASMR) has no trained series voice**; it uses the plain voice clone.
 16. **Adding or changing a genre touches about 7 places in 4 files** (no single genre registry).
 17. **Music comes only from your library** plus CC0 downloads in Experimental. Thin mood folders repeat tracks.
-18. **`tools.py` was 4350 lines / 238 KB.** Split on 17 Oct into `tools.py` (~625 lines: tables, prompts, paths) and 12 files in `app\steps\` (see `PROJECT_MAP.md`). Checked with `tests\smoke_tools.py` on a copy; not yet run in a real job after a hub restart.
+18. **`tools.py` was 4350 lines / 238 KB.** Split on 17 Oct into `tools.py` (~625 lines: tables, prompts, paths) and 12 files in `app\steps\` (see `PROJECT_MAP.md`). Ran live in Kisse-Blue-Ink-Diary (Experimental); no Working job has run on it yet.
 19. **Two copies of the site** (`ui/index.html` 138 KB and `ui/experimental/index.html` 270 KB) drift further apart.
 20. **Experimental values can leak into Working for a moment**: Tinker swaps module values while an Experimental job
     runs, so a Working-page preview at that moment sees them. Jobs never overlap, so finished outputs are safe.
@@ -63,11 +77,16 @@ What changed and how far each change was tested: `CHANGELOG.md`.
     `engines\studio` path and at `D:\HubGPT`).
 24. **`D:\HubGPT` still exists** as the old Experimental data folder. The hub only reads it now (old jobs and files).
     It must not be deleted without your OK.
-25. **The doc updates from 16 Oct ~23:55 are not committed yet** (all code is, up to `0d0501b`).
+25. **The doc updates from 17 Oct ~15:50 are not committed yet** (everything else is, up to `2743c9c`). That
+   commit's message says it fixes missing sound effects, but it holds only notes and `tests\soundscape_move.py`;
+   the effects fix is `0b1d337`.
 
 ## What is right (keep it)
 
 - Both pipelines run end to end; Bhay was verified on the PC (13 Oct), Bhay reel fix verified (15 Oct).
+- Kisse-Blue-Ink-Diary (17 Oct) ran the emotion map with Ollama and the emotion music live: a Sad and a Calm track,
+  silence before three heavy lines, a full drop at 2:34, -16 LUFS, music 18 dB under the voice, the mood folder from
+  the story (Sad) instead of the biggest folder. The split `tools.py` ran it.
 - Kisse-1016-2155 (16 Oct) ran all 14 steps on the new Experimental code without a crash: 26B script, sentence-end
   scenes with 'what happens' lines, the new picture check with repaints and flags, AI self-review, 2 reels.
 - The picture check now has teeth: on the 16 test pictures gemma3:12b caught 7 of 7 wrong ones (the old judge gave
@@ -114,3 +133,8 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 | Emotion music: the AI decides within code limits, nothing is edited during a run | you fix by hand after the episode if needed | 17 Oct |
 | Emotion music only for Bhay, Rahasya, Kisse, Romanch; Gyaan and Kareeb keep one track like Sukoon | your choice: one good track is enough there | 17 Oct |
 | A heavy (weight 3) line: music, ambience and effects stop 2-3 s, then one soft low note | agreed 17 Oct | 17 Oct |
+| Music sits 18 dB under the voice by default (was 14) | your Sukoon level (decision A) | 17 Oct |
+| The music folder comes from the story's mood; use is counted per series; a track from the series' last 3 episodes is skipped | the biggest folder (Dark) won almost every time (decision C) | 17 Oct |
+| Soundscapes leave the music folders, but only after you have seen the list; the 5 "maybe" tracks stay until you listen | decision B | 17 Oct |
+| Everyday effects (knock, door, footsteps, phone, paper...) are shared by every series; mood sounds (whisper, scream, braam, riser, impact...) only where the series lists them | a Kisse story should never get a horror sting | 17 Oct |
+| A track is chosen by fit first; "least used" only breaks ties (once the music analysis exists) | `MASTER_SOUND_PLAN.md` | 17 Oct |

@@ -11,6 +11,19 @@ was changed for it.** Sources merged:
 | `sound_needs_20261017.md` + crosscheck section 8 | what the library lacks |
 | Section 3 below (new) | measuring each music track once and matching tracks to story sections by fit |
 
+## Status on 17 Oct ~15:50 (sections 2 and 4 below are as written at ~13:20)
+
+| Build step | State now |
+|---|---|
+| 1 ambience rules (run limit 150 s, no bed in inner-thought scenes) | built into `steps\scenes.py`; no real run has had a bed yet |
+| 2 ambience / SFX fixes into the live app | built, live since the restart; Blue Ink Diary still got no effects and no bed, two more fixes written after it (category pick, second effects ask), not live yet |
+| 3 emotion mixer clarity guard | **not built** |
+| 4 mood folder, per-series counter, -18 dB | built, **ran live** in Blue Ink Diary |
+| 5 restart + first live runs | **one Kisse run** (Blue Ink Diary); no Bhay yet. Lighter-return and silence fix from it not live yet |
+| 6 music analysis table | plan only |
+| 7 library cleanup | script `tests\soundscape_move.py` ready, **not run**; 'atmo' category added in `sfx_lib.py`, `SFX\atmo` not there yet |
+| 8-10 | not started |
+
 ## 1. Your decisions so far (fixed, the plan follows them)
 
 | Decision | Date |

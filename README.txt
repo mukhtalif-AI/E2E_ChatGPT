@@ -136,7 +136,8 @@ CURRENT SOUND BEHAVIOR (17 Oct 2026)
   Experimental    Adds place-based ambience continuity and, for Bhay/Rahasya/Kisse/Romanch, optional emotion-led
                    music sections. Experimental effects can be timed with Whisper word timestamps.
   Sound choices   Empty ambience is allowed when no bed fits; background music can carry the mood. The new
-                   Experimental sound logic is in source but has only been verified on test copies, not live jobs.
+                   Experimental sound logic ran live once (Kisse-Blue-Ink-Diary, 17 Oct): emotion music, mood folder,
+                   18 dB. Ambience beds and sound effects have not yet been placed in a real run. See CHANGELOG.md.
 
 TROUBLESHOOTING
   The page does not open        hub.bat is not running - start it (or restart_hub.bat)
