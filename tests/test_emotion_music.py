@@ -98,6 +98,10 @@ def test_mix():
     segs = em.plan_segments(m, s, lead, end, pauses)
     check("two sections + a return after the heavy line", [g["mood"] for g in segs] == ["Sad", "Love", "Calm"],
           str([(g["mood"], g["start"], g["cut"]) for g in segs]))
+    sad = {"scenes": [dict(x, mood="Sad") for x in m["scenes"]], "sections": [{"start": 0.0, "end": 80.0, "mood": "Sad"}],
+           "turns": [dict(t) for t in m["turns"]]}
+    check("a sad story stays sad: no lighter Calm return (Blue Ink Diary, 17 Oct)",
+          [g["mood"] for g in em.plan_segments(sad, s, lead, end, pauses)] == ["Sad"])
     b = segs[1]["start"]
     check("the track change sits in a pause", any(a - 0.01 <= b <= c + 0.01 for a, c in pauses), f"change at {b}")
     tracks = {"Sad": fake_track(110), "Love": fake_track(330), "Calm": fake_track(550)}
@@ -110,12 +114,15 @@ def test_mix():
     def seg(a, z):
         return out[int(a * SR):int(z * SR)]
     w2 = m["turns"][1]
-    s0 = lead + w2["at"] - em.PRE_S - s["drop_s"]["2"]
+    s0 = lead + w2["at"] - em.PRE_S - em.drop_len(s, 2, w2)
     quiet = seg(s0 + 0.05, lead + w2["line_end"])
     check("weight 2: silence before and through the line", db(quiet) < vdb - 60, f"{db(quiet) - vdb:.0f} dB under the voice")
     w3 = m["turns"][2]
-    s3 = lead + w3["at"] - em.PRE_S - s["drop_s"]["3"]
-    check("weight 3: drop starts 2-3 s before the line", 2.0 <= (lead + w3["at"]) - s3 <= 3.0)
+    s3 = lead + w3["at"] - em.PRE_S - em.drop_len(s, 3, w3)
+    check("weight 3: drop starts 1.5-4 s before the line (scaled by the line and the pause)", 1.5 <= (lead + w3["at"]) - s3 <= 4.3,
+          f"{(lead + w3['at']) - s3:.2f} s")
+    check("silence is longer with a pause before the line", em.drop_len(s, 3, dict(w3, pause_before=1.5)) > em.drop_len(s, 3, w3))
+    check("a weight-3 silence is longer than a weight-2 one", em.drop_len(s, 3, w3) > em.drop_len(s, 2, w2))
     check("weight 3: silence before the line", db(seg(s3 + 0.05, lead + w3["at"])) < vdb - 60)
     bed = np.asarray(info["bed"])
     i3 = int((s3 + 0.1) * em.CR)

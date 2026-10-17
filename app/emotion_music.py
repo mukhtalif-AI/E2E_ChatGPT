@@ -420,6 +420,21 @@ GAP_MIN_S, GAP_IN_S, GAP_OUT_S = 1.0, 0.2, 0.3
 DIP_DB = -6.0                            # a weight-1 turn: the music dips this much
 PRE_S, FADE_S = 0.3, 0.4                 # silence ends this long before the first word; music fades out over FADE_S
 BACK_S = {1: 1.5, 2: 2.5, 3: 3.0}        # how long the music takes to come back after the line
+# how bright / light a mood folder feels (17 Oct 2026, your Blue Ink Diary note): a return after a heavy line may never
+# be brighter than the story's own mood after that line (a sad story stayed sad, the music went to a lighter Calm)
+BRIGHT = {"Dark": 0, "Eerie": 0, "angry": 0, "Tension": 1, "Sad": 1, "Calm": 2, "Love": 3, "Happy": 4}
+
+
+def drop_len(s, w, t):
+    """seconds of silence before a heavy line: the series' value for that weight, longer when the story already pauses
+    there and for a longer line, shorter for a quick one (17 Oct 2026: before, every silence had the same length)"""
+    base = float((s.get("drop_s") or {}).get(str(w), 1.0))
+    if base <= 0:
+        return 0.0
+    line = max(0.0, float(t.get("line_end", 0)) - float(t.get("at", 0)))
+    f = 0.7 + 0.25 * min(2.0, float(t.get("pause_before") or 0)) + 0.05 * min(6.0, line)
+    f *= 1.15 if w == 3 and t.get("kind") in ("death", "loss") else 1.0
+    return round(min(1.6 * base, max(0.6 * base, base * f)), 2)
 NOTE_DB = -22.0                          # the soft note after a heavy line, below the voice
 
 
@@ -514,6 +529,15 @@ def plan_segments(m, s, lead, end, pauses):
             at = lead + float(t["line_end"]) + PRE_S + float(s.get("return_delay_s", 0))
             cur = max((x for x in seg if x["start"] <= at), key=lambda x: x["start"], default=None)
             used = {x["mood"] for x in seg if x["start"] <= at}
+            scs = m.get("scenes") or []
+            k = t.get("scene")
+            if k is None:                              # the turn's scene by time
+                k = next((j for j, sc in enumerate(scs) if float(sc.get("start", 0)) <= float(t["at"]) < float(sc.get("end", 0))), 0)
+            after = [sc.get("mood") for sc in scs[int(k) + 1:] if sc.get("mood")]
+            story = min((BRIGHT.get(x, 2) for x in after), default=BRIGHT.get(cur["mood"], 2) if cur else 2)
+            if BRIGHT.get(rm, 2) > story:              # the story stays as dark / sad as before: no lighter return
+                t["return_skipped"] = rm
+                continue
             if cur and cur["mood"] != rm and rm not in used and len({x["mood"] for x in seg}) < int(s.get("max_tracks", MAX_TRACKS)):
                 seg.append({"start": round(at, 2), "mood": rm, "cut": "return"})
                 seg.sort(key=lambda x: x["start"])
@@ -544,7 +568,7 @@ def stinger_curves(m, s, lead, n):
         if w == 1:
             mus *= _ramp_window(n, A - 0.9, E, 0.3, BACK_S[1], 10 ** (DIP_DB * min(1.0, k) / 20))
             continue
-        drop = float((s.get("drop_s") or {}).get(str(w), 1.0))
+        drop = drop_len(s, w, t)
         s0 = A - PRE_S - drop                         # the silence starts here and lasts through the line
         back = E + PRE_S + (float(s.get("return_delay_s", 0)) if w == 3 else 0)
         mus *= _ramp_window(n, s0, back, FADE_S, BACK_S[w], 0.0)
@@ -794,6 +818,9 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
     base_pts = [(0, -80.0), (fade_in, intro), (vs, intro), (vs + 3, story), (ve, story), (ve + rise, outro),
                 (max(ve + rise, end - fade_out), outro), (end, -80.0)]
     pauses = [(lead + a, lead + b) for a, b in gaps(sp_v)]
+    for t in m.get("turns") or []:                             # the story's own pause just before each heavy line
+        A = lead + float(t["at"])
+        t["pause_before"] = round(max([b - a for a, b in pauses if abs(b - A) <= 0.8] or [0.0]), 2)
     if chosen or not s.get("sections"):                        # a track you chose on the form: that one only
         segs = [{"start": 0.0, "end": end, "mood": (m["sections"][0]["mood"]), "cut": ""}]
     else:
@@ -835,7 +862,10 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
             f"{' (comes back in this mood after the heavy line)' if x['cut'] == 'return' else ''}")
     for t in m.get("turns") or []:
         what = {1: "music dips", 2: "music stops before the line", 3: "music, ambience and effects stop"}.get(t["weight"], "")
-        say(f"   turn {fmt(lead + t['at'])} weight {t['weight']}: {what} - {t['words']}")
+        sil = f" ({drop_len(s, t['weight'], t):g} s of silence)" if t["weight"] >= 2 and drop_len(s, t["weight"], t) else ""
+        say(f"   turn {fmt(lead + t['at'])} weight {t['weight']}: {what}{sil} - {t['words']}"
+            + (f" (no lighter {t['return_skipped']} return: the story stays {m['sections'][-1]['mood'] if m.get('sections') else ''})"
+               if t.get("return_skipped") else ""))
     json.dump({"lead_s": lead, "track": tracks[0]["file"] if tracks else track, "tracks": tracks, "intro_db": intro,
                "story_db": story, "outro_db": outro, "tail_s": tail_s, "emotion": True,
                "strength": s.get("strength"), "turns": len(m.get("turns") or [])},
