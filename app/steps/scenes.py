@@ -546,11 +546,39 @@ def _set_aside_scenes(out, video, say):
         say(f"   the old video kept as {os.path.basename(old)}")
 
 
+def _voice_key(narration):
+    """fingerprint of the words the narration speaks (its script.txt), so scenes know which story they were made for"""
+    import hashlib
+    p = os.path.join(narration, "script.txt")
+    if not os.path.isfile(p):
+        return ""
+    return hashlib.md5(" ".join(open(p, encoding="utf-8").read().split()).encode("utf-8")).hexdigest()
+
+
+def _shots_key(out, narration=""):
+    """the plan's voice_key; a plan from before voice_key gets "old" when its first scene's words are not in the
+    narration's script (another story), else "" (kept as before)"""
+    try:
+        d = json.load(open(os.path.join(out, "shots.json"), encoding="utf-8"))
+    except Exception:
+        return ""
+    if d.get("voice_key"):
+        return d["voice_key"]
+    p = os.path.join(narration, "script.txt")
+    first = " ".join(str(((d.get("shots") or [{}])[0] or {}).get("text") or "").split())[:40]
+    if first and os.path.isfile(p) and first not in " ".join(open(p, encoding="utf-8").read().split()):
+        return "old"
+    return ""
+
+
 def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False, video=""):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
     if os.path.exists(os.path.join(out, "shots.json")):
-        if not (ctx.get("replan") or replan):
+        old_key = _shots_key(out, narration)
+        if old_key and old_key != _voice_key(narration):
+            say("   the narration is a different story from the planned scenes - planning again")
+        elif not (ctx.get("replan") or replan):
             return say("   the scenes are already planned for this voice - kept (pictures that exist are kept too)")
         _set_aside_scenes(out, video, say)
     os.makedirs(out, exist_ok=True)
@@ -784,6 +812,6 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
                         "character": "",
                         "prompt": f"Close-up detail: {mo['prompt']}" + (f". Setting and style: {look_p}" if look_p else "")})
         say(f"   moment at {int(at // 60)}:{int(at % 60):02d} ('{mo['words']}'): {str(mo['prompt'])[:90]}")
-    json.dump({"source": narration, "look": look, "shots": shots, "moments": moments},
+    json.dump({"source": narration, "voice_key": _voice_key(narration), "look": look, "shots": shots, "moments": moments},
               open(os.path.join(out, "shots.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return True

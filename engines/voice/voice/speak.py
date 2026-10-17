@@ -423,6 +423,19 @@ def main(src, name=None, model=None, redo="", style=None, pace=None, s3gen=None,
             os.replace(p, p[:-4] + time.strftime("_old_%H%M%S.wav"))
     infos_path = os.path.join(out, "_lines.json")
     infos = json.load(open(infos_path, encoding="utf-8")) if os.path.exists(infos_path) else {}
+    # a phrase file is kept only while its line still says the same thing: a new script under the same name
+    # (a re-run that writes a fresh story) used to reuse the old story's voice line by line
+    _t = lambda x: " ".join(str(x or "").split())
+    stale = [i for i in range(len(plan)) if os.path.exists(os.path.join(ldir, f"{i + 1:04d}.wav"))
+             and (infos.get(str(i + 1)) or {}).get("text") is not None
+             and _t(infos[str(i + 1)]["text"]) != _t(plan[i]["text"])]
+    if stale:
+        old = os.path.join(out, time.strftime("lines_old_%Y%m%d_%H%M%S"))
+        os.makedirs(old, exist_ok=True)
+        for i in stale:
+            os.replace(os.path.join(ldir, f"{i + 1:04d}.wav"), os.path.join(old, f"{i + 1:04d}.wav"))
+            infos.pop(str(i + 1), None)
+        say(f"   {len(stale)} phrase(s) changed since the last run - made again (old ones in {os.path.basename(old)})")
     todo = [i for i in range(len(plan)) if not os.path.exists(os.path.join(ldir, f"{i + 1:04d}.wav"))]
     words = sum(len(p["text"].split()) for p in plan)
     say(f"   {len(plan)} sentences, {words} words (~{words / words_per_second() / 60:.0f} min of voice); "
