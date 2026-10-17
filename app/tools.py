@@ -180,6 +180,14 @@ TRANSLATE_ASK = (
 
 
 # ------------------------------------------------------------------ your thumbnails = the style guide
+# Experimental: a fixed picture look per series, used instead of the look the director writes for each story.
+# Bhay = the look of "Bhay-Incomplete-Tea" (16 Oct, Varun's story): painted, not photo-real, so faces stay
+# coherent. keep_era keeps the director's first words when they name a time or place ("1990s Indian rural aesthetic").
+SERIES_LOOK = {
+    "bhay": {"on": True, "keep_era": True,
+             "look": "desaturated moody palette (deep blues, greys), dim tungsten lighting with heavy shadows, "
+                     "hyper-realistic oil painting style"},
+}
 THEMES = {"sukoon_theme": "Sukoon thumbnails", "kisse_theme": "Kisse thumbnails"}
 VISION_ASK = (
     "You are a visual style analyst. Look at this YouTube thumbnail and answer ONLY as JSON with keys: "

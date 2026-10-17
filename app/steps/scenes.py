@@ -631,6 +631,13 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     two = _picture_prompts(cfg, say, G["desc"], parts, sc) if exp else []
     dcfg = _model_cfg(cfg, "director_model")[0]
     look = d.get("look", "")
+    fixed = tools.SERIES_LOOK.get(genre) or {} if exp else {}
+    if fixed.get("on") and fixed.get("look"):          # the series' own look (Tinker table tools.SERIES_LOOK)
+        era = str(look).split(",")[0].strip().rstrip(".")
+        era = era if fixed.get("keep_era") and len(era.split()) <= 8 and re.search(r"\d|aesthetic|era|period", era, re.I) \
+            and not _PEOPLE.search(era) else ""
+        look = (era + ", " if era else "") + fixed["look"]
+        say("   the series' fixed picture look is used (tools.SERIES_LOOK)")
     character_anchors = d.get("character_anchors") or {}
     if look:
         say(f"   the look of this story: {look}")

@@ -73,6 +73,7 @@ TABLES = {
     "tools.GENRES": "Series machine settings: music folders, voice, expressiveness (ex), pause, temperature, drama",
     "tools.STYLES": "Image styles: [label, style prompt]",
     "tools.DIRECTION": "Narration direction per series (where to pause and breathe)",
+    "tools.SERIES_LOOK": "Experimental: fixed picture look per series (on, keep_era, look) instead of the director's look",
     "sfx_lib.SERIES": "Sound effects per series: [effect list, effects per minute]",
     "audio_screen.LIMITS": "Audio screening limits: speech band share, piercing highs, music ducking, clarity dB",
     "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
