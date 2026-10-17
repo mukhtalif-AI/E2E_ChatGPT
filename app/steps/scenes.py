@@ -235,6 +235,63 @@ def _sentence_of(text, words):
     return str(text or "")[:220]
 
 
+CUE_PASS_ASK = (
+    "SOUND PASS. These are the parts of a {desc} story ('{label}') that is read aloud. For each part, list only the "
+    "sounds that REALLY happen in the story there (a door opens, footsteps, a phone rings, rain starts, a cup is put "
+    "down, a page turns...): not feelings, thoughts, memories or things only looked at. For each sound give \"part\" "
+    "(its number), \"words\" (2-4 consecutive words copied EXACTLY from that part where the sound happens, same "
+    "language and script, never translated) and \"sfx\" (ONE name from SOUNDS that is that exact sound). At most {cpp} "
+    "per part; most parts have none.\nSOUNDS: {names}\n"
+    'Answer ONLY JSON: {{"cues": [{{"part": n, "words": "...", "sfx": "..."}}]}}\n\nPARTS:\n{parts}')
+
+
+def _cue_pass(cfg, shots, cue_names, sfx, cpp, G, say, sound_name):
+    """Experimental (17 Oct 2026): a second, small ask only for the sound effects, because the director's big ask
+    usually returns none (7 of 10 runs). The usual checks stay: the words must be in the part's text, the name in the
+    series' list, at most cpp per part, and the sense check runs after this."""
+    import story
+    need = [i for i, s in enumerate(shots) if len(s["cues"]) < cpp]
+    if not need or not cue_names:
+        return
+    got = placed = no_name = no_words = 0
+    for k in range(0, len(need), 8):
+        part = need[k:k + 8]
+        ask = CUE_PASS_ASK.format(desc=G.get("desc", ""), label=G.get("label", ""), cpp=cpp, names=", ".join(cue_names),
+                                  parts="\n".join(f"{i + 1}. {shots[i]['text'][:900]}" for i in part))
+        try:
+            t, _model = story.ask(cfg, ask, "auto", 0.2, True, say=lambda *a: None)
+            rows = json.loads(t).get("cues") or []
+        except Exception as e:
+            say(f"   (sound pass skipped for parts {part[0] + 1}-{part[-1] + 1}: {e})")
+            continue
+        for c in rows:
+            if not isinstance(c, dict):
+                continue
+            try:
+                i = int(c.get("part")) - 1
+            except (TypeError, ValueError):
+                continue
+            if i not in part:
+                continue
+            got += 1
+            w = re.sub(r"[*_~\"“”‘’]+", "", str(c.get("words") or "")).strip()
+            key = sound_name("effect", c.get("sfx"), cue_names)
+            if not key:
+                no_name += 1
+                continue
+            if not w or not _words_in(shots[i]["text"], w):
+                no_words += 1
+                continue
+            if len(shots[i]["cues"]) >= cpp or any(x["words"] == w for x in shots[i]["cues"]):
+                continue
+            shots[i]["cues"].append({"words": w, "file": sfx[key]})
+            placed += 1
+            say(f"   sound pass: scene {i + 1} '{w}' -> {os.path.basename(sfx[key])}")
+    say(f"   sound pass: asked about {len(need)} part(s), the AI named {got} sound(s), {placed} added"
+        + (f", {no_name} not in this series' list" if no_name else "")
+        + (f", {no_words} with words not in the text" if no_words else ""))
+
+
 def _cue_check(cfg, shots, genre, G, say):
     """Experimental (17 Oct 2026 sound cross-check): the self-review's effect check (does the sound really happen at
     those words?) runs on the plan, before the mix, and cues it calls wrong or unneeded are dropped. Before, it ran
@@ -660,6 +717,8 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     if fixed_cues or dropped_cues:
         say(f"   sound effect words checked against the narration: {fixed_cues} re-copied from the story text, "
             f"{dropped_cues} dropped (that sound does not happen there)")
+    if exp and cpp > 0:
+        _cue_pass(cfg, shots, cue_names, sfx, cpp, G, say, sound_name)
     if exp and any(s["cues"] for s in shots):
         _cue_check(cfg, shots, genre, G, say)
     if exp and shots:

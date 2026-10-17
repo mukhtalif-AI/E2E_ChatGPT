@@ -124,6 +124,15 @@ def plan():
             t = prompt.split("TEXT:\n", 1)[1].split()
             asks["reask"] = asks.get("reask", 0) + 1
             return json.dumps({"words": " ".join(t[:3])}, ensure_ascii=False), "fake"
+        if prompt.startswith("SOUND PASS"):                     # the effects pass: one real, one invented, one wrong words
+            asks["pass"] = asks.get("pass", 0) + 1
+            parts = re.findall(r"\n(\d+)\. (.*)", prompt.split("PARTS:", 1)[1])
+            names = prompt.split("SOUNDS: ", 1)[1].split("\n", 1)[0].split(", ")
+            n, t = parts[-1]
+            return json.dumps({"cues": [{"part": int(n), "words": " ".join(t.split()[1:4]), "sfx": names[0]},
+                                        {"part": int(n), "words": " ".join(t.split()[4:6]), "sfx": "unicorn neigh"},
+                                        {"part": int(parts[0][0]), "words": "words not there", "sfx": names[0]}]},
+                              ensure_ascii=False), "fake"
         raise RuntimeError("no model in this test")
 
     scenes._ask_step = ask_step
@@ -151,6 +160,8 @@ def plan():
           and not shots[1]["cues"], f"{len(allc)} cue(s) left")
     check("invented bed name logged", any("not in this series' list" in l and "spooky wind howl" in l for l in log))
     check("bed summary logged", any(l.strip().startswith("ambience:") for l in log))
+    check("sound pass ran and logged what it added", asks.get("pass") and any("sound pass: asked about" in l for l in log),
+          next((l.strip() for l in log if "sound pass: asked about" in l), ""))
     check("director reply kept", os.path.exists(os.path.join(pic, "director_reply.txt")))
     check("no heartbeat as a bed", not any("heartbeat" in b.lower() for b in beds))
     longest, run = 0.0, 0.0
