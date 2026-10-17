@@ -395,6 +395,10 @@ def local_chat(cfg, prompt, temp=0.85, as_json=False, ctx_len=8192):
         body["think"] = False
     if as_json:
         body["format"] = "json"
+    # a cap on generated tokens (hidden thinking counts): a step can set cfg["_num_predict"] so a runaway think
+    # stops instead of filling the whole context (6 min on the 3060) and coming back empty
+    if cfg.get("_num_predict"):
+        body["options"]["num_predict"] = int(cfg["_num_predict"])
     req = urllib.request.Request(cfg.get("ollama_url", "http://127.0.0.1:11434").rstrip("/") + "/api/generate",
                                  json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=1500) as r:
@@ -1114,7 +1118,10 @@ def _trim_dangling(ln):
 # explained and facts that change ("three months" -> "five years"). Experimental genre stories now: a short plan
 # (fixed facts, clues with their answers, ONE twist, beats) -> the script written from it -> a logic check that
 # rewrites only the lines that break the plan (instead of the full "preserve the events" rewrite).
-STORY_PLAN = {"on": True, "outline_think": False, "check_think": True, "ctx": 16384, "max_fixes": 12}
+# check_think off + max_tokens: with thinking on, the logic check (Gemma 4 26B) thought for 12.7k tokens, hit the 16k
+# context, answered nothing, and was asked again the same way: ~12 min with no result (17 Oct, job 1017_191847)
+STORY_PLAN = {"on": True, "outline_think": False, "check_think": False, "ctx": 16384, "max_fixes": 12,
+              "max_tokens": 4096}
 
 OUTLINE_ASK = (
     "Before tonight's story is written, plan it. The brief for the story is below.\n\n{brief}\n\n"
@@ -1153,7 +1160,9 @@ def _plan_on(cfg):
 def _json_ask(cfg, prompt, engine, temp, think, say):
     """-> dict. JSON ask at the plan's context size; a reply that is empty or not clean JSON is asked once more as
     text and the {...} is cut out of it (Gemma 4 with thinking sometimes answers empty in JSON mode)."""
-    c = cfg if think else dict(cfg, _no_think=True)
+    c = dict(cfg, _num_predict=int(STORY_PLAN.get("max_tokens") or 4096))
+    if not think:
+        c["_no_think"] = True
     ctx = int(STORY_PLAN.get("ctx") or 8192)
     try:
         for as_json in (True, False):
@@ -1166,7 +1175,7 @@ def _json_ask(cfg, prompt, engine, temp, think, say):
                     pass
         raise RuntimeError("no JSON in the answer")
     finally:
-        if c is not cfg and c.get("_ollama_used"):
+        if c.get("_ollama_used"):
             cfg["_ollama_used"] = True            # free_llm still unloads the model
 
 

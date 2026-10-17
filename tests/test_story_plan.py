@@ -1,6 +1,6 @@
 """test_story_plan.py - Experimental story plan + logic check with a fake AI (no Ollama, no GPU).
     python tests/test_story_plan.py app <a finished script.txt>
-Checks: plan -> write -> check in Experimental (16k, plan no-think, check thinks), lines fixed by number or by text,
+Checks: plan -> write -> check in Experimental (16k, plan + check no-think, both capped at max_tokens), lines fixed by number or by text,
 bad answers skipped, Working and table on=false keep the old full review, a failed plan or check falls back."""
 import sys, json, re, tempfile
 sys.path.insert(0, sys.argv[1]); import story as S
@@ -12,7 +12,7 @@ MODE = {"outline": "good", "check": "good"}
 def fake_ask(cfg, prompt, engine="auto", temp=0.85, as_json=False, say=print, ctx_len=8192):
     kind = "outline" if prompt.startswith("Before tonight") else "check" if "for LOGIC only" in prompt else \
            "review" if prompt.startswith(("Review this", "Check this")) else "write"
-    calls.append((kind, as_json, ctx_len, cfg.get("_no_think", False), len(prompt)))
+    calls.append((kind, as_json, ctx_len, cfg.get("_no_think", False), len(prompt), cfg.get("_num_predict")))
     if kind == "outline":
         if MODE["outline"] == "bad": return "", "m"
         return json.dumps({"facts": ["1998 fire", "money taken for five years"], "people": ["Vikram - journalist"],
@@ -55,7 +55,8 @@ def check(c, msg):
 # 1 experimental, good plan + check
 out = run({"experimental_mode": True})
 check([c[0] for c in calls] == ["outline", "write", "check"], f"exp calls {[c[0] for c in calls]}")
-check(calls[0][3] is True and calls[2][3] is False, "outline no-think, check thinks")
+check(calls[0][3] is True and calls[2][3] is True, "outline and check no-think")
+check(calls[0][5] == calls[2][5] == S.STORY_PLAN["max_tokens"] and calls[1][5] is None, "plan + check capped, writer not")
 check(all(c[2] == 16384 for c in calls), "16k context for plan, write, check")
 check("पिछले पाँच सालों से" in out and "पिछले तीन महीनों से" not in out, "line fixed by number")
 check("यह सवाल मेरे मन में अटक गया" in out, "line found by its text when the number was off")
