@@ -51,6 +51,9 @@ TAG_MOOD = {"डर": ("Dark", "Tension", "Eerie"), "रहस्य": ("Tension
             "फुसफुसाहट": ("Eerie", "Calm", "Love")}
 TAG_WEIGHT = {"डर": 1, "रहस्य": 1, "उदास": 1, "प्यार": 1, "गुस्सा": 1, "उत्साह": 1, "फुसफुसाहट": 0}
 TAG_RE = re.compile(r"^\s*\[([^\]]+)\]\s*")
+# how a mood reads in MAP_ASK (17 Oct 2026): Kisse-Memories-Old-Atlas-Cycle, a story of two boyhood friends, opened
+# on "Love" (BGM\Love is romantic songs and blues) because the narrator's marks said प्यार
+MOOD_NOTE = {"Love": "Love (romance between a couple only; friendship, family and old memories are Calm or Sad)"}
 
 MAP_ASK = (
     "You are the music director of a {desc} video (channel '{label}'). The story is read aloud in Hindi and cut into "
@@ -158,7 +161,7 @@ def _ask(cfg, genre, shots, stags, moods, budget_hint, say, ask=None):
             rows.append(f"{i + 1}. [{float(s.get('start', 0)):.0f}-{float(s.get('end', 0)):.0f} s] "
                         f"happens: {str(s.get('happens') or '').strip()[:200]}\n   marks: {marks}\n"
                         f"   text: {str(s.get('text') or '').strip()[:700]}")
-        prompt = MAP_ASK.format(desc=G.get("desc", genre), label=G.get("label", genre), moods=", ".join(moods),
+        prompt = MAP_ASK.format(desc=G.get("desc", genre), label=G.get("label", genre), moods=", ".join(MOOD_NOTE.get(m, m) for m in moods),
                                 turns=budget_hint, kinds=", ".join(KINDS), first=part[0] + 1, last=part[-1] + 1,
                                 scenes="\n".join(rows))
         try:
@@ -331,7 +334,7 @@ def build(cfg, genre, narration, pictures, say=print, use_ai=True, script_path="
     scenes, notes = [], []
     for i, sh in enumerate(shots):
         a = got.get(i) or {}
-        mood = str(a.get("mood") or "").strip()
+        mood = str(a.get("mood") or "").strip().split("(")[0].strip()      # "Love (romance ...)" echoed back
         mood = next((m for m in moods if m.lower() == mood.lower()), "")
         try:
             w = int(a.get("weight"))

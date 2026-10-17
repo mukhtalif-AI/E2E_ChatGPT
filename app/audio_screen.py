@@ -186,7 +186,48 @@ def screen(cfg, path, kind, force=False):
             _save(cfg, d)
     out = dict(row)
     out["override"] = d["overrides"].get(k, "")
-    return out
+    return _with_vocals(cfg, path, out) if kind == "music" else out
+
+
+# sung music (17 Oct 2026): Kisse-Memories-Old-Atlas-Cycle got "Torn - Patrick Jordan Patrikios" (BGM\Love), a song
+# whose singer talks over the narrator. The band numbers above cannot tell singing from instruments, so a vocal
+# separator was run on 45 s of every track once (outside the hub) and the sung ones are listed in
+# <experimental_root>\Library\music_vocals.json: {"limit_db": -10, "files": {"<file name>": {"vocals_db": -3.0}}}
+# (vocals_db = the voice part's level against the instruments; near 0 = clearly sung). A listed track is a reject
+# for music; "use as is" on the Sounds page still wins.
+def _vocals(cfg):
+    L = cfg.get("layout") or {}
+    p = os.path.join(_root(cfg), L.get("experimental_library", "Library"), "music_vocals.json")
+    try:
+        mt = os.path.getmtime(p)
+        hit = _MEM.get(p)
+        if not hit or hit[0] != mt:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+            _MEM[p] = hit = (mt, d)
+        return hit[1]
+    except (OSError, ValueError):
+        return {}
+
+
+def sung(cfg, path):
+    """vocals_db when the music file is listed as sung (over the limit), else None"""
+    d = _vocals(cfg)
+    import unicodedata
+    row = (d.get("files") or {}).get(unicodedata.normalize("NFC", os.path.basename(original_of(cfg, path) or path or "")))
+    if not isinstance(row, dict):
+        return None
+    v = row.get("vocals_db")
+    return v if v is not None and float(v) > float(d.get("limit_db", -10)) else None
+
+
+def _with_vocals(cfg, path, row):
+    v = sung(cfg, path) if row.get("kind", "music") == "music" else None
+    if v is not None:
+        row["verdict"] = "reject"
+        row["why"] = list(row.get("why") or []) + [f"it is a song: the singing is only {abs(float(v)):.0f} dB under the "
+                                                   "instruments and talks over the narrator"]
+    return row
 
 
 def _limits_tag(kind):
@@ -200,7 +241,7 @@ def cached(cfg, path):
     if row and row.get("key") != _key(path):
         row["stale"] = True
     row["override"] = d["overrides"].get(k, "")
-    return row
+    return _with_vocals(cfg, path, row) if row.get("kind") == "music" else row
 
 
 def set_override(cfg, path, value):

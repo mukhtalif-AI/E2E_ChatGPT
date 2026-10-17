@@ -1124,13 +1124,14 @@ def _trim_dangling(ln):
 # check - without it the planned Rahasya-Mirror-Doppelganger (17 Oct) went out as a raw first draft. "on": False = the
 # old writer (no plan, review only).
 STORY_PLAN = {"on": True, "outline_think": False, "check_think": False, "ctx": 16384, "max_fixes": 12,
-              "max_tokens": 4096, "review": True}
+              "max_tokens": 4096, "review": True, "facts": True, "facts_max_lines": 70}
 
 OUTLINE_ASK = (
     "Before tonight's story is written, plan it. The brief for the story is below.\n\n{brief}\n\n"
     "Make a plan that a listener can follow and that adds up at the end:\n"
     "- fixed facts: every date, year, age, sum of money, duration and place the story will use, each decided once "
-    "(the script will never change them);\n"
+    "(the script will never change them); for EVERY place a beat goes to, name it and say how far it is from home "
+    "(same village / a nearby town / a far city, about how many km or hours): a place is near or far, never both;\n"
     "- people: the few names and who they are (no more than the story needs);\n"
     "- clues: 3-5 strange details planted in the story, and for EACH the exact answer the ending gives it: a concrete "
     "fact (who did what, how, why), never a vague 'a signal', 'a ritual' or 'a tool'; every answer must fit the ONE "
@@ -1149,7 +1150,8 @@ QUOTE_RULE = ("Quotes: say who is speaking before a quote, close every quote on 
 LOGIC_ASK = (
     "You check a finished Hindi {series} audio story for LOGIC only, against the plan it was written from. "
     "Look for: a fact that differs from the plan or from an earlier line (dates, years, ages, durations, money, "
-    "names, who knew what); a clue that is planted but never answered; a second twist that cancels the planned one; "
+    "names, places, distances, travel times, who knew what); a place called near ('पास के', 'पास ही') that then takes "
+    "a long journey, or the other way round;a clue that is planted but never answered; a second twist that cancels the planned one; "
     "something that happens with no cause; a quote that is never closed, so the narrator's next line sounds like "
     "the quote. Do NOT touch style, wording or length, and do not report things that are fine.\n"
     "For each problem give the line number, the line as written, why, and the corrected Hindi line: the WHOLE line "
@@ -1157,6 +1159,38 @@ LOGIC_ASK = (
     "add a short clause that answers a clue; a cut-off line is completed, not replaced with a different sentence). At most {max_fixes} lines, the most "
     "important first. Answer ONLY JSON: {\"problems\": [{\"n\": 0, \"line\": \"\", \"why\": \"\", \"fix\": \"\"}]} "
     "(an empty list when the story adds up).\n\nPLAN:\n{plan}\n\nSTORY (numbered lines):\n{story}")
+
+# facts pass (17 Oct): Kisse-Memories-Old-Atlas-Cycle said "पास के ही एक छोटे से कस्बे" and two lines later "लगभग 450
+# किलोमीटर का लंबा सफर"; the plan had no place/distance fact and the whole-story logic check (9 s, no thinking) found
+# nothing. Code now picks out only the lines that state a place, distance, travel time, year, age, duration or money,
+# flags near-then-far pairs itself, and asks about those few lines against the plan's facts.
+FACTS_ASK = (
+    "FACTS CHECK. Below are the plan's fixed facts and ONLY the lines of a finished Hindi {series} audio story that "
+    "state a place, distance, travel time, date, year, age, duration or amount. Find lines that cannot all be true: "
+    "a place called near and then reached by a long journey (or the other way round), a distance, year, age, "
+    "duration or amount that differs from the plan or from another line. {flags}"
+    "Do not report anything else. For each problem give the line number, the line as written, why, and the "
+    "corrected Hindi line (the WHOLE line, its own words kept except the fact that must change; follow the plan, and "
+    "where the plan says nothing keep the earlier line's fact). Answer ONLY JSON: {\"problems\": [{\"n\": 0, "
+    "\"line\": \"\", \"why\": \"\", \"fix\": \"\"}]} (an empty list when the facts agree).\n\n"
+    "PLAN FACTS:\n{facts}\n\nLINES (numbered as in the story):\n{lines}")
+FACT_WORDS = re.compile(r"\d|किलोमीटर|किमी|\bkm\b|मील|घंटे|घण्टे|दिन|हफ़्ते|हफ्ते|महीने|साल|वर्ष|बरस|उम्र|रुपये|₹|"
+                        r"गाँव|गांव|कस्बे|कस्बा|क़स्बे|शहर|स्टेशन|दूर|पास के|पास ही|नज़दीक|नजदीक|पड़ोस|सफर|सफ़र|यात्रा")
+NEAR = re.compile(r"पास (?:के |ही |में )*(?:ही )?(?:एक )?(?:छोटे से |छोटे-से |छोटे )?(?:गाँव|गांव|कस्बे|कस्बा|क़स्बे|शहर|"
+                  r"मोहल्ले|बस्ती)|पास ही|नज़दीक|नजदीक|पड़ोस के|बगल के")
+FAR = re.compile(r"(\d[\d,]*)\s*(?:किलोमीटर|किमी|km|मील)|लंबा सफ़?र|लंबी यात्रा|लम्बा सफ़?र|लम्बी यात्रा|"
+                 r"(?:\d+|कई|पूरे|सारी) (?:घंटे|घण्टे|रात) (?:का|की)? ?(?:सफ़?र|यात्रा)|रात भर का सफ़?र")
+
+
+def _near_far(lines, idx, window=6):
+    """code check: a 'nearby' place and a long journey within a few lines of each other -> [(n_near, n_far)]"""
+    near = [n for n, i in enumerate(idx, 1) if NEAR.search(lines[i])]
+    far = []
+    for n, i in enumerate(idx, 1):
+        m = FAR.search(lines[i])
+        if m and (not m.group(1) or int(m.group(1).replace(",", "")) >= 50):
+            far.append(n)
+    return [(a, b) for a in near for b in far if a != b and abs(a - b) <= window]
 
 
 def _plan_on(cfg):
@@ -1239,21 +1273,8 @@ def _kept(old, fix):
     return sum(x in f for x in w) / len(w) if w else 1.0
 
 
-def logic_check(cfg, script, plan, series, engine, say, cleaner):
-    """only the lines that break the plan are rewritten -> script (unchanged when the check fails)"""
-    t0 = time.time()
-    lines = script.splitlines()
-    idx = [i for i, l in enumerate(lines) if l.strip() and l.strip() != "(...)"]
-    story_ = "\n".join(f"{n + 1}: {lines[i]}" for n, i in enumerate(idx))
-    mx = int(STORY_PLAN.get("max_fixes") or 12)
-    try:
-        o = _json_ask(cfg, LOGIC_ASK.replace("{series}", series).replace("{max_fixes}", str(mx))
-                      .replace("{plan}", plan).replace("{story}", story_), engine, 0.2,
-                      STORY_PLAN.get("check_think", True), say)
-    except Exception as e:
-        say(f"   (logic check unavailable - kept the script as written: {e})")
-        return script
-    probs = o.get("problems") if isinstance(o, dict) else None
+def _apply_fixes(lines, idx, probs, mx, say, tag="logic fix"):
+    """the model's line fixes applied in place -> (done, skipped)"""
     done, skipped = 0, 0
     for p in (probs if isinstance(probs, list) else [])[:mx]:
         try:
@@ -1280,12 +1301,64 @@ def logic_check(cfg, script, plan, series, engine, say, cleaner):
             if k >= 0:                    # the fix pulled the next line's start up (closing a quote): drop it there
                 lines[nxt] = (lines[nxt][:k] + lines[nxt][k + len(add):]).strip()
         done += 1
-        say(f"      logic fix {n} ({str(p.get('why') or '')[:90]}): {old.strip()[:70]} -> {fix[:90]}")
+        say(f"      {tag} {n} ({str(p.get('why') or '')[:90]}): {old.strip()[:70]} -> {fix[:90]}")
+    return done, skipped
+
+
+def facts_check(cfg, script, plan, series, engine, say, cleaner):
+    """places / distances / years / durations only: code-picked lines + near-far flags, asked against the plan's
+    fixed facts -> script (unchanged when nothing is found or the ask fails)"""
+    if not STORY_PLAN.get("facts", True):
+        return script
+    t0 = time.time()
+    lines = script.splitlines()
+    idx = [i for i, l in enumerate(lines) if l.strip() and l.strip() != "(...)"]
+    picked = [n for n, i in enumerate(idx, 1) if FACT_WORDS.search(lines[i])][:int(STORY_PLAN.get("facts_max_lines") or 70)]
+    pairs = _near_far(lines, idx)
+    for a, b in pairs:
+        say(f"      facts: line {a} says the place is near, line {b} is a long journey")
+    if len(picked) < 2 and not pairs:
+        return script
+    picked = sorted(set(picked) | {n for p in pairs for n in p})
+    flags = "".join(f"The code found: line {a} calls a place near, but line {b} is a long journey - if they are the "
+                    f"same place, fix one of them. " for a, b in pairs)
+    facts = "\n".join(l for l in plan.splitlines() if l.startswith(("Fixed facts", "People"))) or "(none)"
+    mx = int(STORY_PLAN.get("max_fixes") or 12)
+    try:
+        o = _json_ask(cfg, FACTS_ASK.replace("{series}", series).replace("{flags}", flags + ("\n" if flags else ""))
+                      .replace("{facts}", facts).replace("{lines}", "\n".join(f"{n}: {lines[idx[n - 1]]}" for n in picked)),
+                      engine, 0.2, STORY_PLAN.get("check_think", True), say)
+    except Exception as e:
+        say(f"   (facts check unavailable - kept the script: {e})")
+        return script
+    done, skipped = _apply_fixes(lines, idx, o.get("problems") if isinstance(o, dict) else None, mx, say, "facts fix")
+    out = cleaner("\n".join(lines)) if done else script
+    say(f"   facts check ({time.time() - t0:.0f} s, {len(picked)} lines): {done} line(s) fixed"
+        + (f", {skipped} answer(s) not usable" if skipped else "")
+        + (f"; {len(pairs)} near/far pair(s) flagged" if pairs else ""))
+    return out
+
+
+def logic_check(cfg, script, plan, series, engine, say, cleaner):
+    """only the lines that break the plan are rewritten -> script (unchanged when the check fails), then the facts
+    pass on places / distances / years"""
+    t0 = time.time()
+    lines = script.splitlines()
+    idx = [i for i, l in enumerate(lines) if l.strip() and l.strip() != "(...)"]
+    story_ = "\n".join(f"{n + 1}: {lines[i]}" for n, i in enumerate(idx))
+    mx = int(STORY_PLAN.get("max_fixes") or 12)
+    try:
+        o = _json_ask(cfg, LOGIC_ASK.replace("{series}", series).replace("{max_fixes}", str(mx))
+                      .replace("{plan}", plan).replace("{story}", story_), engine, 0.2,
+                      STORY_PLAN.get("check_think", True), say)
+    except Exception as e:
+        say(f"   (logic check unavailable - kept the script as written: {e})")
+        return facts_check(cfg, script, plan, series, engine, say, cleaner)
+    done, skipped = _apply_fixes(lines, idx, o.get("problems") if isinstance(o, dict) else None, mx, say)
     out = cleaner("\n".join(lines)) if done else script
     say(f"   logic check ({time.time() - t0:.0f} s): {done} line(s) fixed" + (f", {skipped} answer(s) not usable" if skipped else "")
         + f"; {nwords(out)} words")
-    return out
-
+    return facts_check(cfg, out, plan, series, engine, say, cleaner)
 
 def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=None, stopped=lambda: False,
                  level="standard"):
