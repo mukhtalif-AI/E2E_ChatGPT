@@ -1129,7 +1129,9 @@ OUTLINE_ASK = (
     "- fixed facts: every date, year, age, sum of money, duration and place the story will use, each decided once "
     "(the script will never change them);\n"
     "- people: the few names and who they are (no more than the story needs);\n"
-    "- clues: 3-5 strange details planted in the story, and for EACH the exact answer the ending gives it;\n"
+    "- clues: 3-5 strange details planted in the story, and for EACH the exact answer the ending gives it: a concrete "
+    "fact (who did what, how, why), never a vague 'a signal', 'a ritual' or 'a tool'; every answer must fit the ONE "
+    "reveal below (drop a clue the reveal does not explain);\n"
     "- ONE twist that those clues support (never a second twist that undoes the first, never a twist that comes "
     "from nowhere), and the reveal that explains every clue;\n"
     "- beats: 8-12 short steps in the order they are told, following the brief's telling and shape; the last two "
@@ -1147,8 +1149,9 @@ LOGIC_ASK = (
     "names, who knew what); a clue that is planted but never answered; a second twist that cancels the planned one; "
     "something that happens with no cause; a quote that is never closed, so the narrator's next line sounds like "
     "the quote. Do NOT touch style, wording or length, and do not report things that are fine.\n"
-    "For each problem give the line number, the line as written, why, and the corrected Hindi line (same voice, "
-    "about the same length; it may add a short clause that answers a clue). At most {max_fixes} lines, the most "
+    "For each problem give the line number, the line as written, why, and the corrected Hindi line: the WHOLE line "
+    "rewritten, keeping its own words and meaning except what must change (same voice, about the same length; it may "
+    "add a short clause that answers a clue; a cut-off line is completed, not replaced with a different sentence). At most {max_fixes} lines, the most "
     "important first. Answer ONLY JSON: {\"problems\": [{\"n\": 0, \"line\": \"\", \"why\": \"\", \"fix\": \"\"}]} "
     "(an empty list when the story adds up).\n\nPLAN:\n{plan}\n\nSTORY (numbered lines):\n{story}")
 
@@ -1226,6 +1229,13 @@ def with_plan(prompt, plan):
     return prompt[:k] + block + prompt[k:] if k > 0 else prompt + "\n\n" + block
 
 
+def _kept(old, fix):
+    """share of the old line's words that the fix keeps"""
+    w = re.findall(r"[\wऀ-ॿ]+", old)
+    f = set(re.findall(r"[\wऀ-ॿ]+", fix))
+    return sum(x in f for x in w) / len(w) if w else 1.0
+
+
 def logic_check(cfg, script, plan, series, engine, say, cleaner):
     """only the lines that break the plan are rewritten -> script (unchanged when the check fails)"""
     t0 = time.time()
@@ -1256,10 +1266,16 @@ def logic_check(cfg, script, plan, series, engine, say, cleaner):
             i = hit[0] if len(hit) == 1 else None
         old = lines[i] if i is not None else ""
         if i is None or not fix or fix == old.strip() or not re.search("[ऀ-ॿ]", fix) \
-                or len(fix.split()) > 2 * len(old.split()) + 15:
-            skipped += 1
+                or len(fix.split()) > 2 * len(old.split()) + 15 or _kept(old, fix) < 0.4:
+            skipped += 1                  # a 'fix' that drops most of the line is a different sentence, not a fix
             continue
         lines[i] = fix
+        nxt = next((j for j in idx if j > i), None)
+        add = fix[len(old.strip()):].strip() if fix.startswith(old.strip()) else ""
+        if nxt is not None and len(add) > 15 and lines[nxt].strip().startswith(add[:40]):
+            k = lines[nxt].find(add) if add in lines[nxt] else -1
+            if k >= 0:                    # the fix pulled the next line's start up (closing a quote): drop it there
+                lines[nxt] = (lines[nxt][:k] + lines[nxt][k + len(add):]).strip()
         done += 1
         say(f"      logic fix {n} ({str(p.get('why') or '')[:90]}): {old.strip()[:70]} -> {fix[:90]}")
     out = cleaner("\n".join(lines)) if done else script
