@@ -157,12 +157,24 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     if _is_exp(cfg) and not str(tail).startswith("total:"):  # Experimental, 'Whole video' 0: the voice + a short ending
         tail = f"secs:{_end_seconds(cfg)}"
     folders = tools.GENRES.get(genre, tools.GENRES["bhay"])["music"]
+    chosen = bool(track)                                    # a track picked on the form: emotion music keeps it alone
     track = track or tools._horror_track(cfg, folders)
     track, music_db = _usable_music(ctx, track, folders, music_db)
     say(f"   music: {os.path.basename(track)}")
     tools._series_note(cfg, name, genre=genre, track=track, pictures=pictures)
-    if not tools.shape_mix(ctx, name, track, tail, music_db=music_db):
+    emo = None                                              # Experimental: music that follows the emotion map
+    if _is_exp(cfg):
+        try:
+            import emotion_music
+            emo = emotion_music.mix(ctx, name, pictures, genre, track, tail, music_db, chosen=chosen)
+        except Exception as e:
+            say(f"   (emotion music skipped: {e} - one track as before)")
+            emo = None
+    if emo is not None and not emo.get("ok"):
         return False
+    if emo is None and not tools.shape_mix(ctx, name, track, tail, music_db=music_db):
+        return False
+    bed = (lambda a, b: __import__("emotion_music").bed_at(emo, sr, a, b)) if emo else (lambda a, b: 1.0)
     d = tools.narration_dir(cfg, name, existing=True)
     lead = float(json.load(open(os.path.join(d, "music_shape.json"), encoding="utf-8")).get("lead_s", 0))
     mix_p = os.path.join(d, "narration_music.wav")
@@ -185,14 +197,14 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
                 rep_ = np.concatenate([amb] * (need // len(amb) + 1))[:need]
                 g = 10 ** ((voice_db - 22 - 20 * np.log10(float(np.sqrt(np.mean(amb ** 2))) + 1e-9)) / 20)
                 env = np.minimum(1, np.minimum(np.arange(need) / (2 * sr), (need - np.arange(need)) / (2 * sr)))[:, None]
-                mix[a:b] += (rep_ * g * env).astype(np.float32)
+                mix[a:b] += (rep_ * g * env * bed(a, b)).astype(np.float32)
                 added += 1
         if s.get("hit") and os.path.exists(s["hit"]) and i > 0:
             h = tools._decode(cfg, s["hit"], sr, 2)[: 6 * sr]
             g = 10 ** ((voice_db - 9 - 20 * np.log10(float(np.sqrt(np.mean(h ** 2))) + 1e-9)) / 20)
             st = max(0, a - int(0.3 * sr))
             e = min(len(mix), st + len(h))
-            mix[st:e] += (h[:e - st] * g).astype(np.float32)
+            mix[st:e] += (h[:e - st] * g * bed(st, e)).astype(np.float32)
             added += 1
     tim = json.load(open(os.path.join(d, "timing.json"), encoding="utf-8")) if os.path.exists(os.path.join(d, "timing.json")) else []
     norm = lambda t: re.sub(r"[^\w\s]", "", str(t)).split()
@@ -223,8 +235,10 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
             fade = np.minimum(1, (len(h) - np.arange(len(h))) / (0.4 * sr))[:, None]
             st = int((lead + at) * sr)
             e = min(len(mix), st + len(h))
+            if emo and float(np.mean(bed(st, st + 1))) < 0.5:   # inside a drop before a heavy line: keep it silent
+                continue
             if e > st:
-                mix[st:e] += (h[:e - st] * fade[:e - st] * g).astype(np.float32)
+                mix[st:e] += (h[:e - st] * fade[:e - st] * g * bed(st, e)).astype(np.float32)
                 used.append(c["file"]); ncue += 1
         used += [x for x in (s.get("ambience"), s.get("hit")) if x]
     if ncue:
@@ -238,8 +252,12 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     raw = os.path.join(d, "_bhay.f32")
     open(raw, "wb").write((mix * min(1.0, 0.97 / pk)).astype("<f4").tobytes())
     os.replace(mix_p, os.path.join(d, "narration_music_plain.wav"))
-    rc = ctx["run_cmd"]([cfg["ffmpeg"], "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "2", "-i", raw,
-                         "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(sr), "-c:a", "pcm_s16le", mix_p])
+    if emo:                                                 # one gain for the whole file: the drops stay silent
+        import emotion_music
+        rc = 0 if emotion_music.loudnorm2(cfg, raw, sr, 2, mix_p, ctx["run_cmd"]) else 1
+    else:
+        rc = ctx["run_cmd"]([cfg["ffmpeg"], "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "2", "-i", raw,
+                             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(sr), "-c:a", "pcm_s16le", mix_p])
     try:
         os.remove(raw)
     except OSError:

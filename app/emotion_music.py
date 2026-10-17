@@ -1,14 +1,23 @@
 """emotion_music.py - music and effects that follow how heavy the story's emotion is (Experimental genre runs only).
 
-Plan: EMOTION_MUSIC_PLAN.md in the hub folder. Step 1 (17 Oct 2026): the emotion map only - nothing here changes the
-sound yet. After the scene plan (and the Whisper word times) the step exp_emotion_map writes emotion_map.json next to
-shots.json:
+Plan: EMOTION_MUSIC_PLAN.md in the hub folder. Step 1 (17 Oct 2026), the emotion map: after the scene plan (and the
+Whisper word times) the step exp_emotion_map writes emotion_map.json next to shots.json:
   scenes    each director scene with a mood (one of the series' music folders) and a weight 0-3
   sections  neighbouring scenes merged into at most 3 music sections, as few track changes as possible
   turns     the few heaviest lines (twist, death, reveal...) with the time their first words are spoken
 The AI (director_model) proposes; the rules below decide (budgets, smoothing, no jumping back to a track). With no AI
 answer the map comes from the emotion marks ([उदास] ...) and the scene plan's hits / close-up moments.
 Weight: 0 calm telling, 1 mild feeling, 2 strong (reveal, scare, confession), 3 heavy (death, the final twist).
+
+Steps 3-5, the mix (mix(), called by horror_sound when the map exists; Working mode and shape_mix are untouched):
+  curve     under the voice the music sits a little lower or higher by weight; in pauses of 1 s or more it lifts,
+            and settles 0.3 s before the next word (real ducking); calm parts lose some of their highs (warmer)
+  turns     weight 1: a 6 dB dip; 2: silence ~1 s before the line, through the line, back over 2.5 s with the
+            ambience at half; 3: music, ambience and effects stop 2-2.5 s before the line, one soft low note after it,
+            then the music comes back (in the return mood when the 3-track cap allows)
+  sections  one track per section from that mood folder (ratings, screening, least used), 3.5 s equal-power
+            crossfades placed in a pause; never more than 3 tracks, never back to an earlier one
+  loudness  two-pass loudnorm in linear mode, so the dips and silences keep their shape
 
 Run on a finished episode (no GPU; the AI part needs Ollama, --no-ai uses the marks only):
     python app\\emotion_music.py "D:\\MukhtalifGPT\\Series\\kisse\\Episodes\\Kisse-Fathers-Old-Tin-Box" [--no-ai] [--out file]
@@ -211,7 +220,10 @@ def make_sections(scenes, s, total):
             else:
                 k = j - 1 if span(secs[j - 1]) >= span(secs[j + 1]) else j + 1
             lo, hi = min(j, k), max(j, k)
-            mood = secs[k]["mood"] if span(secs[k]) >= span(secs[j]) else secs[j]["mood"]
+            dur = {}                                                    # the mood that fills most of the merged time
+            for x in scenes[secs[lo]["from_scene"]:secs[hi]["to_scene"] + 1]:
+                dur[x["mood"]] = dur.get(x["mood"], 0) + x["end"] - x["start"]
+            mood = max((secs[k]["mood"], secs[j]["mood"]), key=lambda mo: dur.get(mo, 0))
             secs[lo:hi + 1] = [{"from_scene": secs[lo]["from_scene"], "to_scene": secs[hi]["to_scene"], "mood": mood}]
 
         changed = True
@@ -395,6 +407,452 @@ def step(ctx, name, pictures, genre=""):
     report(m, say)
     say(f"   -> {out}")
     return True
+
+
+# ------------------------------------------------------------------ steps 3-5: the music that follows the map
+# Levels in dB, relative to the series' usual "under the story" level, by weight 0-3 (times the series' strength):
+LEVELS = {"under": (-2.0, 0.0, 1.0, 1.5),      # while a word is being spoken
+          "gap": (2.0, 3.0, 4.0, 5.0),          # in a pause of 1 s or more (the music settles 0.3 s before the next word)
+          "dull": (0.7, 0.35, 0.0, 0.0)}        # how much of the music above 3 kHz is taken away (warm, dull)
+DULL_HZ = 3000
+CR = 20                                  # control points per second for every level curve
+GAP_MIN_S, GAP_IN_S, GAP_OUT_S = 1.0, 0.2, 0.3
+DIP_DB = -6.0                            # a weight-1 turn: the music dips this much
+PRE_S, FADE_S = 0.3, 0.4                 # silence ends this long before the first word; music fades out over FADE_S
+BACK_S = {1: 1.5, 2: 2.5, 3: 3.0}        # how long the music takes to come back after the line
+NOTE_DB = -22.0                          # the soft note after a heavy line, below the voice
+
+
+def _curve(n, pts):
+    """control curve of n points from (time s, value) pairs, linear in between"""
+    import numpy as np
+    t = np.arange(n) / CR
+    px = [p[0] for p in pts]
+    return np.interp(t, px, [p[1] for p in pts])
+
+
+def _ramp_window(n, a, b, fade_in, fade_out, inside=1.0):
+    """1 outside, 'inside' between a and b, with linear ramps of fade_in before a and fade_out after b"""
+    import numpy as np
+    t = np.arange(n) / CR
+    w = np.ones(n)
+    k_in = np.clip((t - (a - fade_in)) / max(1e-3, fade_in), 0, 1)
+    k_out = np.clip(((b + fade_out) - t) / max(1e-3, fade_out), 0, 1)
+    k = np.minimum(k_in, k_out)
+    return w + (inside - 1.0) * k
+
+
+def speech_frames(v, sr):
+    """True where the voice speaks, at CR frames per second (same rule as shape_mix)"""
+    import numpy as np
+    hop = sr // CR
+    fr = v[: len(v) // hop * hop].reshape(-1, hop).astype(np.float64)
+    vdb = 10 * np.log10((fr ** 2).mean(1) + 1e-12)
+    return vdb > np.percentile(vdb, 95) - 18, vdb
+
+
+def gap_mask(speech_mix, n):
+    """1 inside pauses of GAP_MIN_S or more (from GAP_IN_S after the last word to GAP_OUT_S before the next)"""
+    import numpy as np
+    g = np.zeros(n)
+    s = np.zeros(n, bool)
+    s[:len(speech_mix)] = speech_mix[:n]
+    i = 0
+    first = int(np.argmax(s)) if s.any() else n
+    last = n - int(np.argmax(s[::-1])) if s.any() else 0
+    while i < n:
+        if s[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and not s[j]:
+            j += 1
+        if i > first and j < last and (j - i) / CR >= GAP_MIN_S:
+            a, b = i + int(GAP_IN_S * CR), j - int(GAP_OUT_S * CR)
+            if b > a:
+                g[a:b] = 1
+        i = j
+    k = max(1, int(0.4 * CR))                       # 0.4 s ramps
+    return np.convolve(g, np.ones(k) / k, mode="same")
+
+
+def gaps(speech_mix):
+    """[(start s, end s)] of every pause of GAP_MIN_S or more"""
+    out, i, n = [], 0, len(speech_mix)
+    while i < n:
+        if speech_mix[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and not speech_mix[j]:
+            j += 1
+        if (j - i) / CR >= GAP_MIN_S:
+            out.append((i / CR, j / CR))
+        i = j
+    return out
+
+
+def plan_segments(m, s, lead, end, pauses):
+    """the map's sections (+ a return in another mood after a heavy turn) -> track segments in mix time:
+    [{"start", "end", "mood", "cut": "crossfade" | "return" | ""}]. Never more than s['max_tracks'] moods, never back."""
+    secs = m.get("sections") or []
+    if not secs:
+        return []
+    seg = []
+    for i, c in enumerate(secs):
+        st = 0.0 if i == 0 else lead + float(c["start"])
+        if i:                                         # move the change into the nearest pause (within 5 s)
+            near = [(abs((a + b) / 2 - st), (a + b) / 2) for a, b in pauses if abs((a + b) / 2 - st) <= 5]
+            if near:
+                st = min(near)[1]
+        seg.append({"start": round(st, 2), "mood": c["mood"], "cut": "crossfade" if i else ""})
+    rm = s.get("return_mood") or ""
+    if s.get("stingers") and rm:
+        for t in m.get("turns") or []:
+            if int(t.get("weight", 0)) < 3:
+                continue
+            at = lead + float(t["line_end"]) + PRE_S + float(s.get("return_delay_s", 0))
+            cur = max((x for x in seg if x["start"] <= at), key=lambda x: x["start"], default=None)
+            used = {x["mood"] for x in seg if x["start"] <= at}
+            if cur and cur["mood"] != rm and rm not in used and len({x["mood"] for x in seg}) < int(s.get("max_tracks", MAX_TRACKS)):
+                seg.append({"start": round(at, 2), "mood": rm, "cut": "return"})
+                seg.sort(key=lambda x: x["start"])
+    out = []
+    for x in seg:                                      # same mood side by side: one segment
+        if out and out[-1]["mood"] == x["mood"]:
+            continue
+        if any(o["mood"] == x["mood"] for o in out):   # never back to a track it left: keep the one playing
+            continue
+        out.append(dict(x))
+    for i, x in enumerate(out):
+        x["end"] = out[i + 1]["start"] if i + 1 < len(out) else end
+    return out
+
+
+def stinger_curves(m, s, lead, n):
+    """(music multiplier, ambience/effects multiplier, [(note time, weight)]) for the turns, as CR curves"""
+    import numpy as np
+    mus, bed, notes = np.ones(n), np.ones(n), []
+    if not s.get("stingers"):
+        return mus, bed, notes
+    k = float(s.get("strength", 1.0))
+    for t in m.get("turns") or []:
+        w = int(t.get("weight", 0))
+        A, E = lead + float(t["at"]), lead + float(t["line_end"])
+        if w <= 0:
+            continue
+        if w == 1:
+            mus *= _ramp_window(n, A - 0.9, E, 0.3, BACK_S[1], 10 ** (DIP_DB * min(1.0, k) / 20))
+            continue
+        drop = float((s.get("drop_s") or {}).get(str(w), 1.0))
+        s0 = A - PRE_S - drop                         # the silence starts here and lasts through the line
+        back = E + PRE_S + (float(s.get("return_delay_s", 0)) if w == 3 else 0)
+        mus *= _ramp_window(n, s0, back, FADE_S, BACK_S[w], 0.0)
+        bed *= _ramp_window(n, s0, E + PRE_S, FADE_S, BACK_S[w], 0.5 if w == 2 else 0.0)
+        if w == 3 and s.get("soft_note"):
+            notes.append((E + PRE_S, w))
+    return mus, bed, notes
+
+
+def soft_note(kind, sr=48000):
+    """one low soft note (Kisse: a warm D3 with a slow fade) or a low drone swell (Bhay / Rahasya), from sine waves"""
+    import numpy as np
+    if kind == "drone":
+        t = np.arange(int(5.0 * sr)) / sr
+        env = np.minimum(1, t / 1.5) * np.exp(-np.maximum(0, t - 1.5) / 1.4)
+        y = sum(a * np.sin(2 * np.pi * f * t) for f, a in ((55.0, 1.0), (82.4, 0.45), (110.0, 0.2)))
+    else:
+        t = np.arange(int(4.5 * sr)) / sr
+        env = np.minimum(1, t / 0.06) * np.exp(-t / 1.6)
+        y = sum(a * np.sin(2 * np.pi * f * t) for f, a in ((146.8, 1.0), (293.7, 0.25), (440.4, 0.06)))
+    y = y * env
+    return (y / (np.abs(y).max() or 1)).astype(np.float32)
+
+
+def render(v, tracks, segs, base_pts, m, s, lead, sr=48000, xfade=None):
+    """the music bed alone (no voice), stereo float32, and the curves used.
+    v: voice (mono); tracks: {mood: (full stereo array, low-passed stereo array, level dB of the track)};
+    segs: plan_segments(); base_pts: shape_mix-style level points [(s, dB relative to the voice)]."""
+    import numpy as np
+    n_s = int(round(base_pts[-1][0] * sr))
+    n = int(np.ceil(n_s / sr * CR)) + 1
+    sp_v, vdb = speech_frames(v, sr)
+    vdb_act = float(np.median(vdb[sp_v])) if sp_v.any() else -30.0
+    sp = np.zeros(n, bool)
+    o = int(round(lead * CR))
+    sp[o:o + len(sp_v)] = sp_v[: max(0, n - o)]
+    base = _curve(n, base_pts)                                    # dB relative to the voice
+    tt = np.arange(n) / CR
+    w = np.zeros(n)
+    sc = m.get("scenes") or []
+    if sc:                                                        # weight per scene, then smoothed over 3 s
+        px = [lead + float(x["start"]) for x in sc] + [lead + float(sc[-1]["end"])]
+        idx = np.clip(np.searchsorted(px, tt, side="right") - 1, 0, len(sc) - 1)
+        w = np.array([float(sc[i]["weight"]) for i in idx])
+        k3 = 3 * CR
+        w = np.convolve(np.pad(w, k3 // 2, mode="edge"), np.ones(k3) / k3, mode="valid")[:n]
+    k = float(s.get("strength", 1.0)) if s.get("curve") else 0.0
+    if sp_v.any():                                                # from the first word to the last one
+        story = (tt >= lead + float(np.argmax(sp_v)) / CR) & (tt <= lead + (len(sp_v) - float(np.argmax(sp_v[::-1]))) / CR)
+    else:
+        story = np.zeros(n, bool)
+    under = k * np.interp(w, [0, 1, 2, 3], LEVELS["under"])
+    lift = k * np.interp(w, [0, 1, 2, 3], LEVELS["gap"])
+    gm = gap_mask(sp, n)
+    rel = np.where(story, under + gm * (lift - under), 0.0)
+    dull = min(1.0, k) * np.interp(w, [0, 1, 2, 3], LEVELS["dull"])
+    mus_k, bed, notes = stinger_curves(m, s, lead, n)
+    xf = float(xfade if xfade is not None else s.get("crossfade_s", 3.5))
+    out = np.zeros((n_s, 2), np.float32)
+    used = []
+    for i, g in enumerate(segs):
+        if g["mood"] not in tracks:
+            continue
+        full, low, mdb = tracks[g["mood"]]
+        a = g["start"] - (xf / 2 if g.get("cut") == "crossfade" else 0)
+        nxt = segs[i + 1] if i + 1 < len(segs) else None
+        b = g["end"] + (xf / 2 if nxt and nxt.get("cut") == "crossfade" else 0)
+        a0, b0 = max(0, int(a * sr)), min(n_s, int(b * sr))
+        if b0 <= a0:
+            continue
+        win = np.ones(n)                                          # equal-power crossfades in and out
+        if g.get("cut") == "crossfade":
+            x = np.clip((tt - a) / xf, 0, 1)
+            win *= np.sin(x * np.pi / 2)
+        if nxt and nxt.get("cut") == "crossfade":
+            x = np.clip((b - tt) / xf, 0, 1)
+            win *= np.sin(x * np.pi / 2)
+        dl = dull.copy()
+        if nxt and nxt.get("cut") == "crossfade":                  # the outgoing track turns dull while it fades
+            dl = np.maximum(dl, np.clip((tt - (b - xf)) / xf, 0, 1))
+        gain_db = base + rel + (vdb_act - mdb)
+        lin = 10 ** (gain_db / 20) * mus_k * win
+        P = len(full)
+        kx = min(int(3 * sr), P // 3)                             # each track loops with 3 s crossfades, like shape_mix
+        Pl = P - kx
+        fade = np.linspace(0, 1, kx, dtype=np.float32)[:, None]
+        for c0 in range(a0, b0, 60 * sr):                         # one minute at a time
+            c1 = min(b0, c0 + 60 * sr)
+            pos = np.arange(c0, c1) - a0
+            q, oo = pos // Pl, pos % Pl
+            f_ = full[oo].copy()
+            l_ = low[oo].copy()
+            blend = (q > 0) & (oo < kx)
+            if blend.any():
+                ob = oo[blend]
+                f_[blend] = full[ob] * fade[ob] + full[Pl + ob] * (1 - fade[ob])
+                l_[blend] = low[ob] * fade[ob] + low[Pl + ob] * (1 - fade[ob])
+            ts = np.arange(c0, c1) / sr * CR
+            d = np.interp(ts, np.arange(n), dl).astype(np.float32)[:, None]
+            gl = np.interp(ts, np.arange(n), lin).astype(np.float32)[:, None]
+            out[c0:c1] += (l_ + (f_ - l_) * (1 - d)) * gl          # dull = only the part below DULL_HZ
+        used.append(g)
+    for at, wt in notes:                                          # the soft note after a heavy line
+        y = soft_note(s.get("soft_note"), sr)
+        i0 = int(at * sr)
+        i1 = min(n_s, i0 + len(y))
+        if i1 > i0:
+            ny = float(np.sqrt(np.mean(y ** 2)))
+            gnote = 10 ** ((vdb_act + NOTE_DB - 20 * np.log10(ny + 1e-9)) / 20)
+            out[i0:i1] += (y[:i1 - i0] * gnote)[:, None]
+    return out, {"weight": w, "rel_db": rel, "gap": gm, "music_k": mus_k, "bed": bed, "base_db": base,
+                 "notes": notes, "used": used, "vdb_act": vdb_act}
+
+
+def loudnorm2(cfg, raw, sr, ch, outp, run_cmd=None):
+    """two-pass loudnorm in linear mode: the whole file is turned up or down, its quiet and loud parts keep their
+    shape (one-pass loudnorm acts like a slow compressor and would fill the silences back in)"""
+    import subprocess
+    WIN = os.name == "nt"
+    inp = ["-f", "f32le", "-ar", str(sr), "-ac", str(ch), "-i", raw]
+    p = subprocess.run([cfg["ffmpeg"], "-hide_banner", "-nostats"] + inp +
+                       ["-af", "loudnorm=I=-16:TP=-1.5:LRA=20:print_format=json", "-f", "null", "-"],
+                       capture_output=True, text=True, creationflags=0x08000000 if WIN else 0)
+    try:
+        j = json.loads(p.stderr[p.stderr.rindex("{"):p.stderr.rindex("}") + 1])
+        af = ("loudnorm=I=-16:TP=-1.5:LRA=20:linear=true:measured_I={input_i}:measured_TP={input_tp}:"
+              "measured_LRA={input_lra}:measured_thresh={input_thresh}:offset={target_offset}").format(**j)
+    except (ValueError, KeyError):
+        af = "loudnorm=I=-16:TP=-1.5:LRA=11"                       # measuring failed: the old one-pass way
+    cmd = [cfg["ffmpeg"], "-v", "error", "-y"] + inp + ["-af", af, "-ar", str(sr), "-c:a", "pcm_s16le", outp]
+    if run_cmd:
+        return run_cmd(cmd) == 0
+    return subprocess.run(cmd, creationflags=0x08000000 if WIN else 0).returncode == 0
+
+
+def active(cfg, pictures, genre):
+    """the emotion map to mix with, or None (Working mode, series off, no map yet)"""
+    if not (cfg.get("experimental_mode") or cfg.get("_experimental_workspace")):
+        return None
+    s = settings(genre)
+    if not s.get("on"):
+        return None
+    m = _load(os.path.join(pictures or "", "emotion_map.json"))
+    return m if m and m.get("sections") else None
+
+
+def _track_arrays(ctx, track):
+    """(full, low-passed, active level dB) of a music file (sharp notes tamed the usual way)"""
+    import numpy as np
+    import tools
+    cfg = ctx["cfg"]
+    src = tools.tamed(ctx, track)
+    full = tools._decode(cfg, src, 48000, 2)
+    if len(full) < 48000 * 4:
+        raise RuntimeError(f"the music track could not be read: {track}")
+    import subprocess
+    p = subprocess.run([cfg["ffmpeg"], "-v", "error", "-i", src, "-ac", "2", "-ar", "48000", "-af",
+                        f"lowpass=f={DULL_HZ},lowpass=f={DULL_HZ}", "-f", "f32le", "-"], capture_output=True,
+                       creationflags=0x08000000 if os.name == "nt" else 0)
+    low = np.frombuffer(p.stdout, np.float32).reshape(-1, 2)[: len(full)]
+    if len(low) < len(full):
+        low = np.vstack([low, np.zeros((len(full) - len(low), 2), np.float32)])
+    hop = 48000 // 2
+    mf = full[: len(full) // hop * hop].mean(1).reshape(-1, hop).astype(np.float64)
+    mdb = 10 * np.log10((mf ** 2).mean(1) + 1e-12)
+    return full, low, float(np.median(mdb[mdb > np.percentile(mdb, 95) - 25]))
+
+
+def folder_of(track, cfg=None):
+    """the BGM mood folder a track comes from (a treated copy counts as its original)"""
+    try:
+        import audio_screen
+        import tools
+        track = audio_screen.original_of(cfg or {}, track) if cfg else track
+    except Exception:
+        pass
+    return os.path.basename(os.path.dirname(str(track or ""))).lower()
+
+
+def pick_tracks(ctx, segs, first_track, music_db, fixed=False):
+    """a usable track per mood: the series' usual pick (your ratings, least used, screening) inside that mood folder.
+    A mood folder with nothing usable keeps the track before it. -> {mood: file}, music_db"""
+    import tools
+    cfg, say = ctx["cfg"], ctx["say"]
+    md = cfg.get("music_dir") or ""
+    out = {}
+    for g in segs:
+        mood = g["mood"]
+        if mood in out:
+            continue
+        if fixed:
+            out[mood] = first_track
+            continue
+        if not out and first_track and folder_of(first_track, cfg) == mood.lower():
+            out[mood] = first_track
+            continue
+        t = ""
+        for _ in range(4):
+            c = tools._horror_track(cfg, [mood]) if glob.glob(os.path.join(md, mood, "*.mp3")) else ""
+            if c and c not in out.values():
+                ok, _db = tools._usable_music(ctx, c, [mood], music_db)
+                # _usable_music falls back to a softened Calm track when the folder has nothing: not for a section
+                if ok and os.path.exists(ok) and ok not in out.values() and folder_of(ok, cfg) == mood.lower():
+                    t = ok
+                    break
+        if not t:
+            prev = list(out.values())[-1] if out else first_track
+            say(f"   (no other usable track in {mood} - the music stays on {os.path.basename(prev or '')})")
+            t = prev
+        out[mood] = t
+    return out
+
+
+def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen=False):
+    """steps 3-5: voice + music that follows the emotion map -> narration_music.wav + music_shape.json, like
+    shape_mix. -> {"ok", "bed": CR curve for ambience and effects, "tracks"} or None to use shape_mix instead"""
+    import numpy as np
+    import tools
+    cfg, say = ctx["cfg"], ctx["say"]
+    m = active(cfg, pictures, genre)
+    if not m:
+        return None
+    s = settings(genre)
+    d = tools.narration_dir(cfg, name, existing=True)
+    vp = os.path.join(d, "narration.wav")
+    if not os.path.exists(vp):
+        raise RuntimeError("no narration.wav to put music under")
+    sh = dict(tools.load_audio_index(cfg).get("shape") or {})
+    lead = float(np.clip(sh.get("lead_s", 4.0), 2, 15))
+    fade_in = float(np.clip(sh.get("fade_in_s", 2.0), 0.5, lead))
+    story = float(sh.get("story_db", -18.0)) if music_db in (None, "") else -abs(float(music_db))
+    intro = float(np.clip(sh.get("intro_db", story + 4), story - 4, story + 10))
+    outro = float(np.clip(sh.get("outro_db", story + 3), story - 4, story + 10))
+    tail_s = {"1min": 60.0, "5min": 300.0, "usual": float(np.clip(sh.get("tail_s", 60), 30, 3600))}.get(tail, 60.0)
+    if str(tail).startswith("secs:"):
+        tail_s = float(np.clip(float(tail[5:] or tools.END_SECONDS), 1, 3600))
+    sr = 48000
+    v = tools._decode(cfg, vp, sr, 1)
+    if str(tail).startswith("total:"):
+        tail_s = max(60.0, float(tail[6:]) * 60 - lead - len(v) / sr)
+    fade_out = float(np.clip(sh.get("fade_out_s", 8.0), 4, tail_s * 0.6))
+    end = lead + len(v) / sr + tail_s
+    sp_v, _ = speech_frames(v, sr)
+    vs = lead + float(np.argmax(sp_v)) / CR
+    ve = lead + (len(sp_v) - float(np.argmax(sp_v[::-1]))) / CR
+    rise = min(4.0, 0.3 * max(0.1, end - ve))
+    base_pts = [(0, -80.0), (fade_in, intro), (vs, intro), (vs + 3, story), (ve, story), (ve + rise, outro),
+                (max(ve + rise, end - fade_out), outro), (end, -80.0)]
+    pauses = [(lead + a, lead + b) for a, b in gaps(sp_v)]
+    if chosen or not s.get("sections"):                        # a track you chose on the form: that one only
+        segs = [{"start": 0.0, "end": end, "mood": (m["sections"][0]["mood"]), "cut": ""}]
+    else:
+        segs = plan_segments(m, s, lead, end, pauses)
+    files = pick_tracks(ctx, segs, track, music_db, fixed=chosen or not s.get("sections"))
+    if len(set(files.values())) < len(files):                 # two moods ended on the same file: one segment
+        merged = []
+        for g in segs:
+            if merged and files[merged[-1]["mood"]] == files[g["mood"]]:
+                merged[-1]["end"] = g["end"]
+            else:
+                merged.append(dict(g))
+        segs = merged
+    arrays = {}
+    for mood in {g["mood"] for g in segs}:
+        arrays[mood] = _track_arrays(ctx, files[mood])
+    bed_music, info = render(v, arrays, segs, base_pts, m, s, lead, sr)
+    a_v = int(lead * sr)
+    mixd = bed_music
+    mixd[a_v:a_v + len(v)] += v[: max(0, len(mixd) - a_v), None]
+    peak = float(np.abs(mixd).max()) or 1.0
+    raw = os.path.join(d, "_emotion_mix.f32")
+    with open(raw, "wb") as fo:
+        fo.write((mixd * min(1.0, 0.98 / peak)).astype("<f4").tobytes())
+    outp = os.path.join(d, "narration_music.wav")
+    if os.path.exists(outp):
+        os.replace(outp, os.path.join(d, time.strftime("narration_music_old_%H%M%S.wav")))
+    ok = loudnorm2(cfg, raw, sr, 2, outp, ctx.get("run_cmd"))
+    try:
+        os.remove(raw)
+    except OSError:
+        pass
+    fmt = lambda t: f"{int(t // 60)}:{int(t % 60):02d}"
+    tracks = [{"file": files[g["mood"]], "mood": g["mood"], "start": round(g["start"], 2), "end": round(g["end"], 2),
+               "cut": g.get("cut", "")} for g in segs]
+    for x in tracks:
+        say(f"   music {fmt(x['start'])}-{fmt(x['end'])}: {x['mood']} - {os.path.basename(x['file'])}"
+            f"{' (crossfade ' + str(s.get('crossfade_s')) + ' s)' if x['cut'] == 'crossfade' else ''}"
+            f"{' (comes back in this mood after the heavy line)' if x['cut'] == 'return' else ''}")
+    for t in m.get("turns") or []:
+        what = {1: "music dips", 2: "music stops before the line", 3: "music, ambience and effects stop"}.get(t["weight"], "")
+        say(f"   turn {fmt(lead + t['at'])} weight {t['weight']}: {what} - {t['words']}")
+    json.dump({"lead_s": lead, "track": tracks[0]["file"] if tracks else track, "tracks": tracks, "intro_db": intro,
+               "story_db": story, "outro_db": outro, "tail_s": tail_s, "emotion": True,
+               "strength": s.get("strength"), "turns": len(m.get("turns") or [])},
+              open(os.path.join(d, "music_shape.json"), "w", encoding="utf-8"), indent=1)
+    if ok:
+        say(f"   -> {outp}  ({end / 60:.1f} min, music follows the emotion map)")
+    return {"ok": ok, "bed": info["bed"].tolist(), "tracks": tracks, "lead": lead}
+
+
+def bed_at(res, sr, a, b):
+    """the ambience / effects multiplier for mix samples a..b (stereo column), from mix()'s result"""
+    import numpy as np
+    bed = np.asarray((res or {}).get("bed") or [], np.float32)
+    if not len(bed):
+        return 1.0
+    t = np.arange(a, b) / sr * CR
+    return np.interp(t, np.arange(len(bed)), bed).astype(np.float32)[:, None]
 
 
 # ------------------------------------------------------------------ run by hand on a finished episode

@@ -355,6 +355,9 @@ def episode_parts(cfg, video="", ep_dir=""):
         hs = _load(os.path.join(nar, "hub_series.json"), {}) or {}
         parts["played_track"] = hs.get("track") or (_load(os.path.join(nar, "music_shape.json"), {}) or {}).get("track", "")
         parts["track"] = _original(cfg, parts["played_track"])
+        ms = _load(os.path.join(nar, "music_shape.json"), {}) or {}      # emotion music: up to 3 tracks
+        parts["tracks"] = [_original(cfg, x.get("file")) for x in ms.get("tracks") or [] if x.get("file")] or \
+            ([parts["track"]] if parts["track"] else [])
         parts["series"] = parts["series"] or hs.get("genre", "")
         parts["lead"] = float((_load(os.path.join(nar, "music_shape.json"), {}) or {}).get("lead_s", 0) or 0)
         parts["name"] = parts["name"] or os.path.basename(nar)
@@ -452,7 +455,7 @@ def file_scores(cfg, kind):
             parts = episode_parts(cfg, video)
         except Exception:
             continue
-        files = [parts["track"]] if kind == "music" else sounds_used(parts)
+        files = (parts.get("tracks") or [parts["track"]]) if kind == "music" else sounds_used(parts)
         for r in rs:
             for f in files:
                 add(f, r["score"], 0.5 if kind == "music" else 0.25)

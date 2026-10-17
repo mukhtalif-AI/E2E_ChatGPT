@@ -79,6 +79,8 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | `git_save.py` | Save / Git page: commit, push, pull with fixed commands. | 16 Oct |
 | `narrator.py`, `narrator_render.py` | Corner narrator with lip sync (Narrator page, `narrator.SERIES` table). Not run on the PC yet. | 16 Oct |
 | `picture_check.py` | New picture check for genre scenes: checklist from 'what happens', judge answers plain questions, code decides, up to 2 repaints, then flag. `CHECK_MODEL` = gemma3:12b. | 16 Oct |
+| `emotion_music.py` | Music that follows the story's emotion: the emotion map (mood + weight per scene, music sections, turn lines; step `exp_emotion_map`) and the mixer `horror_sound` uses for it (`EMOTION_MUSIC_PLAN.md`). | 17 Oct |
+| `sound_needs.py` | Report of the music moods and effects the stories need and the library lacks (`Activity\Reports\sound_needs_*.md`); downloads nothing. | 17 Oct |
 | `create_form.py` | One Create form for every series; `DEFAULTS` per series (Tinker table). | 16 Oct |
 | `migrate_data_root.py` | One-off: moves Experimental data from `D:\HubGPT` to `D:\MukhtalifGPT` and switches `experimental_root` (dry run by default; the switch was made 16 Oct). | 16 Oct |
 

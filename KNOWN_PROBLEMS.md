@@ -110,3 +110,7 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 | Don't raise voice emotion globally without listening to a Bhay/Kisse sample | changes are subtle and easy to overdo | 15 Oct |
 | Documentation first, refactor only after you agree | avoid breaking a working pipeline | 16 Oct |
 | Before writing code, read these notes; after a change, add a CHANGELOG row | you kept forgetting what was done and what works | 16 Oct |
+| Emotion music: never more than 3 tracks in a story, a track change only for a mood that lasts 90 s, never back to an earlier track | your rule: no jumping between tracks | 17 Oct |
+| Emotion music: the AI decides within code limits, nothing is edited during a run | you fix by hand after the episode if needed | 17 Oct |
+| Emotion music only for Bhay, Rahasya, Kisse, Romanch; Gyaan and Kareeb keep one track like Sukoon | your choice: one good track is enough there | 17 Oct |
+| A heavy (weight 3) line: music, ambience and effects stop 2-3 s, then one soft low note | agreed 17 Oct | 17 Oct |

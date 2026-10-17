@@ -466,7 +466,7 @@ def run(ctx, video, narration, pictures, genre="", name="", checks=None):
                    f"{report['cue_sense_ok'] * 100:.0f}% of the effects fit their sentence (story model; it cannot hear them)")
         try:
             import sound_library
-            cr = sound_library.credits_for(cfg, ([parts["track"]] if parts.get("track") else []) + used)
+            cr = sound_library.credits_for(cfg, (parts.get("tracks") or ([parts["track"]] if parts.get("track") else [])) + used)
             if cr:
                 out = os.path.join(os.path.dirname(video), "credits.txt")
                 with open(out, "w", encoding="utf-8") as f:

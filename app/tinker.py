@@ -51,7 +51,7 @@ SECRET_KEYS = {"local_model", "story_engine", "gemini_model"}
 CFG_KEYS = {"llm", "prompt_model", "vision_llm", "image_engine", "director_model", "scene_picture_model", "scene_seconds",
             "end_seconds", "subscribe_end"}
 
-PROMPT_MODULES = ("story", "tools")
+PROMPT_MODULES = ("story", "tools", "emotion_music")
 PROMPT_LABELS = {
     "story.RULES": "Sukoon script rules (Hindi)",
     "story.CHECK": "Sukoon checklist pass (Hindi)",
@@ -67,6 +67,7 @@ PROMPT_LABELS = {
     "tools.PICK_ASK": "Picture picker (vision)",
     "tools.VISION_ASK": "Picture describer (vision)",
     "tools.TRANSLATE_ASK": "Translate to Hindi",
+    "emotion_music.MAP_ASK": "Emotion map: mood and weight per scene, turn lines (music that follows the story)",
 }
 TABLES = {
     "tools.GENRES": "Series machine settings: music folders, voice, expressiveness (ex), pause, temperature, drama",
@@ -77,6 +78,8 @@ TABLES = {
     "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
     "narrator.SERIES": "Corner narrator per series: on, narrator, corner / size / margin for the video and reels (Narrator page)",
     "narrator.THEMES": "Corner narrator look per series for ComfyUI pictures",
+    "emotion_music.SERIES": "Music that follows the emotion, per series: on, sections, max_tracks (3 at most), min_section_s, "
+                            "crossfade_s, curve, strength, stingers, budget of turns per weight, drop_s, soft_note, return_mood",
 }
 
 _ORIG = {}            # "module.NAME" -> the value written in the code (before any working override)
