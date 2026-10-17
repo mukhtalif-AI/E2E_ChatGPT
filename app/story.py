@@ -1109,6 +1109,156 @@ def _trim_dangling(ln):
     return ln if len(words) == n else " ".join(words).rstrip(",") + "..."
 
 
+# ------------------------------------------------------------------ plan first, then a logic check (Experimental)
+# One long pass with no outline gave Rahasya-Aryan-Malhotra (17 Oct) four twists that undo each other, clues never
+# explained and facts that change ("three months" -> "five years"). Experimental genre stories now: a short plan
+# (fixed facts, clues with their answers, ONE twist, beats) -> the script written from it -> a logic check that
+# rewrites only the lines that break the plan (instead of the full "preserve the events" rewrite).
+STORY_PLAN = {"on": True, "outline_think": False, "check_think": True, "ctx": 16384, "max_fixes": 12}
+
+OUTLINE_ASK = (
+    "Before tonight's story is written, plan it. The brief for the story is below.\n\n{brief}\n\n"
+    "Make a plan that a listener can follow and that adds up at the end:\n"
+    "- fixed facts: every date, year, age, sum of money, duration and place the story will use, each decided once "
+    "(the script will never change them);\n"
+    "- people: the few names and who they are (no more than the story needs);\n"
+    "- clues: 3-5 strange details planted in the story, and for EACH the exact answer the ending gives it;\n"
+    "- ONE twist that those clues support (never a second twist that undoes the first, never a twist that comes "
+    "from nowhere), and the reveal that explains every clue;\n"
+    "- beats: 8-12 short steps in the order they are told, following the brief's telling and shape; the last two "
+    "beats bring in nothing new, they only close what is open.\n"
+    "Keep it to what happens (English is fine), no dialogue. Answer ONLY JSON: {\"facts\": [\"\"], "
+    "\"people\": [\"name - who\"], \"clues\": [{\"clue\": \"\", \"answer\": \"\"}], \"twist\": \"\", "
+    "\"reveal\": \"\", \"beats\": [\"\"]}")
+
+QUOTE_RULE = ("Quotes: say who is speaking before a quote, close every quote on the same line, and put the narrator's "
+              "own next sentence on a new line, so a listener always knows who is talking.")
+
+LOGIC_ASK = (
+    "You check a finished Hindi {series} audio story for LOGIC only, against the plan it was written from. "
+    "Look for: a fact that differs from the plan or from an earlier line (dates, years, ages, durations, money, "
+    "names, who knew what); a clue that is planted but never answered; a second twist that cancels the planned one; "
+    "something that happens with no cause; a quote that is never closed, so the narrator's next line sounds like "
+    "the quote. Do NOT touch style, wording or length, and do not report things that are fine.\n"
+    "For each problem give the line number, the line as written, why, and the corrected Hindi line (same voice, "
+    "about the same length; it may add a short clause that answers a clue). At most {max_fixes} lines, the most "
+    "important first. Answer ONLY JSON: {\"problems\": [{\"n\": 0, \"line\": \"\", \"why\": \"\", \"fix\": \"\"}]} "
+    "(an empty list when the story adds up).\n\nPLAN:\n{plan}\n\nSTORY (numbered lines):\n{story}")
+
+
+def _plan_on(cfg):
+    return bool(cfg.get("experimental_mode") or cfg.get("_experimental_workspace")) and bool(STORY_PLAN.get("on", True))
+
+
+def _json_ask(cfg, prompt, engine, temp, think, say):
+    """-> dict. JSON ask at the plan's context size; a reply that is empty or not clean JSON is asked once more as
+    text and the {...} is cut out of it (Gemma 4 with thinking sometimes answers empty in JSON mode)."""
+    c = cfg if think else dict(cfg, _no_think=True)
+    ctx = int(STORY_PLAN.get("ctx") or 8192)
+    try:
+        for as_json in (True, False):
+            t, _m = ask(c, prompt, engine, temp, as_json, say=say, ctx_len=ctx)
+            a, b = (t or "").find("{"), (t or "").rfind("}")
+            if a >= 0 and b > a:
+                try:
+                    return json.loads(t[a:b + 1])
+                except ValueError:
+                    pass
+        raise RuntimeError("no JSON in the answer")
+    finally:
+        if c is not cfg and c.get("_ollama_used"):
+            cfg["_ollama_used"] = True            # free_llm still unloads the model
+
+
+def _plan_text(o):
+    out = []
+    if o.get("facts"):
+        out.append("Fixed facts (the same everywhere): " + "; ".join(str(x) for x in o["facts"] if x))
+    if o.get("people"):
+        out.append("People: " + "; ".join(str(x) for x in o["people"] if x))
+    for i, c in enumerate(o.get("clues") or []):
+        if isinstance(c, dict) and c.get("clue"):
+            out.append(f"Clue {i + 1}: {c['clue']} -> answered at the end by: {c.get('answer', '')}")
+    if o.get("twist"):
+        out.append(f"The one twist: {o['twist']}")
+    if o.get("reveal"):
+        out.append(f"The reveal: {o['reveal']}")
+    out += [f"Beat {i + 1}: {b}" for i, b in enumerate(o.get("beats") or []) if b]
+    return "\n".join(out)
+
+
+def story_outline(cfg, prompt, series, engine, say):
+    """the plan for a story from its writing prompt -> plan text, or '' (then the story is written the old way)"""
+    t0 = time.time()
+    k = prompt.rfind("Now write")
+    brief = prompt[:k] if k > 0 else prompt
+    try:
+        o = _json_ask(cfg, OUTLINE_ASK.replace("{brief}", brief.strip()), engine, 0.8,
+                      STORY_PLAN.get("outline_think"), say)
+        if not isinstance(o, dict) or len([b for b in (o.get("beats") or []) if b]) < 4 or not o.get("twist"):
+            raise RuntimeError("the plan had no twist or fewer than 4 beats")
+    except Exception as e:
+        say(f"   (story plan unavailable - written without one: {e})")
+        return ""
+    txt = _plan_text(o)
+    say(f"   story plan ({time.time() - t0:.0f} s): {len(o.get('beats') or [])} beats, {len(o.get('clues') or [])} clues, "
+        f"{len(o.get('facts') or [])} fixed facts")
+    for ln in txt.splitlines():
+        say("      " + ln[:220])
+    return txt
+
+
+def with_plan(prompt, plan):
+    """the writing prompt with the plan to follow (and the quote rule) just before 'Now write'"""
+    block = ("PLAN TO FOLLOW (write the story from it, beat by beat in this order; keep every fixed fact exactly; "
+             "only this one twist, no extra twist; every clue gets its answer before the end; nothing new in the "
+             "last part):\n" + plan + "\n\n" + QUOTE_RULE + "\n\n")
+    k = prompt.rfind("Now write")
+    return prompt[:k] + block + prompt[k:] if k > 0 else prompt + "\n\n" + block
+
+
+def logic_check(cfg, script, plan, series, engine, say, cleaner):
+    """only the lines that break the plan are rewritten -> script (unchanged when the check fails)"""
+    t0 = time.time()
+    lines = script.splitlines()
+    idx = [i for i, l in enumerate(lines) if l.strip() and l.strip() != "(...)"]
+    story_ = "\n".join(f"{n + 1}: {lines[i]}" for n, i in enumerate(idx))
+    mx = int(STORY_PLAN.get("max_fixes") or 12)
+    try:
+        o = _json_ask(cfg, LOGIC_ASK.replace("{series}", series).replace("{max_fixes}", str(mx))
+                      .replace("{plan}", plan).replace("{story}", story_), engine, 0.2,
+                      STORY_PLAN.get("check_think", True), say)
+    except Exception as e:
+        say(f"   (logic check unavailable - kept the script as written: {e})")
+        return script
+    probs = o.get("problems") if isinstance(o, dict) else None
+    done, skipped = 0, 0
+    for p in (probs if isinstance(probs, list) else [])[:mx]:
+        try:
+            n = int(p.get("n"))
+            fix = re.sub(r"^\s*\d+\s*[:.)]\s*", "", str(p.get("fix") or "")).strip()
+            said = str(p.get("line") or "").strip()
+        except (TypeError, ValueError, AttributeError):
+            skipped += 1
+            continue
+        i = idx[n - 1] if 1 <= n <= len(idx) else None
+        if said and (i is None or said[:25] not in lines[i]):     # the number is off: find the line by its text
+            hit = [j for j in idx if said[:25] and said[:25] in lines[j]]
+            i = hit[0] if len(hit) == 1 else None
+        old = lines[i] if i is not None else ""
+        if i is None or not fix or fix == old.strip() or not re.search("[ऀ-ॿ]", fix) \
+                or len(fix.split()) > 2 * len(old.split()) + 15:
+            skipped += 1
+            continue
+        lines[i] = fix
+        done += 1
+        say(f"      logic fix {n} ({str(p.get('why') or '')[:90]}): {old.strip()[:70]} -> {fix[:90]}")
+    out = cleaner("\n".join(lines)) if done else script
+    say(f"   logic check ({time.time() - t0:.0f} s): {done} line(s) fixed" + (f", {skipped} answer(s) not usable" if skipped else "")
+        + f"; {nwords(out)} words")
+    return out
+
+
 def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=None, stopped=lambda: False,
                  level="standard"):
     r = dict(rec or {}) or horror_recipe(cfg, topic, engine=engine)
@@ -1123,10 +1273,17 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
     if level == "mature":
         prompt = prompt.replace("No gore, no cheap shocks", genre_rules(cfg, "bhay").get("mature") or LEVELS["mature"]["bhay"]
                                 + " No cheap shocks")
-    text, model = ask(cfg, prompt, engine, 0.95, say=say)
+    plan = story_outline(cfg, prompt, "भय", engine, say) if _plan_on(cfg) else ""
+    if plan:
+        prompt = with_plan(prompt, plan)
+        t0 = time.time()
+    text, model = ask(cfg, prompt, engine, 0.95, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
     script = _long_enough(cfg, text, int(float(minutes) * wpm(cfg, "hi", "bhay")), prompt, engine, say, clean_horror)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
-    if not stopped():
+    if plan and not stopped():
+        script = logic_check(cfg, script, plan, "भय (horror)", "local" if model == local_model(cfg) else "auto", say,
+                             clean_horror)
+    elif not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             fixed, _ = ask(cfg, "Check this complete Hindi horror story: natural spoken Hindi, steadily building dread, "
@@ -1350,11 +1507,17 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
               "stage directions.\n\n" + avoid
               + "Now write it. Output only spoken script lines. Stop at the final narrative line; do not append an "
               "explanation, interpretation, editor's note, or comments about the story.\n")
+    plan = story_outline(cfg, prompt, G["name"], engine, say) if _plan_on(cfg) else ""
+    if plan:
+        prompt = with_plan(prompt, plan)
     t0 = time.time()
-    text, model = ask(cfg, prompt, engine, 0.9, say=say)
+    text, model = ask(cfg, prompt, engine, 0.9, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
     script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
-    if not stopped():
+    if plan and not stopped():
+        script = logic_check(cfg, script, plan, G["name"], "local" if model == local_model(cfg) else "auto", say,
+                             clean_horror)
+    elif not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             review = ("Review this complete Hindi " + G["name"] + " audio story. Preserve its events, voice, and length. "
