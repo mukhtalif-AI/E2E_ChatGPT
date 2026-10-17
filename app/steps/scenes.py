@@ -197,7 +197,7 @@ def _series_sounds(sfx, genre, amb, cue_names, hits_on):
     return a, c, h
 
 
-def _pick_name(name, allowed):
+def _pick_name(name, allowed, fits=None):
     """the director's sound name -> a name from the allowed list, or '' (exact, then a near spelling, then a category)"""
     import difflib
     n = re.sub(r"\s+", " ", str(name or "").strip().lower())
@@ -210,7 +210,9 @@ def _pick_name(name, allowed):
         return near[0]
     cat = n.split(":")[0].strip().replace(" ", "_")
     same = sorted(k for k in allowed if k.startswith(cat + ":"))
-    return same[0] if same else ""
+    # a category name ("night_crickets"): the first file of it that fits the scene (17 Oct 2026: alphabetical order
+    # gave Blue Ink Diary a "Midnight train horn with crickets" bed, which the train check then dropped)
+    return next((k for k in same if not fits or fits(k)), "")
 
 
 def _fix_cue_words(cfg, text, words, sfx):
@@ -527,12 +529,12 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             "(this series' own lists)")
     dropped = {"ambience": [], "effect": [], "hit": []}
 
-    def sound_name(kind, raw, allowed):
+    def sound_name(kind, raw, allowed, fits=None):
         """Experimental: a name from this series' list (near spellings fixed), else '' and the name is logged"""
         raw = str(raw or "").strip()
         if not exp:
             return raw.lower() if raw.lower() in sfx else ""
-        k = _pick_name(raw, allowed)
+        k = _pick_name(raw, allowed, fits)
         if raw and not k:
             dropped[kind].append(raw)
         return k
@@ -625,7 +627,8 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             cues.append({"words": w, "file": f})
             if len(cues) >= max(cpp, 0):
                 break
-        amb_f = sfx.get(sound_name("ambience", x.get("ambience"), amb), "")
+        amb_f = sfx.get(sound_name("ambience", x.get("ambience"), amb,
+                                   lambda k: _amb_fits(sfx[k], p["text"] + " " + scene, exp)), "")
         hit_f = sfx.get(sound_name("hit", x.get("hit"), hits), "")
         if exp and hit_f and i == 0:                   # a hit is never played on the first scene (nothing before it)
             dropped["hit"].append(os.path.basename(hit_f) + " (scene 1)")
