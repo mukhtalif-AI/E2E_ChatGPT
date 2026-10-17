@@ -500,10 +500,33 @@ def pick_track(cfg, folders, orig):
         sc = scores.get(norm(f))
         return 0.0 if not sc else (sc["avg"] - 3) * min(sc["weight"], 3) / 3      # -2 .. +2 "uses"
 
-    t = min(ok, key=lambda f: (used.get(f, 0) - bonus(f), random.random()))
+    # Experimental (17 Oct 2026): a use count per series, and a track from the last 3 episodes of the series is skipped
+    # while another one fits. Gyaan, Kareeb, Sukoon and Working leave "_music_series" unset: the shared count as before.
+    series = cfg.get("_music_series") if (cfg.get("experimental_mode") or cfg.get("_experimental_workspace")) else ""
+    sp = os.path.join(cfg["media_dir"], "music_used.json")
+    per = (_load(sp, {}) or {}) if series else {}
+    mine = per.get(series) or {}
+    if series:
+        ep, recent, last = cfg.get("_music_episode") or "", mine.get("_recent") or [], []
+        for e, _f in reversed(recent):
+            if e != ep and e not in last:
+                last.append(e)
+        avoid = {f for e, f in recent if e in last[:3]}
+        ok = [f for f in ok if f not in avoid] or ok
+        count = lambda f: (mine.get(f) or {}).get("count", 0)
+    else:
+        count = lambda f: used.get(f, 0)
+    t = min(ok, key=lambda f: (count(f) - bonus(f), random.random()))
     used[t] = used.get(t, 0) + 1
     with open(up, "w", encoding="utf-8") as fh:
         json.dump(used, fh, indent=1)
+    if series:
+        mine[t] = {"count": count(t) + 1, "last": time.strftime("%Y-%m-%d %H:%M")}
+        if [ep, t] not in mine.get("_recent", []):
+            mine["_recent"] = (mine.get("_recent") or [])[-29:] + [[ep, t]]
+        per[series] = mine
+        with open(sp, "w", encoding="utf-8") as fh:
+            json.dump(per, fh, ensure_ascii=False, indent=1)
     if audio_screen.effective(rows.get(t) or {}) == "treat":
         return audio_screen.treated(cfg, t, "music", rows.get(t))      # voice-band dip etc.; original untouched
     return t

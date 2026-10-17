@@ -150,6 +150,36 @@ def _usable_music(ctx, track, folders, music_db=None):
     return track, music_db
 
 
+def _mood_series(genre):
+    """Bhay, Rahasya, Kisse, Romanch (the emotion-music series); Gyaan, Kareeb and Sukoon keep the old pick"""
+    try:
+        import emotion_music
+        return bool(emotion_music.settings(genre).get("on"))
+    except Exception:
+        return False
+
+
+def _story_mood(ctx, name, pictures, folders):
+    """Experimental (17 Oct 2026, decision C): the music folder for the story's start. The emotion map's first section
+    when there is one, else the most common feeling mark in the script; '' = no clue (all the series' folders, as before)"""
+    import emotion_music
+    from collections import Counter
+    cfg = ctx["cfg"]
+    md = cfg.get("music_dir") or ""
+    have = [f for f in folders if glob.glob(os.path.join(md, f, "*.mp3"))]
+    m = emotion_music._load(os.path.join(pictures or "", "emotion_map.json")) or {}
+    secs = m.get("sections") or []
+    if secs and secs[0].get("mood") in have:
+        return secs[0]["mood"]
+    try:
+        with open(os.path.join(tools.ctx_folder(ctx, "scripts"), tools.slug(name) + ".txt"), encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return ""
+    tags = Counter(t.group(1).strip() for t in (emotion_music.TAG_RE.match(ln) for ln in lines) if t)
+    return emotion_music._mood_from_tags(dict(tags), have, "") if tags and have else ""
+
+
 def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music_db=None):
     """music bed (shaped like your episodes, a bit lower) + per-scene ambience loops + rare hits -> narration_music.wav"""
     import numpy as np
@@ -158,7 +188,14 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
         tail = f"secs:{_end_seconds(cfg)}"
     folders = tools.GENRES.get(genre, tools.GENRES["bhay"])["music"]
     chosen = bool(track)                                    # a track picked on the form: emotion music keeps it alone
-    track = track or tools._horror_track(cfg, folders)
+    pick = folders
+    if _is_exp(cfg) and not chosen and _mood_series(genre):  # the story's mood picks the folder, not the biggest folder
+        mood = _story_mood(ctx, name, pictures, folders)
+        if mood:
+            pick = [mood]
+            say(f"   music mood from the story: {mood}")
+        cfg["_music_series"], cfg["_music_episode"] = genre, name
+    track = track or tools._horror_track(cfg, pick)
     track, music_db = _usable_music(ctx, track, folders, music_db)
     say(f"   music: {os.path.basename(track)}")
     tools._series_note(cfg, name, genre=genre, track=track, pictures=pictures)
