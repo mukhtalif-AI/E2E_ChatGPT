@@ -150,7 +150,7 @@ def bank(cfg):
         return BANK
 
 
-def ledger(cfg):
+def _own_ledger(cfg):
     p = _media(cfg, "story_ledger.json")
     if not os.path.exists(p):
         _seed_ledger(cfg, p)
@@ -158,6 +158,43 @@ def ledger(cfg):
         return json.load(open(p, encoding="utf-8"))
     except Exception:
         return []
+
+
+def _other_ledgers(cfg):
+    """the other ledgers on this PC (read only): Working's D:\\MukhtalifGPT\\story_ledger.json, Experimental's
+    <root>\\Library\\story_ledger.json and the older data folders (paths.legacy_roots). Each mode used to see only its
+    own, so stories written in the other mode or before the data-folder move were offered again (17 Oct 2026)."""
+    paths = cfg.get("paths") or {}
+    roots = [paths.get("hub_output_root"), cfg.get("experimental_root") or paths.get("experimental_root")] \
+        + list(paths.get("legacy_roots") or [])
+    own = os.path.normcase(os.path.abspath(_media(cfg, "story_ledger.json")))
+    seen, out = {own}, []
+    for r in roots:
+        if not r:
+            continue
+        for p in (os.path.join(r, "story_ledger.json"), os.path.join(r, "Library", "story_ledger.json")):
+            k = os.path.normcase(os.path.abspath(p))
+            if k in seen or not os.path.exists(p):
+                continue
+            seen.add(k)
+            try:
+                out += [e for e in json.load(open(p, encoding="utf-8")) if isinstance(e, dict)]
+            except Exception:
+                pass
+    return out
+
+
+def ledger(cfg):
+    """every script written so far, oldest first: this mode's own ledger + the others (same story listed once)"""
+    L, keys = [], set()
+    for e in _own_ledger(cfg) + _other_ledgers(cfg):
+        s = e.get("summary") or {}
+        k = (str(e.get("topic", "")).strip().lower(), str(s.get("opening_line", ""))[:60] or e.get("name", ""))
+        if k in keys:
+            continue
+        keys.add(k)
+        L.append(e)
+    return sorted(L, key=lambda e: str(e.get("date", "")))
 
 
 def _seed_ledger(cfg, p):
@@ -187,7 +224,7 @@ def _seed_ledger(cfg, p):
 
 
 def add_ledger(cfg, entry):
-    L = ledger(cfg)
+    L = _own_ledger(cfg)                                       # written only to this mode's own file
     L.append(entry)
     json.dump(L, open(_media(cfg, "story_ledger.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
@@ -455,7 +492,7 @@ def _examples(cfg, chars, lang="hi"):
 
 def _avoid(cfg, n=10):
     lines = []
-    for e in ledger(cfg)[-n:]:
+    for e in [e for e in ledger(cfg) if e.get("genre") in (None, "", "sukoon")][-n:]:   # Sukoon scripts only
         s = e.get("summary", {})
         lines.append(f"- {e.get('topic', '')}: image {e.get('recipe', {}).get('image', '')}, place "
                      f"{e.get('recipe', {}).get('place', '')}; story '{s.get('memory_story', '')}'; opened with "
@@ -804,9 +841,11 @@ def _local_parts(cfg, say, r, minutes, notes, subscribe, stopped):
 
 def summarise(cfg, script, say=print):
     """short record for the ledger (what this script used) - so later scripts avoid it"""
-    ask_ = ("Read this sleep script and answer ONLY JSON: {\"title_hi\": \"\", \"title_en\": \"\", "
+    ask_ = ("Read this script and answer ONLY JSON: {\"title_hi\": \"\", \"title_en\": \"\", "
             "\"memory_story\": \"(one English sentence)\", \"opening_line\": \"\", \"closing_line\": \"\", "
-            "\"key_phrases\": [\"5 short characteristic phrases, in the script's language\"]}\n\n" + script[:12000])
+            "\"key_phrases\": [\"5 short characteristic phrases, in the script's language\"], "
+            "\"names\": [\"the people's names used in it, as written\"], \"place\": \"(the main place, short English)\"}"
+            "\n\n" + script[:12000])
     try:
         t, _ = ask(cfg, ask_, "auto", 0.2, True, say=say)
         return json.loads(t)
@@ -925,7 +964,78 @@ RULES_HORROR = (
     + SPOKEN_HINDI_CADENCE)
 
 
-def horror_recipe(cfg, topic="", seed=None):
+# ------------------------------------------------------------------ no repeats (17 Oct 2026)
+# Each series lists only 8-18 story seeds. Once every seed had been used, the least-used one came back word for word
+# (रहस्य 'the school topper who never existed' on 14 Oct and again on 17 Oct, with the same names आर्यन and विक्रम),
+# and the 'do not reuse' list gave only the topic and one English line, so openings, names and plot shapes repeated.
+STOCK_NAMES = ["विक्रम", "रमेश", "आर्यन", "अर्जुन", "समीर", "रोहन", "राहुल"]   # already in several earlier scripts
+
+
+def _used_topics(L):
+    return {str(e.get("topic", "")).strip().lower() for e in L if e.get("topic")}
+
+
+def _fresh_topic(cfg, name, channel, examples, L, also=(), engine="auto"):
+    """every listed seed of this series is used: the AI invents a new one, unlike every earlier story ("" if it fails)"""
+    used = [f"- {e.get('topic', '')}: {(e.get('summary') or {}).get('memory_story', '')}" for e in L[-30:]] \
+        + [f"- {t}" for t in also]
+    prompt = (f"You plan episodes for '{name}', {channel}. These stories were ALREADY made - the new one must not "
+              "repeat or closely resemble any of them (not the same situation, kind of person, central object, place "
+              "or twist):\n" + "\n".join(used) + "\n\nThe kind of story seeds this series uses: "
+              + "; ".join(examples[:5]) + ".\nGive ONE fresh story seed for the next episode, set in India. Answer "
+              'ONLY JSON: {"topic": "(one short English line, under 15 words)"}')
+    c = dict(cfg, _no_think=True)                              # a one-line answer: no 60-100 s of hidden thinking
+    try:
+        t, _ = ask(c, prompt, engine, 1.0, True)
+        topic = str(json.loads(t).get("topic") or "").strip()
+        if topic and topic.lower() not in _used_topics(L) | {a.lower() for a in also}:
+            return topic
+    except Exception:
+        pass
+    finally:
+        if c.get("_ollama_used"):
+            cfg["_ollama_used"] = True
+    return ""
+
+
+def _pick_seed(cfg, name, channel, topics, L, rng, also=(), engine="auto"):
+    """an unused seed from the series list; when all are used, a new one from the AI (never the same seed again)"""
+    used = _used_topics(L) | {str(a).strip().lower() for a in also}
+    left = [t for t in topics if t.strip().lower() not in used]
+    if left:
+        return rng.choice(left)
+    return (_fresh_topic(cfg, name, channel, topics, L, also, engine)
+            or _least_used(topics, [e.get("topic") for e in L] + list(also), rng))
+
+
+def _story_avoid(cfg, genre, n=12):
+    """what the next script must not repeat: this series' recent stories in detail + openings and names of all series"""
+    L = ledger(cfg)
+    lines = []
+    for e in [e for e in L if e.get("genre") == genre][-n:]:
+        s = e.get("summary") or {}
+        bits = [f"'{s.get('title_en') or s.get('title_hi') or ''}'", e.get("topic", ""), s.get("memory_story", "")]
+        if s.get("opening_line"):
+            bits.append("opened with: " + str(s["opening_line"])[:100])
+        if s.get("names"):
+            bits.append("names: " + ", ".join(str(x) for x in s["names"][:6]))
+        lines.append("- " + " | ".join(b for b in bits if b and b != "''"))
+    openings = list(dict.fromkeys(str((e.get("summary") or {}).get("opening_line", ""))[:90]
+                                  for e in [e for e in L if e.get("genre")][-10:]))
+    names = list(dict.fromkeys(STOCK_NAMES + [str(x) for e in L[-25:] for x in ((e.get("summary") or {}).get("names") or [])]))
+    out = ""
+    if lines:
+        out += ("EARLIER STORIES OF THIS SERIES - do NOT reuse their plot, situation, central object, twist, title, "
+                "names or opening:\n" + "\n".join(lines) + "\n\n")
+    if any(openings):
+        out += ("RECENT OPENING LINES (all series) - open in a clearly different way, not with a similar question or "
+                "phrase:\n" + "\n".join("- " + o for o in openings if o) + "\n\n")
+    out += ("CHARACTER NAMES: choose fresh names (unless the creator's notes give them); do not use "
+            + ", ".join(names[:20]) + ".\n\n")
+    return out
+
+
+def horror_recipe(cfg, topic="", seed=None, also=(), engine="auto"):
     rng = random.Random(seed)
     b = HORROR_BANK
     try:
@@ -934,7 +1044,8 @@ def horror_recipe(cfg, topic="", seed=None):
         if not os.path.exists(_media(cfg, "horror_bank.json")):
             json.dump(HORROR_BANK, open(_media(cfg, "horror_bank.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     L = [e for e in ledger(cfg) if e.get("genre") == "horror"]
-    r = {"genre": "horror", "topic": topic or _least_used(b["topics"], [e.get("topic") for e in L], rng)}
+    r = {"genre": "horror", "topic": topic or _pick_seed(cfg, "भय", "a Hindi horror audio-story channel", b["topics"],
+                                                          L, rng, also, engine)}
     for k, key in (("telling", "tellings"), ("fear", "fears"), ("ending", "endings")):
         r[k] = _least_used(b[key], [e.get("recipe", {}).get(k) for e in L], rng)
     return r
@@ -942,8 +1053,7 @@ def horror_recipe(cfg, topic="", seed=None):
 
 def horror_prompt(cfg, r, minutes=15, notes=""):
     words = int(float(minutes) * wpm(cfg))
-    avoid = "\n".join(f"- {e.get('topic', '')}: {e.get('summary', {}).get('memory_story', '')}"
-                      for e in [e for e in ledger(cfg) if e.get("genre") == "horror"][-10:])
+    avoid = _story_avoid(cfg, "horror")
     return ("You write for 'भय' (Bhay), a Hindi horror audio-story channel: one male narrator, listened to at night "
             "with headphones. Write tonight's complete story.\n\n"
             f"STORY SEED: {r['topic']}\n" + (f"NOTES FROM THE CREATOR: {notes}\n" if notes else "")
@@ -953,7 +1063,7 @@ def horror_prompt(cfg, r, minutes=15, notes=""):
             "ordinary life and the place -> first wrong detail -> it grows -> the night it happens -> climax -> "
             "the ending.\n\n"
             f"STYLE RULES: {RULES_HORROR}\n\n"
-            + (f"EARLIER BHAY STORIES - do NOT reuse their ideas:\n{avoid}\n\n" if avoid else "")
+            + avoid
             + "Now write the story. Output only spoken story lines. Stop at the final narrative line; do not append "
             "an explanation, interpretation, editor's note, or comments about the story.\n")
 
@@ -1001,7 +1111,7 @@ def _trim_dangling(ln):
 
 def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=None, stopped=lambda: False,
                  level="standard"):
-    r = dict(rec or {}) or horror_recipe(cfg, topic)
+    r = dict(rec or {}) or horror_recipe(cfg, topic, engine=engine)
     if topic:
         r["topic"] = topic
     say(f"   story seed: {r['topic']}")
@@ -1038,7 +1148,8 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
 def horror_ideas(cfg, topic="", n=3, engine="auto"):
     out = []
     for i in range(n):
-        r = horror_recipe(cfg, topic, seed=int(time.time() * 1000) + i * 7919)
+        r = horror_recipe(cfg, topic, seed=int(time.time() * 1000) + i * 7919,
+                          also=[o["recipe"]["topic"] for o in out], engine=engine)
         if any(o["recipe"]["topic"] == r["topic"] for o in out) and not topic:
             continue
         out.append({"recipe": r})
@@ -1128,6 +1239,23 @@ GENRE_TELLINGS = {
     "gyaan": ["a friendly explainer talking to one curious listener", "a question at a time, each answered simply",
               "a small story that opens the topic, then the explanation"],
 }
+# the turn of each story, least-used first (what Bhay's fear + ending do) - so the same plot shape does not come
+# back each time (किस्से 16-17 Oct: three stories in a row were 'an old object reveals a hidden sacrifice')
+GENRE_ANGLES = {
+    "rahasya": ["the culprit is someone the listener meets in the first minute", "nobody was killed: the mystery is a "
+                "disappearance or a swap", "the narrator is hiding something until the end", "a small everyday object "
+                "is the key clue", "the twist is about why, not who", "a boring old record holds the answer",
+                "two separate cases turn out to be one"],
+    "kisse": ["the truth comes out in one conversation, not in a found letter, diary or box", "it happens now, in the "
+              "present, not remembered years later", "a funny everyday moment that slowly turns serious", "the narrator "
+              "was the one who was wrong", "a stranger's kindness on one ordinary day", "two people who never say it - one "
+              "choice says it", "it ends in a reunion, not a death"],
+    "romanch": ["they meet again after years", "it starts as a rivalry", "one of them leaves the city tomorrow",
+                "told through small daily routines", "a misunderstanding they laugh about later",
+                "an open but hopeful ending"],
+    "gyaan": ["open with an everyday scene from Indian life", "open with a common myth, then correct it",
+              "build it around one surprising experiment", "tell how people found this out, in short"],
+}
 LEVELS = {
     "standard": "",
     "mature": {
@@ -1151,6 +1279,7 @@ def genre_rules(cfg, gid):
                    for k, v in GENRE_TEXT.items()}, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     G = dict(GENRE_TEXT.get(gid, {}))
     G.setdefault("tellings", GENRE_TELLINGS.get(gid, []))
+    G.setdefault("angles", GENRE_ANGLES.get(gid, []))
     G.setdefault("mature", LEVELS["mature"].get(gid, ""))
     try:
         G.update(json.load(open(p, encoding="utf-8")).get(gid) or {})
@@ -1183,15 +1312,17 @@ def _long_enough(cfg, text, words, prompt, engine, say, cleaner):
     return script
 
 
-def genre_recipe(cfg, gid, topic="", seed=None):
+def genre_recipe(cfg, gid, topic="", seed=None, also=(), engine="auto"):
     if gid == "bhay":
-        return horror_recipe(cfg, topic, seed)
+        return horror_recipe(cfg, topic, seed, also, engine)
     rng = random.Random(seed)
     G = genre_rules(cfg, gid)
     L = [e for e in ledger(cfg) if e.get("genre") == gid]
-    r = {"genre": gid, "topic": topic or _least_used(G["topics"], [e.get("topic") for e in L], rng),
+    r = {"genre": gid, "topic": topic or _pick_seed(cfg, G["name"], G["channel"], G["topics"], L, rng, also, engine),
          "telling": _least_used(G.get("tellings") or HORROR_BANK["tellings"],
                                 [e.get("recipe", {}).get("telling") for e in L], rng)}
+    if G.get("angles"):
+        r["angle"] = _least_used(G["angles"], [e.get("recipe", {}).get("angle") for e in L], rng)
     return r
 
 
@@ -1200,22 +1331,23 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
     if gid == "bhay":
         return write_horror(cfg, say, topic, minutes, notes, engine, rec, stopped, level)
     G = genre_rules(cfg, gid)
-    r = dict(rec or {}) or genre_recipe(cfg, gid, topic)
+    r = dict(rec or {}) or genre_recipe(cfg, gid, topic, engine=engine)
     if topic:
         r["topic"] = topic
     words = int(float(minutes) * wpm(cfg, "hi", gid))
-    avoid = "\n".join(f"- {e.get('topic', '')}: {e.get('summary', {}).get('memory_story', '')}"
-                      for e in [e for e in ledger(cfg) if e.get("genre") == gid][-10:])
-    say(f"   {G['name']}: {r['topic']}  | told as: {r['telling']}  | ~{words} words")
+    avoid = _story_avoid(cfg, gid)
+    say(f"   {G['name']}: {r['topic']}  | told as: {r['telling']}" + (f"  | turn: {r['angle']}" if r.get("angle") else "")
+        + f"  | ~{words} words")
     prompt = (f"You write for '{G['name']}', {G['channel']}: one male narrator. Write tonight's complete script.\n\n"
               f"TOPIC: {r['topic']}\n" + (f"NOTES FROM THE CREATOR: {notes}\n" if notes else "")
-              + f"TOLD AS: {r['telling']}\nLENGTH: about {words} Hindi words (without the (...) lines) = about "
+              + f"TOLD AS: {r['telling']}\n" + (f"THE TURN THIS TIME: {r['angle']}\n" if r.get("angle") else "")
+              + f"LENGTH: about {words} Hindi words (without the (...) lines) = about "
               f"{minutes:.0f} minutes spoken.\nSHAPE: {G['shape']}\n\nSTYLE RULES: {_rules_for(G, level)} "
               + SPOKEN_HINDI_CADENCE + " "
               + (G.get("mature", "") + " " if level == "mature" else "") + "This is NOT a sleep or meditation script: "
               "no breathing exercises, no 'close your eyes', no good-night ending (unless the series is ASMR). Prefer one "
               "complete, naturally connected sentence per line; use a line with only (...) only for an intentional longer pause. No headings, lists, emojis or "
-              "stage directions.\n\n" + (f"EARLIER SCRIPTS - do NOT reuse their ideas:\n{avoid}\n\n" if avoid else "")
+              "stage directions.\n\n" + avoid
               + "Now write it. Output only spoken script lines. Stop at the final narrative line; do not append an "
               "explanation, interpretation, editor's note, or comments about the story.\n")
     t0 = time.time()
@@ -1246,7 +1378,8 @@ def genre_ideas(cfg, gid, topic="", n=3, engine="auto"):
         return horror_ideas(cfg, topic, n, engine)
     out = []
     for i in range(n):
-        r = genre_recipe(cfg, gid, topic, seed=int(time.time() * 1000) + i * 7919)
+        r = genre_recipe(cfg, gid, topic, seed=int(time.time() * 1000) + i * 7919,
+                         also=[o["recipe"]["topic"] for o in out], engine=engine)
         if not topic and any(o["recipe"]["topic"] == r["topic"] for o in out):
             continue
         out.append({"recipe": r})
