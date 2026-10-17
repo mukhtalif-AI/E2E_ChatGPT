@@ -1,8 +1,8 @@
 # HubGPT project map
 
-Last updated: 16 Oct 2026, ~23:55. Start here when you forget where something is.
+Last reviewed against source: 17 Oct 2026. Start here for the current architecture.
 Companion files in the same folder: `CHANGELOG.md` (what changed when), `KNOWN_PROBLEMS.md` (what is wrong,
-what is right, what was decided), `CLEANUP_PLAN.md` (tidy-up plan; step 2 done 16 Oct, the rest still proposed).
+what is right, what was decided), `CLEANUP_PLAN.md` (historical cleanup status and remaining proposals).
 Older long notes: `README.txt` (how to use the app) and `HANDOFF_HUB.txt` (history v1 to v4.3).
 
 ## In one sentence
@@ -54,7 +54,7 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | File | Size | What it does |
 |---|---|---|
 | `server.py` | ~1170 lines | The web server. Serves both pages, all `/api/...` routes, the job queue (one GPU job at a time + a light lane), restart/resume, git snapshot on restart. Runs each job step by calling `tools.<fn>` (or `experimental_workspace.exp_*`). |
-| `tools.py` + `steps\` | ~625 + 12 files (split 17 Oct) | Every job step. `plan(kind, body)` turns a request into a list of steps; each step is one function. `tools.py` holds the series tables `GENRES`, `STYLES`, `DIRECTION`, `VOICES` and the prompts, and re-exports everything in `steps\`. See "Where the `tools.py` code lives" further down. |
+| `tools.py` + `steps\` | ~625 + 12 files (split 17 Oct) | Every job step. `plan(kind, body)` turns a request into named steps; `tools.py` holds series tables and prompts and re-exports the implementations from `steps\`. See "Where the `tools.py` code lives" below. |
 | `story.py` | ~1260 lines | Script writing (`local_chat` sends `think: false` to Gemma 4 / Qwen3 when a step asks for it): Sukoon (Hindi/English), the six genres, recipes, topic bank, ledger (no repeats), Gemini with Ollama fallback, check pass. Holds `GENRE_TEXT`, `GENRE_TELLINGS`, `LEVELS`. |
 | `path_config.py` | small | Reads `config.json`, works out every folder path. |
 | `comfy.py` | small | Talks to ComfyUI (starts it if needed) to paint pictures. |

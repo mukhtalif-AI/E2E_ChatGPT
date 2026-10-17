@@ -79,7 +79,7 @@ WORKSPACES
   update_all_code.bat rebuilds Code\ALL_CODE.txt and engines\video\ALL_CODE.txt; each previous snapshot is timestamp-backed-up.
   Secrets, local Python path files, environments, logs, backups, and bundled libraries are excluded from snapshots.
   Regular HubGPT     uses D:\MukhtalifGPT for hub media and D:\MukhtalifGPT\Episodes for episodes (defaults).
-  Experimental mode  uses D:\HubGPT by default:
+  Experimental mode  uses config.json paths.experimental_root (D:\MukhtalifGPT by default):
     Library\         scripts, uploads, and reusable Experimental assets
     Series\<series>\Episodes\<episode>\
       00_Input\      original request, activity metadata, and Experimental reports
@@ -94,13 +94,13 @@ WORKSPACES
 
 ACTIVITY LOG DISPLAY
   Long lines wrap inside the log panel. The browser requests smaller log chunks and keeps a bounded on-screen
-  history; earlier text remains in the full job log under D:\HubGPT\Activity\Logs. The job list updates only
+  history; earlier text remains in the full job log under <experimental_root>\Activity\Logs. The job list updates only
   when a job's visible status changes, reducing redraws while live logs arrive.
 
 WHERE THINGS ARE
   HubGPT project folder                 code, engines, settings: config.json; keys: secrets.json
      config.json                        machine-specific roots in paths; folder names in layout
-     app\            server.py, tools.py (all job steps), story.py (script writer), repair.py, elements_*.py
+     app\            server.py, tools.py (public step registry), steps\ (job steps), story.py, repair.py, elements_*.py
      app\ui\experimental\ isolated full-site UI copy; notes in EXPERIMENT_NOTES.md
      engines\voice   HubGPT Voice engine (say_as.json; trained checkpoints stay here)
      engines\video   HubGPT Video engine (loops\, work\; local Python environment)
@@ -108,7 +108,8 @@ WHERE THINGS ARE
      _old\           every earlier version of every changed file (nothing is deleted)
   configured hub_output_root             regular HubGPT media and data (default D:\MukhtalifGPT)
   configured episodes_root               regular episode folders (default D:\MukhtalifGPT\Episodes)
-  configured experimental_root           Experimental Library, Series and Activity (default D:\HubGPT)
+  configured experimental_root           Experimental Library, Series and Activity (default D:\MukhtalifGPT;
+                                         D:\HubGPT is a legacy read-only source)
   configured voice_data_root             voice datasets/recordings (default D:\SukoonVoice)
   D:\Audio asset\Elements                downloaded elements + ELEMENTS_INDEX.csv (licence register) + ready\ loops
 
@@ -128,6 +129,14 @@ RECENT CHANGES (15 Oct 2026)
                     request a targeted repaint when a scene does not match the story/reference.
   Bhay reel render  The title halo now clips safely to the frame bounds; this fixes the broadcasting error that
                     stopped reel 1 when the title overlay extended outside the image crop.
+
+CURRENT SOUND BEHAVIOR (17 Oct 2026)
+  Genre sound      All six genre series use the shared horror_sound step. Its name is historical, not Bhay-only.
+  Working mode    Keeps the established music mix and per-scene ambience behavior.
+  Experimental    Adds place-based ambience continuity and, for Bhay/Rahasya/Kisse/Romanch, optional emotion-led
+                   music sections. Experimental effects can be timed with Whisper word timestamps.
+  Sound choices   Empty ambience is allowed when no bed fits; background music can carry the mood. The new
+                   Experimental sound logic is in source but has only been verified on test copies, not live jobs.
 
 TROUBLESHOOTING
   The page does not open        hub.bat is not running - start it (or restart_hub.bat)
