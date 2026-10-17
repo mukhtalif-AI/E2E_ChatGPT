@@ -1,7 +1,7 @@
 """model.py - loading Chatterbox Multilingual (shared model in hf_models) + your trained add-on."""
 import json, os, re, time
 import numpy as np
-from . import cfg
+from . import cfg, numbers_hi
 
 
 def say(*a):
@@ -163,6 +163,7 @@ def say_as():
 def for_model(s):
     for k, v in say_as().items():                        # whole words only
         s = re.sub(rf"(?<![\u0900-\u097F]){re.escape(k)}(?![\u0900-\u097F])", v, s)
+    s = numbers_hi.spoken(s)                             # 1998 -> उन्नीस सौ अट्ठानवे (the voice never learnt digits)
     s = s.replace("।", ".").replace("॥", ".").replace("‘", "").replace("’", "").replace('"', "")
     s = s.replace("“", "").replace("”", "")
     s = re.sub(r"^\.\.\.\s*", "", s)
@@ -289,7 +290,8 @@ def speak_sentence(m, text, seed, S, wps, label=""):
     import torch
     from . import asr
     from .pace import pitch as f0_of, semitones
-    want = max(0.8, len(text.split()) / wps) + 0.7 * text.count("...") + 0.2 * text.count(",")
+    said = numbers_hi.spoken(text).split()             # a year is 4 spoken words, not 1
+    want = max(0.8, len(said) / wps) + 0.7 * text.count("...") + 0.2 * text.count(",")
     best, best_err, info = None, 1e9, {}
     missed_all = None
     min_takes = max(1, int(S.get("takes", 1)))
@@ -327,7 +329,7 @@ def speak_sentence(m, text, seed, S, wps, label=""):
                 err += 1.0 * (1.0 - lk)
         rp = repeat_score(a, m.sr)                      # stutter / repeated-chunk glitch
         err += 2.0 * max(0.0, rp - 0.7)
-        short = len(text.split()) <= 3                  # "सो जाओ...", "गुड नाईट": the checker can't judge 1 s of voice
+        short = len(said) <= 3                  # "सो जाओ...", "गुड नाईट": the checker can't judge 1 s of voice
         if short and le is not None:
             err -= le * 0.8
         take_ok = (short or le is None or le <= float(S.get("max_letter_error", 0.12))) and 0.55 < d / want < 1.9 \

@@ -2,7 +2,7 @@
 hears every take; the letter error rate decides retakes. (Minimal copy of the Studio's asr_hindi model loading.)"""
 import difflib, re
 import numpy as np
-from . import cfg
+from . import cfg, numbers_hi
 
 _M = {}
 
@@ -52,9 +52,10 @@ SAME.update({"छः": "छह", "छे": "छह", "पाँच": "पां�
 
 
 def _digits(t):
-    """the checker writes counted numbers as digits (4 5 6) - the script has words (चार... पांच... छह...)"""
+    """the checker writes counted numbers as digits (4 5 6) - the script has words (चार... पांच... छह...).
+    Both sides become Hindi words, so a year (1998) is checked too instead of dropped as non-Hindi."""
     t = t.translate(str.maketrans("०१२३४५६७८९", "0123456789"))
-    return re.sub(r"\d+", lambda m: f" {NUM.get(int(m.group()), m.group())} ", t)
+    return numbers_hi.spoken(re.sub(r"(?<![\d,.:])(\d)", r" \1", t))   # "मिला—1998" -> two words
 
 
 def _words(t):
