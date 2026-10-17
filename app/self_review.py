@@ -75,9 +75,11 @@ def _line_of(tim, words, a, b):
     if not w:
         return None, -1
     best = (0.0, None, -1)
-    for x in tim or []:
-        if float(x["end"]) < float(a) - 1 or float(x["start"]) > float(b) + 1:
-            continue
+    near = [x for x in tim or [] if not (float(x["end"]) < float(a) - 1 or float(x["start"]) > float(b) + 1)]
+    # two neighbouring lines joined as well: words that run over a line break were never found before (17 Oct 2026)
+    pairs = [{"text": f"{x['text']} {y['text']}", "start": x["start"], "end": y["end"]}
+             for x, y in zip(near, near[1:]) if float(y["start"]) - float(x["end"]) < 1.5]
+    for x in near + pairs:
         tw = tokens(x["text"])
         for j in range(len(tw)):
             sc = _sim(" ".join(w), " ".join(tw[j:j + len(w)]))
