@@ -224,6 +224,10 @@ def prepare(kind, body, cfg, job_id):
                 })
                 break
     _feedback_steps(plan, b, series)
+    if kind == "audio_index":            # Settings > Your music > Build: the mood index of the library comes with it
+        plan["steps"].append({"fn": "exp_sound_screen", "label": "index the library: every music track and effect "
+                              "measured (voice band, beat, brightness) and judged for its mood folder", "args": {}})
+        plan["title"] = plan.get("title", "") + " + mood index"
     if episode_dir:
         # Route generated cover art and scene assets into the episode workspace.
         old = job_cfg["pictures_dir"]
