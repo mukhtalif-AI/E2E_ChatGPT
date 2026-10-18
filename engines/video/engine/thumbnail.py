@@ -142,8 +142,18 @@ def gblur(m, r):
     return np.asarray(im, np.float32) / 255
 
 
+class Layer:
+    """a transparent picture (premultiplied colour + alpha) that one element is drawn into, placed later"""
+
+    def __init__(self, w, h):
+        self.rgb = np.zeros((int(h), int(w), 3), np.float32)
+        self.a = np.zeros((int(h), int(w)), np.float32)
+        self.shape = self.a.shape
+
+
 def over(img, mask, x, y, color, alpha=1.0):
-    """paint color through mask (0..1) onto img (HxWx3 float) with its top-left at (x, y)"""
+    """paint color (RGB, or an HxWx3 array the size of mask) through mask (0..1) onto img (HxWx3 float, or a
+    Layer) with its top-left at (x, y)"""
     H, W = img.shape[:2]
     h, w = mask.shape
     x, y = int(round(x)), int(round(y))
@@ -151,7 +161,35 @@ def over(img, mask, x, y, color, alpha=1.0):
     if x1 <= x0 or y1 <= y0:
         return
     a = mask[y0 - y:y1 - y, x0 - x:x1 - x, None] * float(alpha)
-    img[y0:y1, x0:x1] = img[y0:y1, x0:x1] * (1 - a) + np.array(color, np.float32) * a
+    col = color[y0 - y:y1 - y, x0 - x:x1 - x] if isinstance(color, np.ndarray) else np.array(color, np.float32)
+    if isinstance(img, Layer):
+        img.rgb[y0:y1, x0:x1] = img.rgb[y0:y1, x0:x1] * (1 - a) + col * a
+        img.a[y0:y1, x0:x1] = img.a[y0:y1, x0:x1] * (1 - a[..., 0]) + a[..., 0]
+    else:
+        img[y0:y1, x0:x1] = img[y0:y1, x0:x1] * (1 - a) + col * a
+
+
+def put(img, L, x, y):
+    """a Layer onto the picture with its top-left at (x, y)"""
+    H, W = img.shape[:2]
+    h, w = L.shape
+    x, y = int(round(x)), int(round(y))
+    x0, y0, x1, y1 = max(0, x), max(0, y), min(W, x + w), min(H, y + h)
+    if x1 <= x0 or y1 <= y0:
+        return
+    a = L.a[y0 - y:y1 - y, x0 - x:x1 - x, None]
+    img[y0:y1, x0:x1] = img[y0:y1, x0:x1] * (1 - a) + L.rgb[y0 - y:y1 - y, x0 - x:x1 - x]
+
+
+def box_mask(w, h, r=0):
+    """a filled (rounded when r) rectangle mask"""
+    m = np.ones((max(1, int(h)), max(1, int(w))), np.float32)
+    r = int(min(r, m.shape[0] // 2, m.shape[1] // 2))
+    if r > 1:
+        yy, xx = np.mgrid[0:r, 0:r].astype(np.float32)
+        c = np.clip(r - np.sqrt((xx - r + 0.5) ** 2 + (yy - r + 0.5) ** 2) + 0.5, 0, 1)
+        m[:r, :r] = c; m[:r, -r:] = c[:, ::-1]; m[-r:, :r] = c[::-1]; m[-r:, -r:] = c[::-1, ::-1]
+    return m
 
 
 def words_of(text):
@@ -171,7 +209,7 @@ def plain(text):
 class Line:
     """one row of letters (each word in its own colour) with outline, glow and shadow, ready to paint"""
 
-    def __init__(self, words, fontfile, size, color, hl_color, J):
+    def __init__(self, words, fontfile, size, color, hl_color, J, plain_style=False):
         if isinstance(words, str):
             words = words_of(words)
         space = max(size * 0.25, text_width(" ", fontfile, size))
@@ -183,36 +221,50 @@ class Line:
         t0 = min((p[1] for p in parts), default=0)
         h = max((p[1] + p[0].shape[0] for p in parts), default=1) - t0
         w = int(max(1, x - space)) + 1
-        ow = float(J.get("outline_w", 0.08)) * size
-        p = int(ow) + 2
-        self.pad = int(p + size * 0.5)               # room for the glow and shadow to fade out
+        self.plain_style = plain_style               # text on a box: thin outline, no glow / ring
+        ow = float(J.get("outline_w", 0.08)) * size * (0.35 if plain_style else 1)
+        ring = 0 if plain_style else float(J.get("stroke2", 0) or 0) * size
+        self.pad = int(ow + ring + 2 + size * 0.5)   # room for the glow and shadow to fade out
         canvas = lambda: np.zeros((h + 2 * self.pad, w + 2 * self.pad), np.float32)
         self.fills = []
         ink = np.zeros((h, w), np.float32)
+        shade = float(J.get("gradient", 0) or 0) if not plain_style else 0
+        ramp = np.linspace(1.0, 1.0 - shade, h + 2 * self.pad, dtype=np.float32)[:, None, None]
         for m, top, x0, col in parts:
             y0, xi = top - t0, int(round(x0))
             f = canvas()
             m = m[:, :w - xi]                        # (rounding can make the last word 1 px too wide)
             f[self.pad + y0:self.pad + y0 + m.shape[0], self.pad + xi:self.pad + xi + m.shape[1]] = m
+            if shade > 0:                            # letters a little darker towards their foot: looks printed
+                col = np.broadcast_to(np.array(col, np.float32)[None, None, :] * ramp, f.shape + (3,))
             self.fills.append((f, col))
             sl = ink[y0:y0 + m.shape[0], xi:xi + m.shape[1]]
             np.maximum(sl, m, out=sl)
         edge, p = dilate(ink, ow)
         self.edge = np.pad(edge, self.pad - p)
+        self.ring = None
+        if ring >= 1:
+            rr, p2 = dilate(ink, ow + ring)
+            self.ring = np.pad(rr, self.pad - p2)
         self.top = t0
         self.size = size
+        self.boxed = False
         self.pitch = size * 1.12                     # this row's share of the block height
         self.ink_w, self.ink_h = w, h
 
     def paint(self, img, x, y, J):
         """(x, y) = left of the ink, top of the row"""
         x, y = x - self.pad, y + self.top - self.pad
-        glow = float(J.get("glow", 0) or 0)
+        accent = rgb(J.get("accent"), (0.8, 0.1, 0.1))
+        outer = self.ring if self.ring is not None else self.edge
+        glow = 0 if self.plain_style else float(J.get("glow", 0) or 0)
         if glow > 0:
-            g = gblur(self.edge, self.size * 0.2)
-            over(img, np.clip(g * 1.5, 0, 1), x, y, rgb(J.get("accent"), (0.8, 0.1, 0.1)), glow)
-        sh = gblur(self.edge, self.size * 0.06)
-        over(img, sh, x + self.size * 0.05, y + self.size * 0.06, (0, 0, 0), 0.75)
+            g = gblur(outer, self.size * 0.22)
+            over(img, np.clip(g * 1.6, 0, 1), x, y, accent, glow)
+        sh = gblur(outer, self.size * 0.07)
+        over(img, sh, x + self.size * 0.05, y + self.size * 0.07, (0, 0, 0), 0.4 if self.plain_style else 0.8)
+        if self.ring is not None:
+            over(img, self.ring, x, y, rgb(J.get("stroke2_color") or J.get("accent"), accent))
         if J.get("outline_w", 0.08):
             over(img, self.edge, x, y, rgb(J.get("outline"), (0, 0, 0)))
         for f, col in self.fills:
@@ -224,11 +276,31 @@ def row_width(text, fontfile, size):
     return sum(text_width(w, fontfile, size) for w in ws) + max(size * 0.25, text_width(" ", fontfile, size)) * max(0, len(ws) - 1)
 
 
+def row_tops(lines):
+    """where each row starts (its line top, from the first row's ink top): an even pitch, but never closer than a
+    small gap between one row's ink (or box) and the next"""
+    out, y, prev = [], 0.0, None
+    for L in lines:
+        if prev is None:
+            y = -L.top
+        else:
+            gap = L.size * 0.12 + (prev.size * 0.15 if prev.boxed else 0) + (L.size * 0.3 if L.boxed else 0)
+            y = max(y + prev.pitch, y + prev.top + prev.ink_h + gap - L.top)
+        out.append(y)
+        prev = L
+    return out
+
+
 def block_height(lines):
     """from the first row's ink top to the last row's ink bottom"""
     if not lines:
         return 0
-    return sum(L.pitch for L in lines[:-1]) + lines[-1].top + lines[-1].ink_h - lines[0].top
+    return row_tops(lines)[-1] + lines[-1].top + lines[-1].ink_h
+
+
+def ink_color(bg):
+    """white letters on a dark colour, near-black on a light one"""
+    return (1, 1, 1) if 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2] < 0.6 else (0.06, 0.06, 0.06)
 
 
 # ------------------------------------------------------------------ picture
@@ -289,46 +361,73 @@ def vignette(a, amount):
     return a * (1 - float(amount) * np.clip((r - 0.35) / 0.65, 0, 1) ** 1.6)[..., None]
 
 
+def punch(a, amount):
+    """crisper and a bit more colourful: thumbnails are seen small, soft pictures look dull there"""
+    amount = min(1.0, max(0.0, float(amount or 0)))
+    if amount <= 0:
+        return a
+    from PIL import Image, ImageFilter
+    H, W = a.shape[:2]
+    im = Image.fromarray((np.clip(a, 0, 1) * 255 + 0.5).astype(np.uint8))
+    im = im.filter(ImageFilter.UnsharpMask(radius=max(1.0, 2.2 * W / 1920), percent=int(90 * amount), threshold=2))
+    a = np.asarray(im, np.float32) / 255
+    g = a.mean(-1, keepdims=True)
+    return np.clip(g + (a - g) * (1 + 0.22 * amount), 0, 1)
+
+
+def frame(img, color, width):
+    """a coloured border round the whole picture with a thin dark line inside it"""
+    H, W = img.shape[:2]
+    f = int(round(float(width or 0) * H))
+    if f < 1:
+        return
+    col = np.array(color, np.float32)
+    img[:f] = col; img[-f:] = col; img[:, :f] = col; img[:, -f:] = col
+    d = max(1, f // 4)
+    for sl in ((slice(f, f + d), slice(f, W - f)), (slice(H - f - d, H - f), slice(f, W - f)),
+               (slice(f, H - f), slice(f, f + d)), (slice(f, H - f), slice(W - f - d, W - f))):
+        img[sl] = img[sl] * 0.25
+
+
 # ------------------------------------------------------------------ the layout
-def title_block(J, W, H):
-    """the title rows as Line objects, sized to fit the layout's box; returns (lines, box, align)"""
+def title_box(J, W, H):
     lay = J.get("layout") or "bottom"
+    if lay == "bottom":
+        return (0.05 * W, 0.40 * H, 0.95 * W, 0.93 * H), "center", 2
+    if lay == "left":
+        return (0.05 * W, 0.14 * H, 0.58 * W, 0.90 * H), "left", 3
+    if lay == "right":
+        return (0.42 * W, 0.14 * H, 0.95 * W, 0.90 * H), "right", 3
+    return (0.07 * W, 0.18 * H, 0.93 * W, 0.86 * H), "center", 2
+
+
+def title_rows(J, W, H):
+    """the title as rows [(words, small)] and the letter size that fits the layout's box"""
     fontfile = font_path(J.get("font")) or font_path("Nirmala.ttc")
     title = " ".join(str(J.get("title") or "").split())
     sub = " ".join(str(J.get("sub") or "").split())
-    if lay == "bottom":
-        box, align, rows = (0.05 * W, 0.40 * H, 0.95 * W, 0.93 * H), "center", 2
-    elif lay == "left":
-        box, align, rows = (0.05 * W, 0.14 * H, 0.58 * W, 0.90 * H), "left", 3
-    elif lay == "right":
-        box, align, rows = (0.42 * W, 0.14 * H, 0.95 * W, 0.90 * H), "right", 3
-    else:
-        box, align, rows = (0.07 * W, 0.18 * H, 0.93 * W, 0.86 * H), "center", 2
+    box, align, rows = title_box(J, W, H)
     bw, bh = box[2] - box[0], box[3] - box[1]
-    color, accent = rgb(J.get("color")), rgb(J.get("accent"), (0.85, 0.15, 0.12))
     size = H * 0.19 * float(J.get("size") or 1.0)
     rows_in = [str(r) for r in (J.get("rows") or []) if str(r).strip()]
-    while True:
+    while size >= H * 0.05:
         if rows_in:                                  # your own rows, word for word: '-' first = a smaller row
-            spec = [(r.strip()[1:].strip(), True) if r.strip().startswith("-") else (r.strip(), False) for r in rows_in]
-            if all(row_width(t, fontfile, size * (0.56 if sm else 1)) <= bw for t, sm in spec):
-                lines = [Line(t, fontfile, size * (0.56 if sm else 1), accent if sm else color, color if sm else accent, J)
-                         for t, sm in spec]
-                if block_height(lines) <= bh or size < H * 0.05:
-                    return lines, box, align
+            spec = [(words_of(r.strip()[1:]), True) if r.strip().startswith("-") else (words_of(r), False) for r in rows_in]
         else:
             main = wrap(plain(title), fontfile, size, bw, rows) if title else []
             subrows = wrap(plain(sub), fontfile, size * 0.56, bw, 2) if sub else []
-            if main is not None and subrows is not None:
-                main = rehighlight(balance(main, fontfile, size, bw), title)
-                subrows = rehighlight(balance(subrows, fontfile, size * 0.56, bw), sub)
-                lines = [Line(t, fontfile, size, color, accent, J) for t in main] + \
-                        [Line(t, fontfile, size * 0.56, accent, color, J) for t in subrows]
-                if block_height(lines) <= bh or size < H * 0.05:
-                    return lines, box, align
-        if size < H * 0.05:
-            return [], box, align
+            if main is None or subrows is None:
+                size *= 0.93
+                continue
+            spec = [(w, False) for w in rehighlight(balance(main, fontfile, size, bw), title)] + \
+                   [(w, True) for w in rehighlight(balance(subrows, fontfile, size * 0.56, bw), sub)]
+        widths = [row_width(" ".join(w for w, _ in ws), fontfile, size * (0.56 if sm else 1)) for ws, sm in spec]
+        if all(x <= bw for x in widths):
+            lines = make_lines(J, spec, fontfile, size)
+            if block_height(lines) <= bh:
+                return spec, size
         size *= 0.93
+    return [], H * 0.05
 
 
 def rehighlight(rows, text):
@@ -342,115 +441,211 @@ def rehighlight(rows, text):
     return out
 
 
-def pill(img, text, fontfile, size, x, y, bg, fg, anchor="left"):
-    """text on a filled box (badge, small line above the title); returns the box height"""
+def make_lines(J, spec, fontfile, size):
+    color, accent = rgb(J.get("color")), rgb(J.get("accent"), (0.85, 0.15, 0.12))
+    boxed = bool(J.get("sub_box"))
+    on_box = ink_color(accent)
+    out = []
+    for ws, sm in spec:
+        if sm and boxed:                             # a small row on an accent box: letters in a contrast colour
+            L = Line(ws, fontfile, size * 0.56, on_box, color if on_box != color else (1, 0.9, 0.3), J, True)
+            L.boxed = True
+        else:
+            L = Line(ws, fontfile, size * (0.56 if sm else 1), accent if sm else color, color if sm else accent, J)
+        out.append(L)
+    return out
+
+
+def title_layer(J, W, H, scale=1.0):
+    """the title rows drawn into one Layer; returns (layer, pad = where the letters' block starts in it)"""
+    spec, size = title_rows(J, W, H)
+    if not spec:
+        return None, 0
+    fontfile = font_path(J.get("font")) or font_path("Nirmala.ttc")
+    lines = make_lines(J, spec, fontfile, size * scale)
+    _, align, _ = title_box(J, W, H)
+    maxw = max(L.ink_w for L in lines)
+    bx, by = size * scale * 0.2, size * scale * 0.09
+    pad = int(max(L.pad for L in lines) + bx)
+    blk = block_height(lines)
+    lay = Layer(maxw + 2 * pad, blk + 2 * pad)
+    accent = rgb(J.get("accent"), (0.85, 0.15, 0.12))
+    for L, t in zip(lines, row_tops(lines)):
+        y = pad + t
+        x = pad + {"left": 0, "right": maxw - L.ink_w, "center": (maxw - L.ink_w) / 2}[align]
+        if L.boxed:
+            m = box_mask(L.ink_w + 2 * bx, L.ink_h + 2 * by, L.size * 0.12)
+            over(lay, gblur(np.pad(m, int(L.size * 0.3)), L.size * 0.12), x - bx - int(L.size * 0.3) + L.size * 0.06,
+                 y + L.top - by - int(L.size * 0.3) + L.size * 0.08, (0, 0, 0), 0.6)
+            over(lay, m, x - bx, y + L.top - by, accent)
+        L.paint(lay, x, y, J)
+    lay.ink = (pad, pad, maxw, blk)
+    return lay, pad
+
+
+def pill_layer(text, fontfile, size, bg, fg):
+    """text on a rounded filled box with a soft shadow"""
     m = text_mask(text, fontfile, size)[0]
     px, py = size * 0.45, size * 0.28
     w, h = m.shape[1] + 2 * px, m.shape[0] + 2 * py
-    if anchor == "right":
-        x -= w
-    elif anchor == "center":
-        x -= w / 2
-    H, W = img.shape[:2]
-    x0, y0, x1, y1 = int(max(0, x)), int(max(0, y)), int(min(W, x + w)), int(min(H, y + h))
-    sh = np.zeros((H, W), np.float32)
-    sh[y0:y1, x0:x1] = 1
-    over(img, gblur(sh, size * 0.15), size * 0.06, size * 0.08, (0, 0, 0), 0.55)
-    img[y0:y1, x0:x1] = np.array(bg, np.float32)
-    over(img, m, x + px, y + py, fg)
-    return h
+    sp = int(size * 0.4)
+    L = Layer(w + 2 * sp, h + 2 * sp)
+    bm = box_mask(w, h, size * 0.18)
+    over(L, gblur(np.pad(bm, sp), size * 0.15), size * 0.06, size * 0.08, (0, 0, 0), 0.55)
+    over(L, bm, sp, sp, bg)
+    over(L, m, sp + px, sp + py, fg)
+    L.ink = (sp, sp, w, h)
+    return L
 
 
-def render(J):
+def logo_layer(path, h):
     from PIL import Image
-    W, H = int(J.get("w") or 1920), int(J.get("h") or 1080)
-    lay = J.get("layout") or "bottom"
-    a = load_picture(J["image"], W, H, J.get("focus", 0.5))
-    a = grade(a, J.get("grade") or "")
-    a = vignette(shade(a, lay, J.get("shade", 0.7)), float(J.get("vignette", 0.35) or 0))
-    img = np.ascontiguousarray(a, np.float32)
+    lg = Image.open(path).convert("RGBA")
+    h = max(16, int(h))
+    lg = lg.resize((max(1, int(lg.width * h / lg.height)), h), Image.LANCZOS)
+    la = np.asarray(lg, np.float32) / 255
+    sp = int(h * 0.12)
+    L = Layer(lg.width + 2 * sp, h + 2 * sp)
+    over(L, gblur(np.pad(la[..., 3], sp), h * 0.04), h * 0.02, h * 0.03, (0, 0, 0), 0.5)
+    over(L, la[..., 3], sp, sp, la[..., :3])
+    L.ink = (sp, sp, lg.width, h)
+    return L
+
+
+def name_layer(text, fontfile, size):
+    nm = text_mask(text, fontfile, size)[0]
+    ed, pd = dilate(nm, size * 0.12)
+    sp = pd + int(size * 0.3)
+    L = Layer(nm.shape[1] + 2 * sp, nm.shape[0] + 2 * sp)
+    over(L, gblur(np.pad(ed, sp - pd), size * 0.1), 0, size * 0.05, (0, 0, 0), 0.6)
+    over(L, ed, sp - pd, sp - pd, (0, 0, 0), 0.85)
+    over(L, nm, sp, sp, (1, 1, 1))
+    L.ink = (sp, sp, nm.shape[1], nm.shape[0])
+    return L
+
+
+def elements(J, W, H):
+    """every movable piece as (name, Layer, x, y) = its top-left; J["pos"][name] = {cx, cy, s} moves / sizes it
+    (cx, cy = the piece's centre as a share of the width / height)"""
+    pos = J.get("pos") or {}
+    S = lambda n: min(3.0, max(0.3, float((pos.get(n) or {}).get("s") or 1)))
+    def place(n, L, x, y):
+        p = pos.get(n) or {}
+        if p.get("cx") is not None and p.get("cy") is not None:
+            x, y = float(p["cx"]) * W - L.shape[1] / 2, float(p["cy"]) * H - L.shape[0] / 2
+        return (n, L, x, y)
     fontfile = font_path(J.get("font")) or font_path("Nirmala.ttc")
     accent = rgb(J.get("accent"), (0.85, 0.15, 0.12))
-
-    lines, box, align = title_block(J, W, H)
-    total = block_height(lines)
-    y = box[3] - total if lay == "bottom" else box[1] + (box[3] - box[1] - total) / 2
-    y -= lines[0].top if lines else 0               # y = top of the first row, its ink starts lower
+    on_acc = ink_color(accent)
+    lay = J.get("layout") or "bottom"
+    box, align, _ = title_box(J, W, H)
+    out = []
+    T, pad = title_layer(J, W, H, S("title"))
+    tink = None
+    if T is not None:
+        _, _, iw, ih = T.ink
+        ix = {"left": box[0], "right": box[2] - iw, "center": (W - iw) / 2}[align]
+        iy = box[3] - ih if lay == "bottom" else box[1] + (box[3] - box[1] - ih) / 2
+        e = place("title", T, ix - pad, iy - pad)
+        out.append(e)
+        tink = (e[2] + pad, e[3] + pad, iw, ih)
     kicker = " ".join(str(J.get("kicker") or "").split())
-    if kicker:                                     # small line above the title, on an accent box
-        ks = H * 0.045
-        kx = {"left": box[0], "right": box[2], "center": (box[0] + box[2]) / 2}[align]
-        kh = text_mask(kicker, fontfile, ks)[0].shape[0] + ks * 0.56
-        ky = max(H * 0.03, y + (lines[0].top if lines else 0) - kh - H * 0.03)
-        pill(img, kicker, fontfile, ks, kx, ky, accent, (1, 1, 1) if sum(accent) < 2.2 else (0, 0, 0), align)
-    for L in lines:
-        x = {"left": box[0], "right": box[2] - L.ink_w, "center": (W - L.ink_w) / 2}[align]
-        L.paint(img, x, y, J)
-        y += L.pitch
-
+    if kicker:                                       # small line above the title, on an accent box
+        K = pill_layer(kicker, fontfile, H * 0.045 * S("kicker"), accent, on_acc)
+        kx0, ky0, kw, kh = K.ink
+        tx, ty, tw, th = tink or (box[0], box[1] + H * 0.1, box[2] - box[0], 0)
+        kx = {"left": tx, "right": tx + tw - kw, "center": tx + (tw - kw) / 2}[align]
+        out.append(place("kicker", K, kx - kx0, max(H * 0.03, ty - kh - H * 0.03) - ky0))
     m = int(H * 0.035)
     taken = set()
-    logo = J.get("logo") or {}
-    name = J.get("name") or {}
+    logo, name = J.get("logo") or {}, J.get("name") or {}
     lc = logo.get("corner") if logo.get("corner") in CORNERS else "top-right"
+    lbox = None
     if logo.get("path") and os.path.exists(logo["path"]):
-        lg = Image.open(logo["path"]).convert("RGBA")
-        h = max(16, int(H * float(logo.get("size") or 0.2)))
-        lg = lg.resize((max(1, int(lg.width * h / lg.height)), h), Image.LANCZOS)
-        la = np.asarray(lg, np.float32) / 255
-        lx = m if "left" in lc else W - lg.width - m
-        ly = m if "top" in lc else H - h - m
-        over(img, gblur(la[..., 3], h * 0.04), lx + h * 0.02, ly + h * 0.03, (0, 0, 0), 0.5)
-        y0, x0 = max(0, ly), max(0, lx)
-        part = la[y0 - ly:min(H, ly + h) - ly, x0 - lx:min(W, lx + lg.width) - lx]
-        al = part[..., 3:4]
-        img[y0:y0 + part.shape[0], x0:x0 + part.shape[1]] = img[y0:y0 + part.shape[0], x0:x0 + part.shape[1]] * (1 - al) + part[..., :3] * al
+        L = logo_layer(logo["path"], H * float(logo.get("size") or 0.2) * S("logo"))
+        x0, y0, lw, lh = L.ink
+        e = place("logo", L, (m if "left" in lc else W - lw - m) - x0, (m if "top" in lc else H - lh - m) - y0)
+        out.append(e)
+        lbox = (e[2] + x0, e[3] + y0, lw, lh)
         taken.add(lc)
-        if name.get("text"):                         # the channel name just under / over the logo
-            nf = font_path(name.get("font")) or fontfile
-            ns = H * 0.036
-            nm = text_mask(name["text"], nf, ns)[0]
-            ed, pd = dilate(nm, ns * 0.12)
-            nx = lx + lg.width / 2 - nm.shape[1] / 2
-            nx = min(W - m - nm.shape[1], max(m, nx))
-            ny = ly + h + ns * 0.3 if "top" in lc else ly - nm.shape[0] - ns * 0.3
-            over(img, ed, nx - pd, ny - pd, (0, 0, 0), 0.85)
-            over(img, nm, nx, ny, (1, 1, 1))
-    elif name.get("text"):                           # no logo: the channel name as a small label in that corner
+    if name.get("text"):
         nf = font_path(name.get("font")) or fontfile
-        ns = H * 0.045
-        nx = m if "left" in lc else W - m
-        ny = m if "top" in lc else H - m - ns * 1.6
-        pill(img, name["text"], nf, ns, nx, ny, (0.06, 0.06, 0.07), (1, 1, 1), "left" if "left" in lc else "right")
-        taken.add(lc)
+        if lbox:                                     # the channel name just under / over the logo
+            N = name_layer(name["text"], nf, H * 0.036 * S("name"))
+            x0, y0, nw, nh = N.ink
+            nx = min(W - m - nw, max(m, lbox[0] + lbox[2] / 2 - nw / 2))
+            ny = lbox[1] + lbox[3] + H * 0.012 if lbox[1] < H / 2 else lbox[1] - nh - H * 0.012
+            out.append(place("name", N, nx - x0, ny - y0))
+        else:                                        # no logo: the channel name as a small label in that corner
+            N = pill_layer(name["text"], nf, H * 0.045 * S("name"), (0.06, 0.06, 0.07), (1, 1, 1))
+            x0, y0, nw, nh = N.ink
+            out.append(place("name", N, (m if "left" in lc else W - nw - m) - x0, (m if "top" in lc else H - nh - m) - y0))
+            taken.add(lc)
     badge = J.get("badge") or {}
     if badge.get("text"):                            # the series word (भय ...) on its colour, in a free top corner
         bc = "top-left" if "top-left" not in taken else ("top-right" if "top-right" not in taken else "bottom-left")
-        bf = font_path(badge.get("font")) or fontfile
-        bs = H * 0.06
-        bx = m if "left" in bc else W - m
-        by = m if "top" in bc else H - m - bs * 1.8
-        pill(img, badge["text"], bf, bs, bx, by, accent, (1, 1, 1) if sum(accent) < 2.2 else (0, 0, 0),
-             "left" if "left" in bc else "right")
+        B = pill_layer(badge["text"], font_path(badge.get("font")) or fontfile, H * 0.06 * S("badge"), accent, on_acc)
+        x0, y0, bw, bh = B.ink
+        out.append(place("badge", B, (m if "left" in bc else W - bw - m) - x0, (m if "top" in bc else H - bh - m) - y0))
+    return out
 
-    out = J["out"]
+
+def background(J, W, H):
+    a = load_picture(J["image"], W, H, J.get("focus", 0.5))
+    a = punch(grade(a, J.get("grade") or ""), J.get("punch", 0))
+    a = vignette(shade(a, J.get("layout") or "bottom", J.get("shade", 0.7)), float(J.get("vignette", 0.35) or 0))
+    return np.ascontiguousarray(a, np.float32)
+
+
+def save_rgb(img, out, quality=92):
+    from PIL import Image
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     im = Image.fromarray((np.clip(img, 0, 1) * 255 + 0.5).astype(np.uint8))
     tmp = out + ".part" + os.path.splitext(out)[1]
     if out.lower().endswith(".png"):
         im.save(tmp, optimize=True)
     else:
-        im.save(tmp, "JPEG", quality=int(J.get("quality") or 92), optimize=True)
+        im.save(tmp, "JPEG", quality=int(quality), optimize=True)
     os.replace(tmp, out)
-    return out
+
+
+def render(J):
+    W, H = int(J.get("w") or 1920), int(J.get("h") or 1080)
+    img = background(J, W, H)
+    frame(img, rgb(J.get("frame_color") or J.get("accent"), (0.85, 0.15, 0.12)), J.get("frame", 0))
+    for n, L, x, y in elements(J, W, H):             # (same order as the page's preview: pieces over the border)
+        put(img, L, x, y)
+    save_rgb(img, J["out"], J.get("quality") or 92)
+    return {}
+
+
+def render_layers(J):
+    """for the page's drag and drop: the background (with the frame) and every piece as its own PNG"""
+    from PIL import Image
+    W, H = int(J.get("w") or 960), int(J.get("h") or 540)
+    d = J["layers"]
+    os.makedirs(d, exist_ok=True)
+    img = background(J, W, H)
+    frame(img, rgb(J.get("frame_color") or J.get("accent"), (0.85, 0.15, 0.12)), J.get("frame", 0))
+    save_rgb(img, os.path.join(d, "bg.jpg"), 85)
+    els = []
+    for n, L, x, y in elements(J, W, H):
+        a = np.clip(L.a, 0, 1)
+        c = np.where(a[..., None] > 1e-4, L.rgb / np.maximum(a[..., None], 1e-4), 0)
+        arr = np.dstack([np.clip(c, 0, 1), a])
+        Image.fromarray((arr * 255 + 0.5).astype(np.uint8), "RGBA").save(os.path.join(d, n + ".png"), optimize=False)
+        h, w = L.shape
+        els.append({"name": n, "x": x / W, "y": y / H, "w": w / W, "h": h / H,
+                    "cx": (x + w / 2) / W, "cy": (y + h / 2) / H})
+    return {"elements": els}
 
 
 def main():
     spec = json.load(open(sys.argv[1], encoding="utf-8"))
     for J in spec if isinstance(spec, list) else [spec]:
         try:
-            render(J)
-            print(json.dumps({"out": J.get("out"), "ok": True}, ensure_ascii=False), flush=True)
+            extra = render_layers(J) if J.get("layers") else render(J)
+            print(json.dumps(dict({"out": J.get("out") or J.get("layers"), "ok": True}, **extra), ensure_ascii=False), flush=True)
         except Exception as e:
             print(json.dumps({"out": J.get("out"), "ok": False, "error": f"{type(e).__name__}: {e}"},
                              ensure_ascii=False), flush=True)
