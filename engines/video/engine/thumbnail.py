@@ -154,20 +154,55 @@ def over(img, mask, x, y, color, alpha=1.0):
     img[y0:y1, x0:x1] = img[y0:y1, x0:x1] * (1 - a) + np.array(color, np.float32) * a
 
 
-class Line:
-    """one row of title letters with its outline, glow and shadow, ready to paint"""
+def words_of(text):
+    """'हवेली का *रहस्य*' -> [('हवेली', False), ('का', False), ('रहस्य', True)]; *...* = accent colour"""
+    import re
+    out = []
+    for m in re.finditer(r"\*([^*]+)\*|(\S+)", str(text or "")):
+        hl = m.group(1) is not None
+        out += [(w, hl) for w in (m.group(1) if hl else m.group(2)).replace("*", "").split()]
+    return out
 
-    def __init__(self, text, fontfile, size, color, J):
-        ink, self.top = text_mask(text, fontfile, size)
+
+def plain(text):
+    return " ".join(w for w, _ in words_of(text))
+
+
+class Line:
+    """one row of letters (each word in its own colour) with outline, glow and shadow, ready to paint"""
+
+    def __init__(self, words, fontfile, size, color, hl_color, J):
+        if isinstance(words, str):
+            words = words_of(words)
+        space = max(size * 0.25, text_width(" ", fontfile, size))
+        parts, x = [], 0.0
+        for w, hl in words:
+            m, top = text_mask(w, fontfile, size)
+            parts.append((m, top, x, hl_color if hl else color))
+            x += m.shape[1] + space
+        t0 = min((p[1] for p in parts), default=0)
+        h = max((p[1] + p[0].shape[0] for p in parts), default=1) - t0
+        w = int(max(1, x - space)) + 1
         ow = float(J.get("outline_w", 0.08)) * size
-        edge, p = dilate(ink, ow)
+        p = int(ow) + 2
         self.pad = int(p + size * 0.5)               # room for the glow and shadow to fade out
+        canvas = lambda: np.zeros((h + 2 * self.pad, w + 2 * self.pad), np.float32)
+        self.fills = []
+        ink = np.zeros((h, w), np.float32)
+        for m, top, x0, col in parts:
+            y0, xi = top - t0, int(round(x0))
+            f = canvas()
+            m = m[:, :w - xi]                        # (rounding can make the last word 1 px too wide)
+            f[self.pad + y0:self.pad + y0 + m.shape[0], self.pad + xi:self.pad + xi + m.shape[1]] = m
+            self.fills.append((f, col))
+            sl = ink[y0:y0 + m.shape[0], xi:xi + m.shape[1]]
+            np.maximum(sl, m, out=sl)
+        edge, p = dilate(ink, ow)
         self.edge = np.pad(edge, self.pad - p)
-        self.fill = np.pad(ink, self.pad)
-        self.color = color
+        self.top = t0
         self.size = size
         self.pitch = size * 1.12                     # this row's share of the block height
-        self.ink_w, self.ink_h = ink.shape[1], ink.shape[0]
+        self.ink_w, self.ink_h = w, h
 
     def paint(self, img, x, y, J):
         """(x, y) = left of the ink, top of the row"""
@@ -180,7 +215,13 @@ class Line:
         over(img, sh, x + self.size * 0.05, y + self.size * 0.06, (0, 0, 0), 0.75)
         if J.get("outline_w", 0.08):
             over(img, self.edge, x, y, rgb(J.get("outline"), (0, 0, 0)))
-        over(img, self.fill, x, y, self.color)
+        for f, col in self.fills:
+            over(img, f, x, y, col)
+
+
+def row_width(text, fontfile, size):
+    ws = [w for w, _ in words_of(text)]
+    return sum(text_width(w, fontfile, size) for w in ws) + max(size * 0.25, text_width(" ", fontfile, size)) * max(0, len(ws) - 1)
 
 
 def block_height(lines):
@@ -266,19 +307,39 @@ def title_block(J, W, H):
     bw, bh = box[2] - box[0], box[3] - box[1]
     color, accent = rgb(J.get("color")), rgb(J.get("accent"), (0.85, 0.15, 0.12))
     size = H * 0.19 * float(J.get("size") or 1.0)
+    rows_in = [str(r) for r in (J.get("rows") or []) if str(r).strip()]
     while True:
-        main = wrap(title, fontfile, size, bw, rows) if title else []
-        subrows = wrap(sub, fontfile, size * 0.56, bw, 2) if sub else []
-        if main is not None and subrows is not None:
-            main = balance(main, fontfile, size, bw)
-            subrows = balance(subrows, fontfile, size * 0.56, bw)
-            lines = [Line(t, fontfile, size, color, J) for t in main] + \
-                    [Line(t, fontfile, size * 0.56, accent, J) for t in subrows]
-            if block_height(lines) <= bh or size < H * 0.05:
-                return lines, box, align
+        if rows_in:                                  # your own rows, word for word: '-' first = a smaller row
+            spec = [(r.strip()[1:].strip(), True) if r.strip().startswith("-") else (r.strip(), False) for r in rows_in]
+            if all(row_width(t, fontfile, size * (0.56 if sm else 1)) <= bw for t, sm in spec):
+                lines = [Line(t, fontfile, size * (0.56 if sm else 1), accent if sm else color, color if sm else accent, J)
+                         for t, sm in spec]
+                if block_height(lines) <= bh or size < H * 0.05:
+                    return lines, box, align
+        else:
+            main = wrap(plain(title), fontfile, size, bw, rows) if title else []
+            subrows = wrap(plain(sub), fontfile, size * 0.56, bw, 2) if sub else []
+            if main is not None and subrows is not None:
+                main = rehighlight(balance(main, fontfile, size, bw), title)
+                subrows = rehighlight(balance(subrows, fontfile, size * 0.56, bw), sub)
+                lines = [Line(t, fontfile, size, color, accent, J) for t in main] + \
+                        [Line(t, fontfile, size * 0.56, accent, color, J) for t in subrows]
+                if block_height(lines) <= bh or size < H * 0.05:
+                    return lines, box, align
         if size < H * 0.05:
             return [], box, align
         size *= 0.93
+
+
+def rehighlight(rows, text):
+    """wrapped plain rows -> word lists that keep the *highlight* marks of the original text"""
+    marks = words_of(text)
+    out, i = [], 0
+    for r in rows:
+        n = len(r.split())
+        out.append(marks[i:i + n])
+        i += n
+    return out
 
 
 def pill(img, text, fontfile, size, x, y, bg, fg, anchor="left"):

@@ -166,7 +166,7 @@ def _override(ep):
 
 def episodes(cfg, series):
     d = _series_dir(cfg, series)
-    rows = []
+    rows, split = [], settings(cfg, series)["split"]
     for ep in glob.glob(os.path.join(d, "*")):
         if not os.path.isdir(ep):
             continue
@@ -175,6 +175,7 @@ def episodes(cfg, series):
             continue
         th = out_path(ep)
         rows.append({"name": os.path.basename(ep), "dir": ep, "title": title_of(ep), "pictures": pics,
+                     "rows": auto_rows(title_of(ep), split),
                      "thumb": th if os.path.isfile(th) else "", "override": _override(ep),
                      "mtime": os.path.getmtime(ep)})
     rows.sort(key=lambda r: -r["mtime"])
@@ -200,6 +201,12 @@ def split_title(t, on):
     return t, ""
 
 
+def auto_rows(t, on):
+    """the episode title as rows for the words box: main words, then '-' + the smaller 2nd line"""
+    a, b = split_title(t, on)
+    return [x for x in (a, ("-" + b) if b else "") if x]
+
+
 def job(cfg, series, s, ep, override=None, out=None, size=(W, H), in_job=False):
     """the engine's job dict for one episode"""
     import tools
@@ -216,6 +223,8 @@ def job(cfg, series, s, ep, override=None, out=None, size=(W, H), in_job=False):
             pic = next((p for p in pics if p["kind"] == "closeup"), shots[0])
         else:
             pic = shots[0]
+    rows = o.get("rows") or []
+    rows = [str(r)[:120] for r in (rows.splitlines() if isinstance(rows, str) else rows) if str(r).strip()][:6]
     if o.get("title") or o.get("sub"):
         title, sub = str(o.get("title") or ""), str(o.get("sub") or "")
     else:
@@ -224,11 +233,11 @@ def job(cfg, series, s, ep, override=None, out=None, size=(W, H), in_job=False):
     J = {"out": out or out_path(ep), "w": size[0], "h": size[1], "image": pic["path"],
          "focus": min(1.0, max(0.0, float(o.get("focus", 0.5) or 0.5))),
          "grade": {"series": G.get("mood", ""), "pop": "pop"}.get(s["grade"], ""),
-         "layout": s["layout"], "title": title, "sub": sub, "kicker": o.get("kicker", s["kicker"]),
+         "layout": s["layout"], "title": title, "sub": sub, "rows": rows, "kicker": o.get("kicker") or s["kicker"],
          "font": s["font"], "size": s["size"], "color": s["color"], "accent": s["accent"], "outline": s["outline"],
          "outline_w": s["outline_w"], "glow": s["glow"], "shade": s["shade"], "vignette": s["vignette"]}
     if s["badge"]:
-        J["badge"] = {"text": s["badge_text"] or G.get("label", "")}
+        J["badge"] = {"text": o.get("badge_text") or s["badge_text"] or G.get("label", "")}
     ch = channel(cfg, series, in_job)
     if ch.get("logo") and s["logo"]:
         J["logo"] = {"path": ch["logo"], "corner": s["logo_corner"], "size": s["logo_size"]}
@@ -299,7 +308,7 @@ def make(cfg, series, ep, override=None, value=None, in_job=False):
     """write <episode>_thumbnail.jpg; a page override is remembered in thumbnail.json"""
     s = settings(cfg, series, in_job) if value is None else _clean(dict(settings(cfg, series), **value))
     if override is not None:
-        keep = {k: override[k] for k in ("picture", "title", "sub", "kicker", "focus") if override.get(k) not in (None, "")}
+        keep = {k: override[k] for k in ("picture", "title", "sub", "rows", "kicker", "badge_text", "focus") if override.get(k) not in (None, "")}
         p = os.path.join(ep, "thumbnail.json")
         if keep:
             json.dump(keep, open(p, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
