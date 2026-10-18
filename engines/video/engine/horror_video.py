@@ -85,6 +85,17 @@ def text_mask(text, fontfile, size):
     return np.asarray(im, np.float32) / 255
 
 
+def logo_sprite(path, h):
+    """the channel logo (PNG with transparency) at h pixels tall, as premultiplied float RGBA (0..1)"""
+    from PIL import Image
+    im = Image.open(path).convert("RGBA")
+    h = max(8, int(h))
+    im = im.resize((max(8, int(im.width * h / im.height)), h), Image.LANCZOS)
+    a = np.asarray(im, np.float32) / 255
+    a[..., :3] *= a[..., 3:4]
+    return a
+
+
 def blur(a, r):
     r = int(max(1, r)); out = a.astype(np.float32)
     for _ in range(2):
@@ -159,15 +170,29 @@ class Video:
         self.cap_i = 0
         # title + badge
         tf = font(_tf) or font("RozhaOne-Regular.ttf") or font("TiroDevanagariHindi-Regular.ttf") or ff
-        self.logo = text_mask(plan.get("label") or "भय", tf, 210)
+        ch = plan.get("channel") or {}                            # the series' own channel: logo and/or name
+        self.logo_img = self.badge_img = None
+        if ch.get("logo") and os.path.exists(ch["logo"]):
+            try:
+                self.logo_img = logo_sprite(ch["logo"], min(H * 0.34, W * 0.52))
+                self.badge_img = logo_sprite(ch["logo"], min(H, W) * 0.11)
+            except Exception as e:
+                print(f"  channel logo not usable ({e}) - the name is drawn", flush=True)
+        label = ch.get("name") or plan.get("label") or "भय"
+        self.logo = text_mask(label, tf, 210 if len(label) < 8 else 130)
         self.title = text_mask(plan.get("title") or "", ff, 64) if plan.get("title") else None
-        self.badge = text_mask(plan.get("label") or "भय", tf, 46)
+        self.badge = text_mask(label, tf, 46)
         self.red = np.array(MOOD["label"], np.float32)
         self._halo = {}
         self.sub = None
         if plan.get("subscribe") and not plan.get("window"):      # the Subscribe + bell ending (not on reels)
             from subscribe_end import SubscribeEnd
             self.sub = SubscribeEnd(plan["subscribe"], W, H)
+            if ch.get("logo") or ch.get("name"):                  # the channel's logo above the buttons, its name below
+                try:
+                    self.sub.brand(ch.get("logo") if self.logo_img is not None else "", ch.get("name") or "")
+                except Exception as e:
+                    print(f"  channel on the ending skipped ({e})", flush=True)
             self.sub.background(self.sc[-1]["image"], self.vig, plan.get("mood") or "horror")   # blurred, in the series colour
 
     def preload(self):
@@ -260,17 +285,38 @@ class Video:
         reg += (np.minimum(np.asarray(col, np.float32), 1) - reg) * mm
         img[y0:y1, x0:x1] = (reg * 255 + 0.5).astype(np.uint8)
 
+    def put_rgba(self, img, spr, x, y, a):
+        """paste a premultiplied RGBA sprite (the channel logo) with opacity a"""
+        h, w = spr.shape[:2]
+        x, y = int(x), int(y)
+        x0, y0, x1, y1 = max(0, x), max(0, y), min(W, x + w), min(H, y + h)
+        if a <= 0.01 or x1 <= x0 or y1 <= y0:
+            return
+        s = spr[y0 - y:y1 - y, x0 - x:x1 - x] * np.float32(a)
+        reg = img[y0:y1, x0:x1].astype(np.float32)
+        img[y0:y1, x0:x1] = np.clip(reg * (1 - s[..., 3:4]) + s[..., :3] * 255 + 0.5, 0, 255).astype(np.uint8)
+
     def overlay(self, img, t, tl):
         T = self.tt
-        if tl < T:                                                # opening: the series name + the title / hook
+        if tl < T:                                                # opening: the channel logo / series name + the title
             a = min(1.0, max(0.0, (tl - 0.8) / 1.5)) * min(1.0, max(0.0, (T - tl) / 1.5))
-            self.put(img, self.logo, (W - self.logo.shape[1]) / 2, H * 0.17, self.red * 1.25, a)
+            if self.logo_img is not None:
+                y0 = H * (0.08 if W > H else 0.12)
+                self.put_rgba(img, self.logo_img, (W - self.logo_img.shape[1]) / 2, y0, a)
+                ty = y0 + self.logo_img.shape[0] * 1.02
+            else:
+                self.put(img, self.logo, (W - self.logo.shape[1]) / 2, H * 0.17, self.red * 1.25, a)
+                ty = H * 0.17 + self.logo.shape[0] * 0.95
             if self.title is not None:
-                self.put(img, self.title, (W - self.title.shape[1]) / 2, H * 0.17 + self.logo.shape[0] * 0.95,
+                self.put(img, self.title, (W - self.title.shape[1]) / 2, ty,
                          (0.86, 0.86, 0.88), a * min(1.0, max(0.0, (tl - 1.5) / 1.5)))
         elif tl < self.len - 5:                                   # small badge, top left
             hide = self.sub.bg_mix(tl) if self.sub is not None else 0.0
-            self.put(img, self.badge, 60, int(H * 0.09), self.red * 1.2, 0.55 * min(1.0, (tl - T) / 2) * (1 - hide))
+            ba = min(1.0, (tl - T) / 2) * (1 - hide)
+            if self.badge_img is not None:
+                self.put_rgba(img, self.badge_img, 50, int(H * 0.06), 0.75 * ba)
+            else:
+                self.put(img, self.badge, 60, int(H * 0.09), self.red * 1.2, 0.55 * ba)
         for (a, b, ms) in self.caps:                              # the spoken line, bottom, inside the safe area
             if a - 0.25 <= t <= b:
                 al = min(1.0, (t - a + 0.25) / 0.25, (b - t) / 0.3)

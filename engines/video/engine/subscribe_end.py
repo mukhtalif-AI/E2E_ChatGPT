@@ -157,6 +157,25 @@ class SubscribeEnd:
         self.pos_bell = (x0 + bw + gap + ww / 2, cy)
         self._rot = {}
         self.bg = None
+        self.logo = self.name = None
+
+    def brand(self, logo_path="", name=""):
+        """the channel's logo above the buttons and its name under them (premultiplied RGBA sprites)"""
+        from PIL import Image, ImageDraw
+        k = self.k
+        if logo_path:
+            im = Image.open(logo_path).convert("RGBA")
+            h = int(min(self.H * 0.30, 200 * k))
+            im = im.resize((max(8, int(im.width * h / im.height)), h), Image.LANCZOS)
+            a = np.asarray(im, np.float32) / 255
+            a[..., :3] *= a[..., 3:4]
+            self.logo = a
+        if name:
+            f = _font(int(34 * k * SS))
+            bb = ImageDraw.Draw(Image.new("L", (8, 8))).textbbox((0, 0), name, font=f)
+            im = Image.new("RGBA", (bb[2] - bb[0] + 24 * SS, bb[3] - bb[1] + 24 * SS), (0, 0, 0, 0))
+            ImageDraw.Draw(im).text((12 * SS - bb[0], 12 * SS - bb[1]), name, font=f, fill=(240, 236, 230, 255))
+            self.name = _finish(im)
 
     def background(self, image_path, vig=None, mood="horror"):
         """the last picture, blurred smooth and graded dark in the series' colour (Bhay: almost black-red), with a
@@ -250,6 +269,13 @@ class SubscribeEnd:
         if m > 0:
             self._paste(img, self.bell_on, *self.pos_bell, ba, bs, ang, key="bell_on")
         self._paste(img, self.bell, *self.pos_bell, ba * (1 - m), bs, ang, key="bell")
+        # the channel: logo above the buttons, name under them, in with the button and out with everything
+        ca = _ease(u / 0.6) * fade
+        mid = (self.pos_sub[0] + self.pos_bell[0]) / 2
+        if self.logo is not None:
+            self._paste(img, self.logo, mid, self.pos_sub[1] - 70 * self.k - self.logo.shape[0] / 2, ca, key="logo")
+        if self.name is not None:
+            self._paste(img, self.name, mid, self.pos_sub[1] + 85 * self.k, ca, key="name")
         # pointer: glides to the button, clicks, glides to the bell, clicks, drifts away
         k = self.k
         start = (self.W * 0.5 + 520 * k, self.pos_sub[1] + 330 * k)

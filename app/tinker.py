@@ -79,6 +79,8 @@ TABLES = {
     "tools.DIRECTION": "Narration direction per series (where to pause and breathe)",
     "story.STORY_PLAN": "Experimental genre stories: plan first + logic check (on, outline_think, check_think, ctx, max_fixes, review = old editorial pass too)",
     "tools.SERIES_LOOK": "Experimental: fixed picture look per series (on, keep_era, look; lead = the medium put first in every shot) instead of the director's look",
+    "tools.CHANNEL": "Experimental: channel per series - on, name, logo (PNG path, transparent background), thumb (logo on the "
+                     "thumbnail). Shown on the opening, corner badge, Subscribe ending and thumbnail",
     "sfx_lib.SERIES": "Sound effects per series: [effect list, effects per minute]",
     "sound_words.SOUND_WORDS": "Sound words taken out of the speech and played as effects: on, pause_s, kinds (words in Hindi / Roman, library file names best first)",
     "audio_screen.LIMITS": "Audio screening limits: speech band share, piercing highs, music ducking, clarity dB",

@@ -471,6 +471,35 @@ def _subscribe_end(ctx, narration, audio, total, lines):
     return S, outp
 
 
+def _channel(cfg, genre, say=None):
+    """Experimental: the series' channel name + logo path from tools.CHANNEL ({} = the old text label)"""
+    c = (tools.CHANNEL.get(genre) or {}) if _is_exp(cfg) else {}
+    if not c.get("on"):
+        return {}
+    name, logo = str(c.get("name") or "").strip(), str(c.get("logo") or "").strip()
+    if logo and not (os.path.isabs(logo) or (len(logo) > 2 and logo[1] == ":")):
+        logo = os.path.join(cfg.get("experimental_root") or "", "Library", "Assets", logo)
+    if logo and not os.path.exists(logo):
+        if say:
+            say(f"   channel logo not found ({logo}) - the name is used instead")
+        logo = ""
+    if not (name or logo):
+        return {}
+    return {"name": name, "logo": logo, "thumb": c.get("thumb", True) is not False}
+
+
+def _logo_on_thumb(png, logo):
+    """the channel logo in the top-right corner of the episode thumbnail (a copy of the first picture)"""
+    from PIL import Image
+    im = Image.open(png).convert("RGBA")
+    lg = Image.open(logo).convert("RGBA")
+    h = int(im.height * 0.24)
+    lg = lg.resize((max(1, int(lg.width * h / lg.height)), h), Image.LANCZOS)
+    m = int(im.height * 0.035)
+    im.alpha_composite(lg, (im.width - lg.width - m, m))
+    im.convert("RGB").save(png)
+
+
 def horror_video(ctx, name, pictures, narration, out, title="", genre="bhay", subtitle_text=""):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
@@ -519,6 +548,10 @@ def horror_video(ctx, name, pictures, narration, out, title="", genre="bhay", su
             "scenes": scenes, "lines": lines}
     if sub:
         plan["subscribe"] = sub
+    ch = _channel(cfg, genre, say)
+    if ch:                                                 # Experimental: the series' own channel name + logo
+        plan["channel"] = {"name": ch["name"], "logo": ch["logo"]}
+        say(f"   channel: {ch['name'] or '-'}" + (f", logo {os.path.basename(ch['logo'])}" if ch["logo"] else ""))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     pj = os.path.join(pictures, "video_plan.json")
     json.dump(plan, open(pj, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -530,8 +563,10 @@ def horror_video(ctx, name, pictures, narration, out, title="", genre="bhay", su
         open(os.path.join(ep, "title.txt"), "w", encoding="utf-8").write((title or name) + "\n")
         if scenes:
             shutil.copyfile(scenes[0]["image"], os.path.join(ep, os.path.basename(ep) + ".png"))
-    except OSError:
-        pass
+            if ch.get("logo") and ch.get("thumb"):
+                _logo_on_thumb(os.path.join(ep, os.path.basename(ep) + ".png"), ch["logo"])
+    except Exception as e:
+        say(f"   (episode folder copy: {e})")
     rc = ctx["run_cmd"]([cfg["studio_python"], "-u", "-s", os.path.join(cfg["studio_dir"], "engine", "horror_video.py"),
                          pj, out], cwd=cfg["studio_dir"])
     if rc == 0:

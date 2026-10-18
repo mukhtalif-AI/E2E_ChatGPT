@@ -211,6 +211,18 @@ SERIES_LOOK = {
               "look": "matte gouache paint, simplified forms, visible brush texture, deep indigo, saffron and warm "
                       "terracotta palette"},
 }
+# Experimental: each series' own channel - name and logo (PNG, transparent background) on the opening, the small
+# corner badge, the Subscribe ending and the episode thumbnail. on = False or empty name/logo -> the old text label.
+# A logo path that is not absolute is looked up in <experimental_root>\Library\Assets. thumb = logo on the thumbnail.
+CHANNEL = {
+    "bhay": {"on": True, "name": "Haunted Gatha", "logo": r"D:\MukhtalifGPT\Library\Assets\Haunted_Gatha_Logo.png",
+             "thumb": True},
+    "rahasya": {"on": False, "name": "", "logo": "", "thumb": True},
+    "kisse": {"on": False, "name": "", "logo": "", "thumb": True},
+    "romanch": {"on": False, "name": "", "logo": "", "thumb": True},
+    "kareeb": {"on": False, "name": "", "logo": "", "thumb": True},
+    "gyaan": {"on": False, "name": "", "logo": "", "thumb": True},
+}
 THEMES = {"sukoon_theme": "Sukoon thumbnails", "kisse_theme": "Kisse thumbnails"}
 VISION_ASK = (
     "You are a visual style analyst. Look at this YouTube thumbnail and answer ONLY as JSON with keys: "
