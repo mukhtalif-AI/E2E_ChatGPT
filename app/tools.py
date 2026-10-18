@@ -187,6 +187,11 @@ SERIES_LOOK = {
     "bhay": {"on": True, "keep_era": True,
              "look": "desaturated moody palette (deep blues, greys), dim tungsten lighting with heavy shadows, "
                      "hyper-realistic oil painting style"},
+    # Kisse = gouache (18 Oct style test, _tmp/kisse_style_20261018): clearly painted, warm, faces hold across shots.
+    # lead = the medium, put FIRST in every shot prompt (Z-Image ignored the medium at the end)
+    "kisse": {"on": True, "keep_era": True, "lead": "Warm gouache storybook illustration",
+              "look": "flat matte gouache paint, simplified soft faces, visible brush texture, warm ochre, "
+                      "terracotta and muted teal palette, gentle golden light"},
 }
 THEMES = {"sukoon_theme": "Sukoon thumbnails", "kisse_theme": "Kisse thumbnails"}
 VISION_ASK = (

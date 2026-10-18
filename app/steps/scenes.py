@@ -732,6 +732,7 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             and not _PEOPLE.search(era) else ""
         look = (era + ", " if era else "") + fixed["look"]
         say("   the series' fixed picture look is used (tools.SERIES_LOOK)")
+    lead = str(fixed.get("lead") or "").strip().rstrip(".") if fixed.get("on") and fixed.get("look") else ""
     character_anchors = d.get("character_anchors") or {}
     if look:
         say(f"   the look of this story: {look}")
@@ -773,6 +774,8 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
                 pr = f"{scene.rstrip('. ')}. {after}." + (f" Setting and style: {look_p}" if look_p else "")
             if anchor:
                 pr = f"{anchor}. {pr}"
+            if lead:                        # the series' medium before everything (at the end it was ignored)
+                pr = f"{lead}. {pr}"
         elif anchor:
             pr += f" Character continuity anchor: {anchor}. Keep this character design unchanged."
         cues = []
@@ -884,7 +887,8 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             continue
         moments.append({"file": f"m{len(moments) + 1:02d}.png", "at": round(at, 2), "words": mo["words"],
                         "character": "",
-                        "prompt": f"Close-up detail: {mo['prompt']}" + (f". Setting and style: {look_p}" if look_p else "")})
+                        "prompt": (f"{lead}. " if lead else "") + f"Close-up detail: {mo['prompt']}"
+                        + (f". Setting and style: {look_p}" if look_p else "")})
         say(f"   moment at {int(at // 60)}:{int(at % 60):02d} ('{mo['words']}'): {str(mo['prompt'])[:90]}")
     json.dump({"source": narration, "voice_key": _voice_key(narration), "look": look, "shots": shots, "moments": moments},
               open(os.path.join(out, "shots.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
