@@ -585,10 +585,16 @@ def _visual_bible(cfg, say, desc, parts, anchors, look):
     except Exception as e:
         say(f"   (no fixed descriptions for characters and objects: {e} - the planner's notes are used)")
         return {}, {}
-    chars = {str(k): _anchor_text(x) for k, x in (v.get("characters") or {}).items() if _anchor_text(x)}
+    chars = {}
+    for k, x in (v.get("characters") or {}).items():
+        if isinstance(x, dict) and x.get("look"):            # {"look": full description, "outfit": clothes only}
+            chars[str(k)] = {"look": str(x["look"]).strip(), "outfit": str(x.get("outfit") or "").strip()}
+        elif _anchor_text(x):
+            chars[str(k)] = {"look": _anchor_text(x), "outfit": ""}
     things = {str(k).strip().lower(): _anchor_text(x) for k, x in (v.get("things") or {}).items()
               if _anchor_text(x) and len(str(k).split()) <= 2}
-    say(f"   fixed descriptions by {model}: " + "; ".join(f"{k}: {x[:70]}" for k, x in list(chars.items()) + list(things.items())))
+    say(f"   fixed descriptions by {model}: " + "; ".join([f"{k}: {x['look'][:70]}" for k, x in chars.items()]
+                                                          + [f"{k}: {x[:70]}" for k, x in things.items()]))
     return chars, things
 
 
@@ -598,18 +604,32 @@ def _named_character(text, ids):
     return hits[0] if len(hits) == 1 else ""
 
 
+_WIDE_SHOT = re.compile(r"\b(wide|establishing|far|distance|distant|long shot|aerial|tiny)\b", re.I)
+_MANY_IN_SHOT = re.compile(r"\b(two|three|both|together|figures|silhouettes|people|crowd|group|men|women|children|"
+                           r"couple|pair|each other)\b", re.I)
+_CHILD = re.compile(r"\b(child|boy|girl|kid|baby|toddler|son|daughter)\b", re.I)
+_ADULT = re.compile(r"\b(man|woman|father|mother|elderly|old)\b", re.I)
+
+
 def _lead_for(scene, character, chars, things, anchor=""):
-    """(fixed descriptions for this picture, seed key): the character only when a person is in the shot (17 Oct: an
-    object or empty-place shot got the character painted in), key objects when the scene names them"""
-    lead, key = [], ""
+    """(fixed descriptions to put FIRST, clothes to add after the scene, seed key). The full description goes first
+    only when one person is seen up close; a wide shot or a shot of two people (two figures, a man and a child) gets
+    only the clothes after the scene, else the painter adds that person as a big portrait in front (18 Oct test).
+    No character in an object or empty-place shot (17 Oct); key objects when the scene names them."""
+    lead, after, key = [], "", ""
     if character and _IN_SHOT.search(scene):
-        lead.append(chars.get(character) or anchor)
+        c = chars.get(character) or {"look": anchor, "outfit": ""}
         key = character
+        if _WIDE_SHOT.search(scene) or _MANY_IN_SHOT.search(scene) or (_CHILD.search(scene) and _ADULT.search(scene)):
+            after = f"The {'child' if _CHILD.search(character) else 'person'} {character.split('_')[0]} wears {c['outfit']}" \
+                if c.get("outfit") else ""
+        else:
+            lead.append(c.get("look") or anchor)
     for k, v in things.items():
         if re.search(r"\b" + re.escape(k) + r"(e?s)?\b", scene, re.I):
             lead.append(f"The {k}: {v}")
             key = key or k
-    return ". ".join(a.strip().rstrip(".") for a in lead if a and a.strip()), key
+    return ". ".join(a.strip().rstrip(".") for a in lead if a and a.strip()), after, key
 
 
 def _shot_seed(name, key):
@@ -748,7 +768,9 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
         seed_key = ""
         if exp:                             # 18 Oct: the fixed descriptions go FIRST (the model weighs the start most)
-            anchor, seed_key = _lead_for(scene, character, chars, things, anchor)
+            anchor, after, seed_key = _lead_for(scene, character, chars, things, anchor)
+            if after:
+                pr = f"{scene.rstrip('. ')}. {after}." + (f" Setting and style: {look_p}" if look_p else "")
             if anchor:
                 pr = f"{anchor}. {pr}"
         elif anchor:
