@@ -192,6 +192,24 @@ SERIES_LOOK = {
     "kisse": {"on": True, "keep_era": True, "lead": "Warm gouache storybook illustration",
               "look": "flat matte gouache paint, simplified soft faces, visible brush texture, warm ochre, "
                       "terracotta and muted teal palette"},
+    # 18 Oct genre style test (_tmp/genre_styles_20261018): Bhay keeps its look (charcoal turned night scenes to
+    # light paper). The looks name medium + palette + texture, never a time of day, so night scenes stay dark.
+    # Rahasya = low-key noir gouache: painted, mystery not horror, night shots stay dark (ink-and-wash went bright).
+    "rahasya": {"on": True, "keep_era": True, "lead": "Low-key noir gouache illustration",
+                "look": "flat matte gouache paint, simplified faces, deep black shadows, muted teal, smoky grey "
+                        "and amber palette, visible brush texture"},
+    # Romanch = soft pastel: tender, faces hold across shots (the old look was photo-like, two people everywhere)
+    "romanch": {"on": True, "keep_era": True, "lead": "Soft pastel romantic illustration",
+                "look": "soft chalk-pastel texture, gentle rounded faces, rose pink, peach and dusty lavender "
+                        "palette, tender and elegant"},
+    # Kareeb = lo-fi painted: dark cosy nights with a lamp glow (pastel and watercolour came out daytime-bright)
+    "kareeb": {"on": True, "keep_era": True, "lead": "Muted lo-fi painted illustration",
+               "look": "lo-fi anime-style painted illustration, soft grainy texture, muted navy, dusty rose and "
+                       "warm lamp-amber palette, calm and cosy"},
+    # Gyaan = textured gouache editorial: clear like an explainer, still has mood for myth and history topics
+    "gyaan": {"on": True, "keep_era": True, "lead": "Textured gouache editorial illustration",
+              "look": "matte gouache paint, simplified forms, visible brush texture, deep indigo, saffron and warm "
+                      "terracotta palette"},
 }
 THEMES = {"sukoon_theme": "Sukoon thumbnails", "kisse_theme": "Kisse thumbnails"}
 VISION_ASK = (
