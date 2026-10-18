@@ -37,8 +37,9 @@ PATH_ALIASES = {
 }
 
 
-def load_config():
-    with open(CONFIG_FILE, encoding="utf-8-sig") as f:
+def load_config(path=None):
+    """path: another config.json in the same shape (tests use a private copy); relative paths still resolve from ROOT"""
+    with open(path or CONFIG_FILE, encoding="utf-8-sig") as f:
         cfg = json.load(f)
     paths = cfg.get("paths") or {}
     layout = dict(DEFAULT_LAYOUT)

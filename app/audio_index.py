@@ -13,7 +13,11 @@ Result: <media_dir>\\audio_index.json   (re-run = only new files are measured)
 import glob, json, os, re, subprocess, sys, time
 import numpy as np
 
-CFG = json.load(open(sys.argv[1], encoding="utf-8-sig"))
+# 18 Oct 2026: config.json keeps its paths under "paths" (hub_output_root, music_root ...); read it through path_config
+# like the hub does, so media_dir / music_dir / ffmpeg exist here too (it stopped with KeyError: 'media_dir')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import path_config
+CFG = path_config.load_config(sys.argv[1])
 ROOT = os.path.dirname(os.path.abspath(sys.argv[1]))
 STUDIO = os.path.join(ROOT, *CFG.get("studio_dir", "engines\\video").replace("/", "\\").split("\\")) \
     if not os.path.isabs(CFG.get("studio_dir", "")) else CFG["studio_dir"]
