@@ -611,6 +611,25 @@ _CHILD = re.compile(r"\b(child|boy|girl|kid|baby|toddler|son|daughter)\b", re.I)
 _ADULT = re.compile(r"\b(man|woman|father|mother|elderly|old)\b", re.I)
 
 
+_ONE_SHAPE = re.compile(r"\b(?:an?|the|one)\s+((?:(?:lone|dark|shadowy|solitary|black)\s+)*)(?:silhouette|figure)"
+                        r"(?:\s+of\s+an?\s+(man|woman|boy|girl|child|person))?\b", re.I)
+
+
+def _up_close(scene, character):
+    """one person seen up close: that person's full description goes first (not a wide shot, not two people)"""
+    return bool(character and _IN_SHOT.search(scene)) and not (
+        _WIDE_SHOT.search(scene) or _MANY_IN_SHOT.search(scene) or (_CHILD.search(scene) and _ADULT.search(scene)))
+
+
+def _one_subject(scene):
+    """'A dark silhouette of a man' / 'a lone figure' -> 'The man in deep shadow' / 'the person': with the person's
+    full description first, the painter drew the silhouette AND the person (18 Oct, shot 007). Singular only."""
+    def one(m):
+        who = f"the {(m.group(2) or 'person').lower()}" + (" in deep shadow" if re.search(r"dark|shadowy|black", m.group(1), re.I) else "")
+        return who[0].upper() + who[1:] if m.group(0)[0].isupper() else who
+    return _ONE_SHAPE.sub(one, scene)
+
+
 def _lead_for(scene, character, chars, things, anchor=""):
     """(fixed descriptions to put FIRST, clothes to add after the scene, seed key). The full description goes first
     only when one person is seen up close; a wide shot or a shot of two people (two figures, a man and a child) gets
@@ -620,7 +639,7 @@ def _lead_for(scene, character, chars, things, anchor=""):
     if character and _IN_SHOT.search(scene):
         c = chars.get(character) or {"look": anchor, "outfit": ""}
         key = character
-        if _WIDE_SHOT.search(scene) or _MANY_IN_SHOT.search(scene) or (_CHILD.search(scene) and _ADULT.search(scene)):
+        if not _up_close(scene, character):
             after = f"The {'child' if _CHILD.search(character) else 'person'} {character.split('_')[0]} wears {c['outfit']}" \
                 if c.get("outfit") else ""
         else:
@@ -769,6 +788,9 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
         seed_key = ""
         if exp:                             # 18 Oct: the fixed descriptions go FIRST (the model weighs the start most)
+            if _up_close(scene, character):         # the full description goes first -> one subject, not two
+                scene = _one_subject(scene)
+                pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
             anchor, after, seed_key = _lead_for(scene, character, chars, things, anchor)
             if after:
                 pr = f"{scene.rstrip('. ')}. {after}." + (f" Setting and style: {look_p}" if look_p else "")

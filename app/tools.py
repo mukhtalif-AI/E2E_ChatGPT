@@ -191,7 +191,7 @@ SERIES_LOOK = {
     # lead = the medium, put FIRST in every shot prompt (Z-Image ignored the medium at the end)
     "kisse": {"on": True, "keep_era": True, "lead": "Warm gouache storybook illustration",
               "look": "flat matte gouache paint, simplified soft faces, visible brush texture, warm ochre, "
-                      "terracotta and muted teal palette, gentle golden light"},
+                      "terracotta and muted teal palette"},
 }
 THEMES = {"sukoon_theme": "Sukoon thumbnails", "kisse_theme": "Kisse thumbnails"}
 VISION_ASK = (
