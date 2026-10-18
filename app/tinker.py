@@ -86,6 +86,9 @@ TABLES = {
     "audio_screen.LIMITS": "Audio screening limits: speech band share, piercing highs, music ducking, clarity dB",
     "audio_screen.MOOD_FIT": "Music must sound like its mood folder: per mood pulse_max (steady beat 0-1) and no_groove "
                              "(steady beat + bright sound); a track that breaks it is not picked",
+    "emotion_music.STINGERS": "Stingers per series (turns, scene hits, mood effects together): min_gap_s between two, per_min "
+                              "at most per minute of story, strongest emotion kept first; bed_peak_db = how far an ambience "
+                              "bed may rise over its usual level",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
     "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
     "narrator.SERIES": "Corner narrator per series: on, narrator, corner / size / margin for the video and reels (Narrator page)",

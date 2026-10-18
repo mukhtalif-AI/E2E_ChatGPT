@@ -1,6 +1,7 @@
 # HubGPT project map
 
 Last reviewed against source: 17 Oct 2026. Start here for the current architecture.
+**Rule (agreed 17 Oct):** commit before and after each change (Save / Git page or git); make no more `*_old_*` backup copies, git is the backup.
 Companion files in the same folder: `CHANGELOG.md` (what changed when), `KNOWN_PROBLEMS.md` (what is wrong,
 what is right, what was decided), `CLEANUP_PLAN.md` (historical cleanup status and remaining proposals).
 Older long notes: `README.txt` (how to use the app) and `HANDOFF_HUB.txt` (history v1 to v4.3).
@@ -162,6 +163,7 @@ The `stages` list (script, voice, scenes, sound, pictures, video, reels) lets a 
 | Gemini / Pixabay / Freesound keys, script engine | `secrets.json` | Settings page |
 | Series settings (music folders, voice, pause, drama) | `tools.GENRES` | Tinker > Series settings |
 | Picture looks per series | `tools.STYLES` | Tinker |
+| Channel name + logo per series (opening, badge, Subscribe ending, thumbnail; Experimental) | `tools.CHANNEL` | Tinker |
 | Voice direction per emotion | `tools.DIRECTION` | Tinker |
 | Writing rules, story shapes, topics per genre | `story.GENRE_TEXT / GENRE_TELLINGS / LEVELS`, overridden by `genre_rules.json` | Tinker > Writing rules |
 | Long prompts (scene planner, artwork, picker) | `story.py` / `tools.py` constants | Tinker > Prompts |

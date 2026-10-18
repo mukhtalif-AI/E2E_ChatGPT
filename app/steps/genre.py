@@ -234,8 +234,18 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     voice_db = 20 * np.log10(float(np.sqrt(np.mean(mix.astype(np.float64) ** 2))) + 1e-9)
     added = 0
     exp = _is_exp(cfg)
+    sp_plan = None
     if exp:                                                 # one bed per place: runs, no restart, crossfade at changes
-        added += _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say)
+        import emotion_music
+        added += _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say,
+                           peak_db=emotion_music.sting_settings(genre).get("bed_peak_db"))
+        # 18 Oct 2026: turns, scene hits and mood effects share one limit (gap + per minute, strongest first);
+        # mix() already applied it to the turns with the same answer
+        sp_plan = emotion_music.stinger_plan(genre, shots, emotion_music.active(cfg, pictures, genre) if emo else None)
+        if not emo:
+            for e in sp_plan["dropped"]:
+                say(f"   stinger left out at {int((lead + e['at']) // 60)}:{int((lead + e['at']) % 60):02d}: "
+                    f"{e['what']} ({e['why']})")
     for i, s in enumerate(shots):
         a = int((lead + float(s["start"])) * sr)
         b = int((lead + float(shots[i + 1]["start"] if i + 1 < len(shots) else s["end"] + 4)) * sr)
@@ -249,7 +259,7 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
                 env = np.minimum(1, np.minimum(np.arange(need) / (2 * sr), (need - np.arange(need)) / (2 * sr)))[:, None]
                 mix[a:b] += (rep_ * g * env * bed(a, b)).astype(np.float32)
                 added += 1
-        if s.get("hit") and os.path.exists(s["hit"]) and i > 0:
+        if s.get("hit") and os.path.exists(s["hit"]) and i > 0 and (sp_plan is None or i in sp_plan["hits"]):
             h = tools._decode(cfg, s["hit"], sr, 2)[: 6 * sr]
             g = 10 ** ((voice_db - 9 - 20 * np.log10(float(np.sqrt(np.mean(h ** 2))) + 1e-9)) / 20)
             st = max(0, a - int(0.3 * sr))
@@ -260,8 +270,11 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     norm = lambda t: re.sub(r"[^\w\s]", "", str(t)).split()
     cue_db = {"bhay": -10, "rahasya": -11, "kisse": -13, "romanch": -15, "kareeb": -16}.get(genre, -14)
     used, ncue = [], 0
-    for s in shots:
-        for c in s.get("cues") or []:
+    for si, s in enumerate(shots):
+        for ci, c in enumerate(s.get("cues") or []):
+            if sp_plan is not None and c.get("at") is not None and (si, ci) not in sp_plan["cues"] \
+                    and emotion_music._is_sting_file(c.get("file")):
+                continue                                    # a mood effect too close to a stronger stinger
             w = norm(c.get("words"))
             if not w or not os.path.exists(c.get("file", "")):
                 continue
@@ -337,7 +350,7 @@ def _bed_loop(amb, need, sr):
     return out
 
 
-def _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say, xfade=3.0, edge=2.0):
+def _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say, xfade=3.0, edge=2.0, peak_db=None):
     """Experimental (17 Oct 2026 sound cross-check): scenes in a row with the same bed share ONE loop that keeps
     running (before, every scene restarted its bed with a 2 s fade out and in). A change of bed is a 3 s equal-power
     crossfade; the start and end of a bed fade over 2 s as before."""
@@ -352,12 +365,20 @@ def _bed_runs(cfg, shots, mix, lead, sr, voice_db, bed, say, xfade=3.0, edge=2.0
         elif b > a:
             runs.append([f, a, b])
     added, half = 0, int(xfade * sr / 2)
+    told = set()
     for j, (f, a, b) in enumerate(runs):
         if not f:
             continue
         amb = tools._decode(cfg, f, sr, 2)
         if len(amb) <= sr:
             continue
+        if peak_db is not None:                             # 18 Oct 2026: a bed full of hits is held steady
+            import emotion_music
+            amb, n_pk = emotion_music.tame_bed(amb, sr, peak_db)
+            if n_pk >= 3 and f not in told:
+                told.add(f)
+                say(f"   ambience {os.path.basename(f)}: {n_pk} loud hits in the file held to {peak_db:g} dB over its "
+                    f"usual level (a bed should stay steady)")
         cross_in = j > 0 and runs[j - 1][0] and runs[j - 1][2] >= a - sr
         cross_out = j + 1 < len(runs) and runs[j + 1][0] and runs[j + 1][1] <= b + sr
         a2 = max(0, a - half) if cross_in else a

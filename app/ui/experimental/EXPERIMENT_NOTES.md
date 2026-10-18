@@ -181,3 +181,6 @@ ambience and effects were planned but none were placed.
   soundscape move runs (`tests\soundscape_move.py`, not run yet) or a library top-up downloads into it.
 - Shared-file boundary: all of the above checks `experimental_mode`; Gyaan, Kareeb, Sukoon and Working keep one track.
   Gyaan and Kareeb Experimental runs do see the new effect lists.
+- **Channel name + logo per series** (18 Oct, git efd1a9d): Tinker table `tools.CHANNEL`; `steps\genre.horror_video` adds
+  `plan["channel"]` and stamps the thumbnail only when `experimental_mode` is set, so Working videos keep the text label.
+  Shared engine files `horror_video.py` / `subscribe_end.py` draw the logo only when the plan has `channel`.

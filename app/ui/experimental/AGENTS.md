@@ -9,8 +9,8 @@
 ## Notes to read and keep up to date (16 Oct 2026)
 
 - Before changing code, read `PROJECT_MAP.md`, `CHANGELOG.md`, `KNOWN_PROBLEMS.md` (its Decisions table) and `CLEANUP_PLAN.md` in the hub folder, and `EXPERIMENT_NOTES.md` here. Re-read them right before editing: other sessions change them too.
-- After a change, add one row to `CHANGELOG.md` under today's date with the files, an honest status (verified on PC / ran live / compiled only / untested; say when something was only tested on a copy or with a fake AI) and the backup suffix. Note shared-file boundaries in `EXPERIMENT_NOTES.md`.
-- Back up each file next to itself as `<file>_old_<YYYYMMDD_HHMMSS>_<what>` before editing. Never delete without the user's OK.
+- After a change, add one row to `CHANGELOG.md` under today's date with the files, an honest status (verified on PC / ran live / compiled only / untested; say when something was only tested on a copy or with a fake AI) and the commit id. Note shared-file boundaries in `EXPERIMENT_NOTES.md`.
+- Commit before and after each change (git is the backup; no `*_old_*` copies, rule agreed 17 Oct). Never delete without the user's OK.
 - Experimental data lives under `config.json` `paths.experimental_root` (`D:\MukhtalifGPT`); `D:\HubGPT` is read only.
 - Picture prompts and repaint prompts must say what to paint, never "no X": Z-Image Turbo ignores negatives.
 - Since 17 Oct most of `app/tools.py` lives in `app/steps/*.py` (map in `PROJECT_MAP.md`). Edit a function where it lives. In `app/steps/` write `tools.X` for tables, prompts and the swapped functions (rules in `TOOLS_SPLIT_PLAN.md`), and run `tests/smoke_tools.py` after a change.

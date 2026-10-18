@@ -45,6 +45,22 @@ MAX_TRACKS = 3                       # your rule: never more than 3 tracks in on
 HEAVY_KINDS = ("death", "twist", "betrayal", "loss")    # only these may be weight 3
 KINDS = ("twist", "reveal", "death", "loss", "betrayal", "scare", "confession", "realisation", "relief")
 TURN_GAP_S = 30                      # two stingers at least this far apart
+# every stinger in one story (18 Oct 2026, Bhay-Acoustic-Parasite-Mystery: 37 stinger-like sounds in 6.3 min, 23 of them
+# under 5 s apart). A stinger is a turn of weight 2-3 (the music stops before the line), a scene hit (braam, impact) or an
+# effect from a mood-sound folder (STING_WORDS). They all compete: the heaviest emotion first, then the earliest; one is
+# kept only when no kept stinger is within min_gap_s, and at most per_min a minute of story (at least 1).
+# bed_peak_db: an ambience bed may rise at most this far above its own usual level (beds are meant to be steady; a file
+# full of hits used as a bed is flattened instead of stinging every few seconds). Tinker: emotion_music.STINGERS.
+STINGERS = {
+    "bhay": {"on": True, "min_gap_s": 20, "per_min": 1.5, "bed_peak_db": 6},
+    "rahasya": {"on": True, "min_gap_s": 25, "per_min": 1.2, "bed_peak_db": 6},
+    "kisse": {"on": True, "min_gap_s": 40, "per_min": 0.6, "bed_peak_db": 5},
+    "romanch": {"on": True, "min_gap_s": 45, "per_min": 0.5, "bed_peak_db": 5},
+    "gyaan": {"on": True, "min_gap_s": 40, "per_min": 0.6, "bed_peak_db": 5},
+    "kareeb": {"on": True, "min_gap_s": 45, "per_min": 0.5, "bed_peak_db": 5},
+    "default": {"on": True, "min_gap_s": 30, "per_min": 1.0, "bed_peak_db": 6},
+}
+STING_WORDS = ("braam", "impact", "hit", "sting", "riser", "whoosh", "boom", "scream", "whisper", "slam", "thud")
 # emotion mark -> music folders that fit it, best first (the first one the series has wins)
 TAG_MOOD = {"डर": ("Dark", "Tension", "Eerie"), "रहस्य": ("Tension", "Dark", "Eerie"), "उदास": ("Sad", "Calm"),
             "प्यार": ("Love", "Calm"), "गुस्सा": ("Tension", "Dark"), "उत्साह": ("Happy", "Love"),
@@ -823,6 +839,10 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
     if not m:
         return None
     s = settings(genre)
+    shots = (_load(os.path.join(pictures or "", "shots.json"), {}) or {}).get("shots") or []
+    sp_plan = stinger_plan(genre, shots, m)                    # all stingers of the story compete (18 Oct 2026)
+    m["turns"] = [t for k, t in enumerate(m.get("turns") or [])
+                  if int(t.get("weight", 0)) < 2 or k in sp_plan["turns"]]
     d = tools.narration_dir(cfg, name, existing=True)
     vp = os.path.join(d, "narration.wav")
     if not os.path.exists(vp):
@@ -891,6 +911,8 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
         say(f"   music {fmt(x['start'])}-{fmt(x['end'])}: {x['mood']} - {os.path.basename(x['file'])}"
             f"{' (crossfade ' + str(s.get('crossfade_s')) + ' s)' if x['cut'] == 'crossfade' else ''}"
             f"{' (comes back in this mood after the heavy line)' if x['cut'] == 'return' else ''}")
+    for e in sp_plan["dropped"]:
+        say(f"   stinger left out at {fmt(lead + e['at'])}: {e['what']} ({e['why']})")
     for t in m.get("turns") or []:
         what = {1: "music dips", 2: "music stops before the line", 3: "music, ambience and effects stop"}.get(t["weight"], "")
         sil = f" ({drop_len(s, t['weight'], t):g} s of silence)" if t["weight"] >= 2 and drop_len(s, t["weight"], t) else ""
@@ -904,6 +926,84 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
     if ok:
         say(f"   -> {outp}  ({end / 60:.1f} min, music follows the emotion map)")
     return {"ok": ok, "bed": info["bed"].tolist(), "tracks": tracks, "lead": lead}
+
+
+def sting_settings(genre):
+    x = dict(STINGERS.get("default") or {})
+    x.update(STINGERS.get(genre) or {})
+    return x
+
+
+def _is_sting_file(path):
+    p = str(path or "").replace("\\", "/").lower()
+    return any(re.search(r"(^|[/_ .-])" + w, p) for w in STING_WORDS)
+
+
+def stinger_plan(genre, shots, m=None, total_s=None):
+    """which stingers of one story are kept: {"turns": {turn index}, "hits": {scene index}, "cues": {(scene, cue)},
+    "kept": [...], "dropped": [...]} (story times, no lead). m: the emotion map whose turns are mixed, or None.
+    Same inputs, same answer: mix() uses it for the turns, horror_sound for the hits and effects."""
+    st = sting_settings(genre)
+    shots = shots or []
+    scenes = (m or {}).get("scenes") or []
+    wt = lambda i: float(scenes[i]["weight"]) if 0 <= i < len(scenes) else 1.0
+    ev = []
+    for k, t in enumerate((m or {}).get("turns") or []):
+        if int(t.get("weight", 0)) >= 2:
+            ev.append({"kind": "turn", "id": k, "at": float(t["at"]), "prio": 10 * int(t["weight"]) + 2,
+                       "what": f"turn w{t['weight']} {t.get('words', '')}"})
+    for i, sh in enumerate(shots):
+        if sh.get("hit") and i > 0:
+            ev.append({"kind": "hit", "id": i, "at": float(sh.get("start", 0)) - 0.3, "prio": 10 * max(2.0, wt(i)) + 1,
+                       "what": "hit " + re.split(r"[\\/]", str(sh["hit"]))[-1]})
+        for j, c in enumerate(sh.get("cues") or []):
+            if c.get("at") is not None and _is_sting_file(c.get("file")):
+                ev.append({"kind": "cue", "id": (i, j), "at": float(c["at"]), "prio": 10 * wt(i),
+                           "what": "effect " + re.split(r"[\\/]", str(c.get("file") or ""))[-1]})
+    if total_s is None:
+        total_s = max([float(x.get("end", 0)) for x in shots] + [60.0])
+    cap = max(1, int(round(float(st.get("per_min", 1.0)) * total_s / 60.0)))
+    gap = float(st.get("min_gap_s", 30))
+    kept, dropped = [], []
+    for e in sorted(ev, key=lambda e: (-e["prio"], e["at"])):
+        if not st.get("on", True):
+            kept.append(e)
+        elif len(kept) >= cap:
+            dropped.append(dict(e, why=f"over {cap} stingers for {total_s / 60:.1f} min"))
+        elif any(abs(o["at"] - e["at"]) < gap for o in kept):
+            dropped.append(dict(e, why=f"less than {gap:g} s from a stronger one"))
+        else:
+            kept.append(e)
+    kept.sort(key=lambda e: e["at"])
+    pick = lambda kind: {e["id"] for e in kept if e["kind"] == kind}
+    return {"turns": pick("turn"), "hits": pick("hit"), "cues": pick("cue"), "kept": kept,
+            "dropped": sorted(dropped, key=lambda e: e["at"]), "cap": cap, "gap": gap}
+
+
+def tame_bed(amb, sr, peak_db):
+    """an ambience bed with its loud moments held to peak_db over its usual level -> (bed, number of peaks held)"""
+    import numpy as np
+    if peak_db is None or len(amb) < sr:
+        return amb, 0
+    h = max(1, sr // 20)                                       # 50 ms frames
+    n = len(amb) // h
+    mono = amb[: n * h].astype(np.float64).mean(1) if amb.ndim > 1 else amb[: n * h].astype(np.float64)
+    db = 10 * np.log10((mono.reshape(n, h) ** 2).mean(1) + 1e-12)
+    live = db[db > -70]
+    if not len(live):
+        return amb, 0
+    ceil = float(np.median(live)) + float(peak_db)
+    over = np.maximum(0.0, db - ceil)
+    k = 6                                                      # hold 0.3 s around a peak, then ease over 0.2 s
+    held = np.array([over[max(0, i - k):i + k + 1].max() for i in range(n)])
+    held = np.convolve(held, np.ones(4) / 4, mode="same")
+    peaks = int(np.sum((over[1:] > 0) & (over[:-1] <= 0)))
+    if not held.any():
+        return amb, 0
+    g = 10 ** (-held / 20)
+    gs = np.interp(np.arange(len(amb)), np.arange(n) * h + h / 2, g).astype(np.float32)
+    out = amb * (gs[:, None] if amb.ndim > 1 else gs)
+    return out.astype(np.float32), peaks
 
 
 def bed_at(res, sr, a, b):
