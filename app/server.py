@@ -666,6 +666,12 @@ class H(BaseHTTPRequestHandler):
                 return self.send(*narrator.handle_get(CFG, p, q))
             except ValueError as e:
                 return self.send(400, {"error": str(e)})
+        if p == "/api/thumb":                      # Thumbnails page (app/thumbnail.py)
+            import thumbnail
+            try:
+                return self.send(*thumbnail.handle_get(CFG, p, q))
+            except ValueError as e:
+                return self.send(400, {"error": str(e)})
         if p.startswith("/api/create/") or p == "/api/queue":   # Experimental Create form defaults, build queue
             import create_form
             return self.send(*create_form.handle_get(CFG, JOBS, p, q))
@@ -937,6 +943,12 @@ class H(BaseHTTPRequestHandler):
                 import narrator
                 try:
                     return self.send(*narrator.handle_post(CFG, p, body, JOBS))
+                except ValueError as e:
+                    return self.send(400, {"error": str(e)})
+            if p.startswith("/api/thumb/"):            # Thumbnails page (app/thumbnail.py)
+                import thumbnail
+                try:
+                    return self.send(*thumbnail.handle_post(CFG, p, body, JOBS))
                 except ValueError as e:
                     return self.send(400, {"error": str(e)})
             if p.startswith("/api/create/") or p.startswith("/api/queue/"):   # Create form defaults, build queue
@@ -1229,6 +1241,11 @@ def main():
         narrator.install(CFG)
     except Exception as e:
         print(f"  (corner narrator not connected: {e})", flush=True)
+    try:                                               # Experimental genre runs make a thumbnail after the video (app/thumbnail.py)
+        import thumbnail
+        thumbnail.install(CFG)
+    except Exception as e:
+        print(f"  (thumbnails not connected: {e})", flush=True)
     JOBS = Jobs()
     try:                                               # a small note for whoever checks the hub from outside
         os.makedirs(CFG["hub_logs_root"], exist_ok=True)

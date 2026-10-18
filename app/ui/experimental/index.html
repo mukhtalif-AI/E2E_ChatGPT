@@ -310,11 +310,12 @@ const I={home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z
  help:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"/><path d="M12 17.5v.01"/>',
  ratings:'<path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.3 6L12 16.4 6.6 19.4l1.3-6L3.4 9.3l6-.7z"/>',
  tinker:'<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+ thumbs:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 16l5-5 4 4 3-3 6 6"/><path d="M7 8.5h6"/>',
  narrator:'<circle cx="12" cy="8" r="3.5"/><path d="M5 21c.6-4 3.4-6.5 7-6.5s6.4 2.5 7 6.5"/><path d="M10.5 9.6c.9.6 2.1.6 3 0"/>',
  git:'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6M18 11.2c0 3-3.5 3.6-10 5.6"/>',
  sys:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 const svg=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
-const PAGES=[["home","Create"],["mode","Working mode"],["lib","Library"],["sounds","Sounds"],["narrator","Narrator"],["ratings","Ratings"],["jobs","Activity"],["queue","Build queue"],["tinker","Tinker"],["git","Save / Git"],["sep"],["sys","Settings"],["help","Help"]];
+const PAGES=[["home","Create"],["mode","Working mode"],["lib","Library"],["sounds","Sounds"],["narrator","Narrator"],["thumbs","Thumbnails"],["ratings","Ratings"],["jobs","Activity"],["queue","Build queue"],["tinker","Tinker"],["git","Save / Git"],["sep"],["sys","Settings"],["help","Help"]];
 const GENRES=[{id:"sukoon",name:"सुकून",en:"Calming stories",about:"Sleep, healing, counselling — Hindi in your voice, or English.",page:"episode"},
   {id:"bhay",name:"भय",en:"Horror",about:"Slow-burn Hindi horror: scenes, fog, sound effects.",page:"genre"},
   {id:"kisse",name:"किस्से",en:"Emotional stories",about:"Stories that move you.",page:"genre"},
@@ -1049,6 +1050,66 @@ R.narrator=async(keep)=>{let d;try{d=await nrLoad()}catch(e){$("main").innerHTML
   nrPreview();
   if(n)nrMouthTest(n.id);
 };
+const TH={d:null,ser:store.get("thser","bhay"),ep:store.get("thep",""),v:null,o:{},t:0,n:0};
+function thRead(){const S=TH.v;if(!S||!$("#thLayout"))return;S.on=$("#thOn").checked;S.layout=chipVal("thLayout");S.picture=chipVal("thPic");S.grade=$("#thGrade").value;S.font=$("#thFont").value;
+  S.size=+$("#thSize").value;S.color=$("#thColor").value;S.accent=$("#thAccent").value;S.outline=$("#thOutline").value;S.outline_w=+$("#thOw").value;S.glow=+$("#thGlow").value;
+  S.shade=+$("#thShade").value;S.vignette=+$("#thVig").value;S.split=$("#thSplit").checked;S.kicker=$("#thKicker").value;S.badge=$("#thBadge").checked;S.badge_text=$("#thBadgeT").value;
+  S.logo=$("#thLogo").checked;S.logo_corner=$("#thCorner").value;S.logo_size=+$("#thLogoS").value;S.name=$("#thName").checked;
+  TH.o.title=$("#thTitle").value.trim();TH.o.sub=$("#thSub").value.trim()}
+function thPreview(){clearTimeout(TH.t);TH.t=setTimeout(async()=>{thRead();const box=$("#thPv");if(!box)return;if(!TH.ep){box.innerHTML='<div class="empty">No '+esc(serName(TH.ser))+' episode with pictures yet.</div>';return}
+  const n=++TH.n;box.style.opacity=.6;try{const r=await api("/api/thumb/preview",{series:TH.ser,episode:TH.ep,value:TH.v,override:TH.o});if(n!=TH.n)return;
+   box.innerHTML=`<img src="${r.img}" style="width:100%;border-radius:8px;display:block"><div class="hint">Preview (half size) · the saved file is ${r.w}×${r.h} · picture ${esc(r.picture)}</div>`;
+   $$(".thPic").forEach(x=>x.style.outline=x.dataset.f==r.picture?"3px solid var(--accent)":"none")}catch(e){if(n==TH.n)box.innerHTML='<div class="card">'+esc(e.message)+'</div>'}box.style.opacity=1},350)}
+async function thSave(){thRead();try{await api("/api/thumb/save",{series:TH.ser,value:TH.v});toast("Saved for "+serName(TH.ser));TH.d=null;R.thumbs(2)}catch(e){toast(e.message,1)}}
+function thDefaults(){TH.v=Object.assign(JSON.parse(JSON.stringify(TH.d.defaults[TH.ser])),{_ser:TH.ser});R.thumbs(2)}
+async function thMake(btn){thRead();btn.disabled=true;try{const r=await api("/api/thumb/make",{series:TH.ser,episode:TH.ep,value:TH.v,override:TH.o});
+  $("#thDone").innerHTML=`<div class="hint" style="margin:8px 0 4px">Saved <b>${esc(r.file)}</b> (${r.kb} KB)</div><img src="${r.img}" style="max-width:100%;border-radius:8px">`;toast("Thumbnail saved")}catch(e){toast(e.message,1)}btn.disabled=false}
+async function thMakeAll(btn,missing){thRead();if(!confirm((missing?"Make a thumbnail for every ":"Make (and replace) the thumbnail of every ")+serName(TH.ser)+" episode with these settings?"))return;btn.disabled=true;
+  try{const r=await api("/api/thumb/make_all",{series:TH.ser,value:TH.v,only_missing:!!missing});toast(r.made+" thumbnail(s) made"+(r.failed.length?", "+r.failed.length+" failed":""),!!r.failed.length);TH.d=null;R.thumbs(2)}catch(e){toast(e.message,1)}btn.disabled=false}
+function thPick(f){TH.o.picture=TH.o.picture==f?"":f;thPreview()}
+R.thumbs=async(keep)=>{if(!TH.d||TH.d.for!=TH.ser){try{TH.d=await api("/api/thumb?series="+encodeURIComponent(TH.ser))}catch(e){$("main").innerHTML='<div class="simple"><h1>Thumbnails</h1><div class="card">'+esc(e.message)+'. Restart the hub after updating it.</div></div>';return}}
+  const d=TH.d,ser=Object.keys(d.series);if(!ser.includes(TH.ser)){TH.ser="bhay";return R.thumbs()}
+  if(!keep||!TH.v||TH.v._ser!=TH.ser)TH.v=Object.assign(JSON.parse(JSON.stringify(d.series[TH.ser])),{_ser:TH.ser});
+  const E=d.episodes;if(!E.find(e=>e.name==TH.ep))TH.ep=(E[0]||{}).name||"";const ep=E.find(e=>e.name==TH.ep);
+  if(keep!=2)TH.o=Object.assign({picture:"",title:"",sub:""},ep?ep.override:{});
+  const S=TH.v,ch=d.channel[TH.ser]||{},col=(id,l,v)=>`<div style="flex:0 0 auto"><label>${l}</label><input id="${id}" type="color" value="${esc(v)}" style="width:56px;height:34px;padding:2px"></div>`;
+  const pics=ep?ep.pictures.map(p=>`<img class="thPic" data-f="${esc(p.file)}" src="${media(p.path)}" title="${esc(p.file)}${p.kind=="closeup"?" (close-up)":""}${p.score?" · check "+p.score:""}" onclick="thPick('${esc(p.file)}')" style="width:112px;height:63px;object-fit:cover;border-radius:6px;cursor:pointer;${TH.o.picture==p.file?"outline:3px solid var(--accent)":""}">`).join(""):"";
+  const auto=ep?ep.title:"";
+  $("main").innerHTML=`<div class="simple"><h1>Thumbnails</h1><p class="sub">A ${d.size[0]}×${d.size[1]} YouTube thumbnail for every episode, in each series' own look: one of the episode's pictures, the title in big letters, the series badge and your channel logo. Experimental runs make it after the video as <code>&lt;episode&gt;_thumbnail.jpg</code> in the episode folder.</p>
+  <div class="card"><label>Series</label>${chips("thSer",Object.fromEntries(ser.map(g=>[g,serName(g)+(d.series[g].on?" ●":"")])),TH.ser)}
+   <div style="margin-top:8px">${sw("thOn","Make one after every "+serName(TH.ser)+" video",S.on)}</div>
+   <div style="margin-top:10px">
+    <div class="row" style="align-items:end"><div><label>Episode</label><select id="thEp">${E.map(e=>`<option value="${esc(e.name)}" ${e.name==TH.ep?"selected":""}>${esc(e.title||e.name)}${e.thumb?" ✓":""}</option>`).join("")||"<option>no episodes yet</option>"}</select></div></div>
+    <div id="thPv" style="margin-top:10px"><div class="hint">drawing the preview…</div></div>
+    ${ep?`<label>Picture for this episode (click again for the series choice)</label><div style="display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto;padding:3px">${pics}</div>
+    <div class="row"><div><label>Title words</label><input id="thTitle" type="text" value="${esc(TH.o.title||"")}" placeholder="${esc(auto)}"></div><div><label>2nd line</label><input id="thSub" type="text" value="${esc(TH.o.sub||"")}" placeholder="from the title"></div></div>
+    <div class="hint">Empty = the episode title${S.split?" (split at ':')":""}. Your words and picture are kept for this episode only.</div>
+    <div class="actions"><button class="btn primary" onclick="thMake(this)">Make thumbnail for this episode</button><button class="btn" onclick="thMakeAll(this,1)">Make for episodes without one</button><button class="btn" onclick="thMakeAll(this,0)">Remake all ${esc(serName(TH.ser))}</button></div>
+    <div id="thDone">${ep.thumb?`<div class="hint" style="margin:8px 0 4px">Saved now: ${esc(ep.thumb)}</div><img src="${media(ep.thumb)}&t=${Date.now()}" style="max-width:100%;border-radius:8px">`:""}</div>`:'<input id="thTitle" type="hidden"><input id="thSub" type="hidden">'}
+   </div>
+   <h3 style="margin-top:16px">Look for every ${esc(serName(TH.ser))} thumbnail</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:2px 22px"><div>
+    <label>Layout</label>${chips("thLayout",d.layouts,S.layout)}
+    <label>Picture (unless you pick one for the episode)</label>${chips("thPic",d.pictures,S.picture)}
+    <div class="row"><div><label>Colour</label><select id="thGrade">${opt(d.grades,S.grade)}</select></div><div><label>Letters</label><select id="thFont">${opt(Object.fromEntries(d.fonts.map(f=>[f,f.replace(/\.tt[fc]$/,"").replace(/[-_]/g," ")])),S.font)}</select></div></div>
+    </div><div><label>Letter size</label>${range("thSize",0.4,1.6,0.05,S.size,"×")}
+    <div class="row">${col("thColor","Title",S.color)}${col("thAccent","Accent (2nd line, badge, glow)",S.accent)}${col("thOutline","Outline",S.outline)}</div>
+    <label>Outline width</label>${range("thOw",0,0.2,0.01,S.outline_w)}
+    <label>Glow (accent colour)</label>${range("thGlow",0,1,0.05,S.glow)}
+    <label>Shade behind the words</label>${range("thShade",0,1,0.05,S.shade)}
+    <label>Dark corners</label>${range("thVig",0,1,0.05,S.vignette)}
+    </div><div><div style="margin-top:6px">${sw("thSplit","Split the title at ':' into a big line and a smaller 2nd line",S.split)}</div>
+    <label>Small line above the title (optional)</label><input id="thKicker" type="text" value="${esc(S.kicker)}" placeholder="e.g. सच्ची घटना">
+    <div class="row" style="align-items:end"><div style="flex:0 0 auto">${sw("thBadge","Series badge",S.badge)}</div><div><input id="thBadgeT" type="text" value="${esc(S.badge_text)}" placeholder="${esc(d.labels[TH.ser]||"")}"></div></div>
+    <div class="row" style="align-items:end"><div style="flex:0 0 auto">${sw("thLogo","Channel logo",S.logo)}</div><div style="flex:0 0 auto">${sw("thName","Channel name",S.name)}</div><div><select id="thCorner">${opt(Object.fromEntries(d.corners.map(c=>[c,c.replace("-"," ")])),S.logo_corner)}</select></div></div>
+    <label>Logo size</label>${range("thLogoS",0.08,0.4,0.01,S.logo_size)}
+    <div class="hint">Channel: ${ch.name||ch.logo?`<b>${esc(ch.name||"-")}</b>${ch.logo?", logo "+esc(base(ch.logo)):" (no logo file)"}`:"none set"}. Change it on the <a href="#" onclick="go('tinker');return false">Tinker</a> page (tools.CHANNEL).</div>
+    <div class="actions"><button class="btn primary" onclick="thSave()">Save for ${esc(serName(TH.ser))}</button><button class="btn" onclick="thDefaults()">Back to the starting look</button></div></div>
+   </div></div></div>`;
+  $("#thSer").addEventListener("change",()=>{thRead();TH.ser=chipVal("thSer");store.set("thser",TH.ser);TH.ep="";R.thumbs()});
+  $("#thEp").addEventListener("change",()=>{thRead();TH.ep=$("#thEp").value;store.set("thep",TH.ep);R.thumbs(1)});
+  ["thSize","thOw","thGlow","thShade","thVig","thLogoS","thKicker","thBadgeT","thTitle","thSub","thColor","thAccent","thOutline"].forEach(i=>$("#"+i)&&$("#"+i).addEventListener("input",thPreview));
+  ["thLayout","thPic","thGrade","thFont","thSplit","thBadge","thLogo","thName","thCorner"].forEach(i=>$("#"+i).addEventListener("change",thPreview));
+  thPreview()};
 R.help=()=>{const S=(t,b)=>`<h2>${t}</h2><div class="card help">${b}</div>`;
   $("main").innerHTML=`<div class="simple"><h1>How to use the hub</h1><p class="sub">Everything runs on this PC. One graphics-card job at a time; script writing, element fetching and checks run beside it. Nothing is ever deleted – old files go to <b>_old</b>.</p>
   ${S("Make a whole Sukoon episode",`<ol>
@@ -1100,6 +1161,7 @@ R.help=()=>{const S=(t,b)=>`<h2>${t}</h2><div class="card help">${b}</div>`;
    <li><b>Import</b>: add your own files with their licence. <b>Licences</b>: record where older files came from. YouTube Audio Library cannot be downloaded automatically; download by hand, then Import.</li></ul>`)}
   ${S("Export for training",`<b>Ratings → Export now</b> writes JSONL files: rated scripts, good-vs-bad script pairs, picture prompts with ratings and judged effect placements. AI ratings are marked <code>rated_by = ai</code>. The folder opens when it is done.`)}
   ${S("Corner narrator",`<ul><li><b>Narrator</b> in the sidebar: upload a transparent PNG of a half upper body (facing you, mouth closed), mark it male or female and tick its series. Or paint original ones with ComfyUI for the chosen series (green background, cut out automatically).</li><li>The hub guesses the mouth and eye points; click the picture to correct them. Optional: a mouth-open and an eyes-closed picture of the same size for smoother lips and blinks.</li><li>Per series: on/off, which narrator, corner, size and margin – separately for the 16:9 video and the 9:16 reels – with a live preview on a frame of your newest video. The yellow box shows the subtitles; with a bottom corner, genre subtitles are kept narrower so they do not run under the narrator.</li><li>Each run: Create page → <b>Corner narrator</b>: series setting / on / off / another narrator.</li><li>The lips follow the clean narration (Whisper word times when the run has them) and its loudness; the narrator breathes and blinks. The clean video stays in <code>Output\\_clean</code>; <b>Add the narrator to a finished video</b> redoes it without a new render.</li><li>Working mode gets it only when you install <b>narrator.SERIES</b> on the Tinker page.</li></ul>`)}
+  ${S("Thumbnails",`<ul><li><b>Thumbnails</b> in the sidebar: a 1920×1080 YouTube thumbnail per episode, saved as <code>&lt;episode&gt;_thumbnail.jpg</code> in the episode folder (next to the video folder).</li><li>Per series: layout (title bottom / left / right / middle), which picture (first, best checked, first close-up), colour grade, letters, size, title / accent / outline colours, outline, glow, shade behind the words, dark corners, a small line above the title, the series badge, and the channel logo and name (they come from Tinker → tools.CHANNEL, Bhay = Haunted Gatha). <b>Save for …</b> keeps it (Tinker table thumbnail.SERIES).</li><li>Per episode: click one of its pictures and type other title words; that is kept for that episode only. A title with ':' is split into a big line and a smaller second line.</li><li>Experimental genre runs make the thumbnail by themselves right after the video when 'Make one after every … video' is on. <b>Make for episodes without one</b> does the older episodes in one go.</li></ul>`)}
   ${S("Save / Git: keep versions of the code",`<ul><li><b>Save / Git</b> in the sidebar shows which code files changed. Tick the files to keep, write a short message, press <b>Commit ticked files</b>.</li>
    <li>Secrets, models, media, backups and big files are never offered; the list underneath says why each was skipped.</li>
    <li><b>Diff summary</b>, <b>Log</b> and the <b>diff</b> link per file show what changed. The exact git command and its output appear under <b>Output</b>.</li>

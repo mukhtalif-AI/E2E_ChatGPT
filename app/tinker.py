@@ -93,6 +93,8 @@ TABLES = {
                               "narration (min_pause_s, looked for within search_s of the word, min_play_s of room), never over it",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
     "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
+    "thumbnail.SERIES": "Thumbnails per series (Thumbnails page): on = made after every video, layout, picture, letters, "
+                        "colours, shade, badge, logo / channel name (from tools.CHANNEL)",
     "narrator.SERIES": "Corner narrator per series: on, narrator, corner / size / margin for the video and reels (Narrator page)",
     "narrator.THEMES": "Corner narrator look per series for ComfyUI pictures",
     "emotion_music.SERIES": "Music that follows the emotion, per series: on, sections, max_tracks (3 at most), min_section_s, "
