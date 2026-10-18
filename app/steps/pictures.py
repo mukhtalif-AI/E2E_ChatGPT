@@ -234,7 +234,7 @@ def comfy_images(ctx, out, style="sukoon_night", size="16:9", engine=None, seed=
             subj = f"{subj}. The main subject is a solid black featureless silhouette against the glowing light"
         full = subj + (". " + look if look else "")
         full, neg = no_steam(full, negative)
-        sd = int(seed) + i if seed not in (None, "") else random.randint(1, 2 ** 31)
+        sd = int(seed) + i if seed not in (None, "") else int(s.get("seed") or random.randint(1, 2 ** 31))
         t0 = time.time()
         st = int(steps) if steps not in (None, "", 0) else 8
         if not os.path.exists(f) or prompts:

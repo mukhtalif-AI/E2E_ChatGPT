@@ -436,6 +436,18 @@ SCENE_VARY_ASK = (
 END_SECONDS = 10              # Experimental genre videos, 'Whole video' 0: music after the voice (Tinker: end_seconds)
 SUBSCRIBE_END = {"dur": 6.5, "sub_click": 2.2, "bell_click": 3.8}   # Subscribe + bell ending (engine subscribe_end.py)
 SCENE_SECONDS = 30            # Experimental genre videos: about one picture per this many seconds (Tinker: scene_seconds)
+VISUAL_ASK = (                # Experimental genre scenes: one fixed look per character and key object (steps/scenes.py)
+    "You design the recurring visuals for a {desc} story told in pictures. Every picture is painted separately by an "
+    "image model that remembers nothing, so each recurring character and key object needs ONE fixed description that "
+    "is pasted word for word into every picture it appears in.\n"
+    "The planner's rough notes on the characters: {anchors}\nThe story's look: {look}\n"
+    "Answer ONLY JSON: {{\"characters\": {{\"<ID exactly as in the notes>\": \"25-40 English words\"}}, "
+    "\"things\": {{\"<one English noun for it, e.g. doll>\": \"15-30 English words\"}}}}.\n"
+    "A character: age in years, build, skin tone, face shape, hair (colour, length, style), facial hair, one "
+    "distinctive face feature, clothing with exact colours and fabric, one accessory. Only what can be seen: no name, "
+    "no feelings, no actions, no setting. A character shown at two ages keeps the two IDs from the notes. "
+    "Things: only objects, vehicles or buildings the story returns to at least twice that must look the same each "
+    "time (a doll, a house, a car); at most 4; colour, material, size, condition. {{}} if none.\n\nSTORY:\n{story}")
 SCENE_PICTURE_ASK = (
     "You write the picture prompts for a {desc} video. For EACH numbered scene below you get WHAT HAPPENS in it "
     "and the story TEXT it covers (the text is read aloud while the picture is on screen).\n"

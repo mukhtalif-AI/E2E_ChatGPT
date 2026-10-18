@@ -3,7 +3,7 @@
 Do not import this file directly: import tools and use tools.<name>. Names that stay in tools.py, and names other files swap
 (feedback, narrator, Tinker), are written as tools.X here on purpose.
 """
-import glob, json, os, random, re, shutil, subprocess, time, urllib.error, urllib.parse, urllib.request, wave
+import glob, json, os, random, re, shutil, subprocess, time, urllib.error, urllib.parse, urllib.request, wave, zlib
 
 import tools
 
@@ -571,6 +571,52 @@ def _shots_key(out, narration=""):
     return ""
 
 
+_IN_SHOT = re.compile(r"\b(wom[ae]n|m[ae]n|persons?|people|figures?|silhouettes?|boys?|girls?|child|children|kids?|"
+                      r"narrator|he|she|his|her|him|faces?|hands?|body|bodies)\b", re.I)
+
+
+def _visual_bible(cfg, say, desc, parts, anchors, look):
+    """Experimental: one fixed, concrete description per character and key object, put first in every picture of it"""
+    story_text = "\n".join(str(p["text"])[:1200] for p in parts)[:9000]
+    try:
+        t, model = _ask_step(cfg, "director_model", tools.VISUAL_ASK.format(
+            desc=desc, anchors=json.dumps(anchors, ensure_ascii=False)[:1500], look=look, story=story_text), 0.3, say)
+        v = _loads(t)
+    except Exception as e:
+        say(f"   (no fixed descriptions for characters and objects: {e} - the planner's notes are used)")
+        return {}, {}
+    chars = {str(k): _anchor_text(x) for k, x in (v.get("characters") or {}).items() if _anchor_text(x)}
+    things = {str(k).strip().lower(): _anchor_text(x) for k, x in (v.get("things") or {}).items()
+              if _anchor_text(x) and len(str(k).split()) <= 2}
+    say(f"   fixed descriptions by {model}: " + "; ".join(f"{k}: {x[:70]}" for k, x in list(chars.items()) + list(things.items())))
+    return chars, things
+
+
+def _named_character(text, ids):
+    """a character ID whose name is in the scene text (the director left 'character' empty); '' if none or unclear"""
+    hits = [k for k in ids if re.search(r"\b" + re.escape(re.split(r"[_\s]", k)[0]) + r"\b", text, re.I)]
+    return hits[0] if len(hits) == 1 else ""
+
+
+def _lead_for(scene, character, chars, things, anchor=""):
+    """(fixed descriptions for this picture, seed key): the character only when a person is in the shot (17 Oct: an
+    object or empty-place shot got the character painted in), key objects when the scene names them"""
+    lead, key = [], ""
+    if character and _IN_SHOT.search(scene):
+        lead.append(chars.get(character) or anchor)
+        key = character
+    for k, v in things.items():
+        if re.search(r"\b" + re.escape(k) + r"(e?s)?\b", scene, re.I):
+            lead.append(f"The {k}: {v}")
+            key = key or k
+    return ". ".join(a.strip().rstrip(".") for a in lead if a and a.strip()), key
+
+
+def _shot_seed(name, key):
+    """the same seed for every picture of one character or object (Z-Image then paints them more alike)"""
+    return (zlib.crc32(f"{name}|{key}".encode("utf-8")) & 0x7FFFFFFF) or 1
+
+
 def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False, video=""):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
@@ -669,6 +715,7 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     character_anchors = d.get("character_anchors") or {}
     if look:
         say(f"   the look of this story: {look}")
+    chars, things = _visual_bible(cfg, say, G["desc"], parts, character_anchors, look) if exp else ({}, {})
     shots, seen, fixed_cues, dropped_cues, capped_beds = [], [], 0, 0, 0
     look_p = _look_for_prompt(look)
     if exp and look_p:
@@ -689,6 +736,8 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             near = " ".join(parts[j]["text"] for j in (i - 1, i + 1) if 0 <= j < len(parts))
             scene = _clean_scene(cfg, say, G["desc"], i, scene, happens, p["text"], near)
         character = str(x.get("character") or "").strip()[:60]
+        if exp and not character:
+            character = _named_character(f"{scene} {happens}", list(chars or character_anchors))
         anchor = _anchor_text(character_anchors.get(character)) if character else ""
         sim = max(((_overlap(scene, e), e) for e in seen), default=(0, ""))
         if sim[0] >= SCENE_SIMILAR_MAX:                  # same subject as an earlier picture -> another subject
@@ -697,10 +746,12 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         seen.append(scene)
         # the moment first (image models weigh the start most), the shared style after -> varied but coherent
         pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
-        if anchor and exp and not re.search(r"\b(man|woman|men|women|person|people|figure|silhouette|boy|girl|child|"
-                                            r"narrator|he|she|his|her|face|hand|hands|body)\b", scene, re.I):
-            anchor = ""                     # 17 Oct: an object or empty-place shot got the character painted into it
-        if anchor:
+        seed_key = ""
+        if exp:                             # 18 Oct: the fixed descriptions go FIRST (the model weighs the start most)
+            anchor, seed_key = _lead_for(scene, character, chars, things, anchor)
+            if anchor:
+                pr = f"{anchor}. {pr}"
+        elif anchor:
             pr += f" Character continuity anchor: {anchor}. Keep this character design unchanged."
         cues = []
         for c in (x.get("cues") or [] if not exp or cpp > 0 else []):
@@ -741,6 +792,7 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
             capped_beds += 1
         shots.append({"file": f"{i + 1:03d}.png", "prompt": pr, "scene_prompt": scene, "character_anchor": anchor,
                       "character": character, "happens": happens,
+                      **({"seed": _shot_seed(name, seed_key)} if seed_key else {}),
                       "text": p["text"], "start": p["start"],
                       "end": p["end"], "ambience": amb_f,
                       "hit": hit_f, "lightning": bool(x.get("lightning")),
