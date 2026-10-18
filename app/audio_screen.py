@@ -47,6 +47,7 @@ MOOD_FIT = {
               "Tension": {"pulse_max": 0.85, "no_groove": True}, "Sad": {"pulse_max": 0.75, "no_groove": True},
               "Calm": {"pulse_max": 0.75, "no_groove": True}, "angry": {}, "Love": {}, "Happy": {}},
 }
+PROFILE = 2        # measure() version: rows made before the beat/brightness profile are measured again once
 _LOCK = threading.Lock()
 _MEM = {}
 
@@ -131,12 +132,11 @@ def measure(cfg, path, kind):
     a = _decode(cfg, path, sr, 300 if kind == "music" else 60).astype(np.float64)
     if len(a) < sr // 5:
         return {"error": "too short or unreadable"}
-    extra = {}
-    if kind == "music":
-        try:
-            extra = rhythm(a, sr)
-        except Exception:
-            extra = {}
+    try:                                                   # the profile is stored for effects too (no verdict yet)
+        extra = rhythm(a, sr)
+    except Exception:
+        extra = {}
+    extra["profile"] = PROFILE
     n = 2048
     frames = a[: len(a) // n * n].reshape(-1, n)
     rms = np.sqrt((frames ** 2).mean(1)) + 1e-12
@@ -217,8 +217,8 @@ def screen(cfg, path, kind, force=False):
     d = _load(cfg)
     k = norm(path)
     row = d["files"].get(k)
-    old_music = kind == "music" and row and "pulse" not in (row.get("m") or {}) and not (row.get("m") or {}).get("error")
-    if force or not row or old_music or row.get("key") != _key(path) or row.get("limits") != _limits_tag(kind):
+    old = row and (row.get("m") or {}).get("profile") != PROFILE and not (row.get("m") or {}).get("error")
+    if force or not row or old or row.get("key") != _key(path) or row.get("limits") != _limits_tag(kind):
         try:
             m = measure(cfg, path, kind)
         except Exception as e:
@@ -226,6 +226,15 @@ def screen(cfg, path, kind, force=False):
         v, why, filt = verdict(m, kind)
         row = {"key": _key(path), "kind": kind, "m": m, "verdict": v, "why": why, "filters": filt,
                "limits": _limits_tag(kind), "time": time.strftime("%Y-%m-%d %H:%M")}
+        if kind == "music":
+            _index_fit(row)
+        with _LOCK:
+            d = _load(cfg)
+            d["files"][k] = row
+            _save(cfg, d)
+    elif kind == "music" and row.get("fit_tag") != _fit_tag():
+        row = dict(row)                                    # MOOD_FIT changed on the Tinker page: re-judge, no decode
+        _index_fit(row)
         with _LOCK:
             d = _load(cfg)
             d["files"][k] = row
@@ -296,8 +305,26 @@ def misfit(m, mood):
     return ""
 
 
+def _fit_tag():
+    return hashlib.sha1(json.dumps(MOOD_FIT, sort_keys=True).encode()).hexdigest()[:8]
+
+
+def _index_fit(row):
+    """stored in the library index when a track is measured: the verdict for every mood folder, and the moods it fits"""
+    m = row.get("m") or {}
+    row["fit"] = {mood: misfit(m, mood) for mood in (MOOD_FIT.get("moods") or {})}
+    row["fits"] = [mood for mood, why in row["fit"].items() if not why] if m.get("pulse") is not None else []
+    row["fit_tag"] = _fit_tag()
+    return row
+
+
 def _with_fit(cfg, path, row):
-    why = misfit(row.get("m") or {}, mood_of(cfg, path)) if row.get("kind", "music") == "music" else ""
+    if row.get("kind", "music") != "music":
+        return row
+    mood = mood_of(cfg, path)
+    fit = row.get("fit") if row.get("fit_tag") == _fit_tag() else None
+    low = {k.lower(): v for k, v in (fit or {}).items()}
+    why = low[mood.lower()] if mood.lower() in low else misfit(row.get("m") or {}, mood)
     if why:
         row["verdict"] = "reject"
         row["why"] = list(row.get("why") or []) + [why]
@@ -452,5 +479,16 @@ def screen_all(ctx, kinds=("music", "sfx")):
             if i and i % 50 == 0:
                 say(f"   … {i}/{len(files)}")
     say("   " + ", ".join(f"{k[0]} {k[1]}: {v}" for k, v in sorted(counts.items())))
+    if "music" in kinds:                                   # the mood index: how many tracks in each folder sound like it
+        per = {}
+        for x in lst["music"]:
+            r = cached(cfg, x["file"])
+            mood = mood_of(cfg, x["file"])
+            n, good = per.get(mood, (0, 0))
+            per[mood] = (n + 1, good + (effective(r) != "reject"))
+        say("   usable music per mood folder: " + ", ".join(f"{m} {g}/{n}" for m, (n, g) in sorted(per.items())))
+        for m, (n, g) in sorted(per.items()):
+            if n and g == 0:
+                say(f"   ⚠ {m}: no usable track - runs that want {m} use the nearest mood (Tinker: emotion_music.MOOD_NEAR)")
     say("   risky files get a treated copy when a run uses them; rejected ones are not picked (change either on the Sounds page)")
     return True

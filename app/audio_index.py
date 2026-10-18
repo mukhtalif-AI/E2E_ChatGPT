@@ -72,12 +72,24 @@ def features(x):
             "loopable": round(loop, 3), "calm": round(calm, 2)}
 
 
+def mood_profile(f, folder):
+    """the same beat / brightness profile and mood verdicts as the Experimental library index (audio_screen.MOOD_FIT)"""
+    try:
+        import audio_screen
+        m = audio_screen.rhythm(audio_screen._decode(CFG, f, 32000, 300).astype(np.float64), 32000)
+        fit = {mood: audio_screen.misfit(m, mood) for mood in audio_screen.MOOD_FIT.get("moods") or {}}
+        return {**m, "fits": [k for k, v in fit.items() if not v], "misfit": audio_screen.misfit(m, folder)}
+    except Exception as e:
+        return {"pulse": None, "profile_error": str(e)[:120]}
+
+
 def index_tracks(old):
     root = CFG.get("music_dir") or ""
     sfx = os.path.join(os.path.dirname(root), "SFX")
     files = [f for f in glob.glob(os.path.join(root, "*", "*")) + glob.glob(os.path.join(sfx, "*"))
              if f.lower().endswith(AUDIO)]
-    have = {t["file"]: t for t in old if os.path.exists(t["file"]) and t.get("size") == os.path.getsize(t["file"])}
+    have = {t["file"]: t for t in old if os.path.exists(t["file"]) and t.get("size") == os.path.getsize(t["file"])
+            and (t.get("kind") != "music" or "pulse" in t)}        # 18 Oct 2026: music rows get the mood profile once
     todo = [f for f in files if f not in have]
     say(f"== 1  your music + sounds: {len(files)} files, {len(todo)} new to measure")
     for k, f in enumerate(todo):
@@ -90,6 +102,7 @@ def index_tracks(old):
         t = {"file": f, "name": os.path.splitext(os.path.basename(f))[0], "size": os.path.getsize(f),
              "mood": "SFX" if is_sfx else os.path.basename(os.path.dirname(f)), "kind": kind,
              "seconds": round(d, 1), **ft}
+        t.update(mood_profile(f, t["mood"]) if kind == "music" else {})
         have[f] = t
         say(f"   {k + 1}/{len(todo)}  [{t['mood']}] {t['name'][:50]}  {d / 60:.1f} min, calm {t['calm']}, "
             f"{t['tempo_bpm']} bpm, loop {t['loopable']}")

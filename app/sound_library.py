@@ -205,6 +205,7 @@ def listing(cfg):
             scr = audio_screen.cached(cfg, f)
             out[kind].append({"screen": scr.get("verdict", "") if not scr.get("stale") else "",
                               "screen_why": scr.get("why") or [], "override": scr.get("override", ""),
+                              "fits": scr.get("fits") or [],
                               "action": audio_screen.effective(scr) if scr.get("verdict") else "",
                               "file": f, "name": os.path.splitext(os.path.basename(f))[0],
                               "folder": os.path.basename(os.path.dirname(f)) if os.path.dirname(f) != root else "(top)",
@@ -609,9 +610,9 @@ def handle_post(cfg, p, body, jobs=None):
                       "args": {"kind": kind, "folder": str(body.get("folder")), "items": items, "allow_by": bool(body.get("allow_by"))}}]
             title = f"Get {len(items)} {'music track' if kind == 'music' else 'sound effect'}(s) → {body.get('folder')}"
         elif p == "/api/sounds/screen":
-            steps = [{"fn": "exp_sound_screen", "label": "check every music track and effect against the voice band",
+            steps = [{"fn": "exp_sound_screen", "label": "index the library: every music track and effect measured (voice band, beat, brightness) and judged for its mood folder",
                       "args": {}}]
-            title = "Check the sound library (speech band, piercing highs)"
+            title = "Index the sound library (speech band, piercing highs, mood fit)"
         elif body.get("kind") == "music":
             series = str(body.get("series") or "")
             steps = [{"fn": "exp_music_topup", "label": "more CC0 background music from Freesound for " + (series or "every series"),

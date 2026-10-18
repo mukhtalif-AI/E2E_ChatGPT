@@ -34,6 +34,13 @@ check(A.misfit(rg, "Tension") == "", "MOOD_FIT off in the table")
 A.MOOD_FIT["on"] = True
 row = A._with_fit({}, "/m/BGM/Tension/x.mp3", {"kind": "music", "m": rg, "verdict": "ok", "why": []})
 check(row["verdict"] == "reject" and row["misfit"], "a misfit row is a reject")
+row = A._index_fit({"kind": "music", "m": rg})
+check(row["fits"] == ["angry", "Love", "Happy"] and row["fit"]["Tension"], f"the index stores the moods it fits {row['fits']}")
+check(A._with_fit({}, "/m/BGM/Happy/x.mp3", dict(row, verdict="ok", why=[]))["verdict"] == "ok", "the stored verdict is used for its own folder")
+old = A._fit_tag(); A.MOOD_FIT["moods"]["Happy"] = {"pulse_max": 0.5}
+check(A._fit_tag() != old and A._with_fit({}, "/m/BGM/Happy/x.mp3", dict(row, verdict="ok", why=[]))["verdict"] == "reject",
+      "a changed table re-judges without the stored answer")
+A.MOOD_FIT["moods"]["Happy"] = {}
 check(E.near_moods("Tension", ["Dark", "Tension", "Eerie"]) == ["Tension", "Dark", "Eerie"], "Tension -> Dark, Eerie")
 check(E.near_moods("Sad", ["Sad", "Calm"]) == ["Sad", "Calm"], "neighbours limited to the series' folders")
 # pick_tracks: Tension has nothing that fits -> the section uses Dark, the opening track when it is from Dark
