@@ -487,7 +487,7 @@ def pick_track(cfg, folders, orig):
         return orig(cfg, folders)
     scores = file_scores(cfg, "music")
     blocked = sound_library.blocked(cfg, "music")
-    ok = [f for f in cands if norm(f) not in blocked and not rejected(scores.get(norm(f)))] or cands
+    ok = [f for f in cands if norm(f) not in blocked and not rejected(scores.get(norm(f)))]   # never a 'never use' / badly rated one
     import audio_screen
     rows = {f: audio_screen.screen(cfg, f, "music") for f in ok}
     # 18 Oct 2026: when every track in these folders is rejected (a song, no voice band, does not sound like the mood)
@@ -496,10 +496,14 @@ def pick_track(cfg, folders, orig):
     if not ok:
         cfg.setdefault("_music_misfit", []).append(
             f"{'/'.join(folders)}: " + "; ".join(f"{os.path.basename(f)} - {(rows[f].get('why') or ['rejected'])[-1]}"
-                                                 for f in rows))
+                                                 for f in rows) if rows else
+            f"{'/'.join(folders)}: every track is set to never use or rated badly")
         return ""
     skip = float(cfg.get("music_harsh_skip", 19))
-    ok = [f for f in ok if tools.harshness(cfg, f) < skip] or ok
+    ok = [f for f in ok if tools.harshness(cfg, f) < skip]
+    if not ok:
+        cfg.setdefault("_music_misfit", []).append(f"{'/'.join(folders)}: every usable track is too piercing")
+        return ""
     up = os.path.join(cfg["media_dir"], "bhay_music_used.json")
     used = _load(up, {}) or {}
 
