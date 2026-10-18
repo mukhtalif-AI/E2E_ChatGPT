@@ -1396,7 +1396,7 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
                            "commentary after the final line.\n\nSTORY:\n\n"
                            + script, review_engine, 0.4, say=say,
                            ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
-            fixed = clean_horror(fixed)
+            fixed = _cut_retell(clean_horror(fixed), say, "review")
             if nwords(fixed) >= min(nwords(script), words) * 0.8:
                 script = fixed
                 say(f"   checked + fixed: {nwords(script)} words")
@@ -1407,6 +1407,7 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
     if plan and not stopped():
         script = logic_check(cfg, script, plan, "भय (horror)", "local" if model == local_model(cfg) else "auto", say,
                              clean_horror)
+    script = _cut_retell(script, say)
     return script, {"recipe": r, "model": model, "minutes": minutes, "genre": "horror"}
 
 
@@ -1581,6 +1582,49 @@ def _retold(add, script):
     return len(a & _grams(script)) / max(1, len(a))
 
 
+RETELL_WINDOW, RETELL_START = 12, 0.5   # 12 lines in a row that are >50 % already told = the story starts over
+
+
+def _retell_start(script):
+    """index (in script.splitlines()) where the script starts telling itself again, or None. Every library script stays
+    under 0.3 for any 12-line window; Bhay-Mystery-Mansion's second copy reaches 0.89"""
+    lines = script.splitlines()
+    idx = [i for i, l in enumerate(lines) if l.strip() and l.strip() != "(...)"]
+    L = [lines[i] for i in idx]
+
+    def score(k):
+        a = _grams("\n".join(L[k:k + RETELL_WINDOW]))
+        return len(a & _grams("\n".join(L[:k]))) / len(a) if a else 0.0
+    first = max(8, len(L) // 4)
+    for k in range(first, len(L) - RETELL_WINDOW // 2):
+        if score(k) > RETELL_START:
+            # the retold opening is reworded, so the overlap climbs over ~15 lines: walk back to where it starts, and
+            # keep the first telling's subscribe / closing line when the cut lands just before it
+            found, k0 = k, k
+            while k > first and score(k - 1) > 0.1:
+                k -= 1
+            zone = range(k, min(found + RETELL_WINDOW, len(L)))
+            same_open = [j for j in zone if L[j].strip() in (L[0].strip(), L[1].strip())]
+            cta = [j for j in zone if re.search(r"सब्सक्राइब|subscribe", L[j], re.I)]
+            if same_open:                               # copied word for word: it starts where the first line comes back
+                k = same_open[0] - (L[same_open[0]].strip() == L[1].strip() and L[0].strip() != L[1].strip())
+            elif cta and cta[0] <= k0:                  # the first telling ended on its subscribe line
+                k = cta[0] + 1
+            return idx[k] if k < len(L) else None
+    return None
+
+
+def _cut_retell(script, say, what="script"):
+    """the last guard on any writer, review or check output: a story told twice keeps only its first telling"""
+    k = _retell_start(script)
+    if k is None:
+        return script
+    out = "\n".join(script.splitlines()[:k]).rstrip()
+    say(f"   (the {what} told the story a second time from line {k + 1} - cut it there: {nwords(script)} -> "
+        f"{nwords(out)} words)")
+    return out
+
+
 def _long_enough(cfg, text, words, prompt, engine, say, cleaner, ctx_len=8192):
     """small local models stop early: ask them to go on until the script has its length. A reply that starts the
     story over (instead of going on) is dropped, so a script never holds the same story twice"""
@@ -1661,7 +1705,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
                       "Hindi, and a satisfying ending. For knowledge content, remove unsupported factual claims. "
                       "Return the corrected full script only, with no notes or commentary after the final line.\n\nSCRIPT:\n\n" + script)
             fixed, _ = ask(cfg, review, review_engine, 0.25, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
-            fixed = clean_horror(fixed)
+            fixed = _cut_retell(clean_horror(fixed), say, "review")
             if nwords(fixed) >= min(nwords(script), words) * 0.8:
                 script = fixed
                 say(f"   editorial review complete: {nwords(script)} words")
@@ -1672,6 +1716,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
     if plan and not stopped():
         script = logic_check(cfg, script, plan, G["name"], "local" if model == local_model(cfg) else "auto", say,
                              clean_horror)
+    script = _cut_retell(script, say)
     return script, {"recipe": r, "model": model, "minutes": minutes, "genre": gid, "level": level}
 
 

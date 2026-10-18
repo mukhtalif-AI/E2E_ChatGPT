@@ -130,4 +130,7 @@ check(S._long_enough({}, half, S.nwords(half) * 3, "P", "auto", say, lambda t: t
 S.ask = lambda *a, **k: ("\n".join(rl[len(rl) // 2:]), "m")
 check(S.nwords(S._long_enough({}, half, S.nwords(real) + 1, "P", "auto", say, lambda t: t)) > S.nwords(half), "real continuation kept")
 S.ask = keep_ask
+two = "\n".join(rl) + "\n" + "\n".join(rl)
+check(S.nwords(S._cut_retell(two, say)) == S.nwords("\n".join(rl)), "a story told twice keeps its first telling")
+check(S._cut_retell("\n".join(rl), say) == "\n".join(rl), "a normal script is left alone")
 print(f"{ok} checks passed")
