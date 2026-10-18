@@ -44,6 +44,10 @@ UA = "HubGPT/1.0 (personal video tool; local)"
 MOOD_QUERIES = {"Dark": "dark ambient drone", "Tension": "suspense tension cinematic underscore",
                 "Eerie": "eerie horror ambience", "Sad": "sad piano melancholy", "Love": "romantic soft piano",
                 "Calm": "calm ambient meditation pad", "Happy": "happy acoustic light"}
+# a search hit whose own title or tags say it is a voice or a single effect is not background music (18 Oct 2026:
+# 'eerie horror ambience' brought "Throat Vocal Groan" into BGM\Eerie, where it could be picked as a 2-minute bed)
+NOT_MUSIC_WORDS = ("vocal", "voice", "groan", "scream", "shout", "speech", "talking", "whisper", "laugh", "cry",
+                   "sobbing", "breath", "moan", "footstep", "door", "knock", "impact", "hit", "whoosh", "stinger")
 MUSIC_EXT = (".mp3",)
 SFX_EXT = (".mp3", ".wav")
 
@@ -462,6 +466,11 @@ def topup_music(ctx, series="", per=2, allow_by=False):
             for r in res:
                 if got >= int(per):
                     break
+                said = " ".join([str(r.get("title") or "")] + [str(t) for t in r.get("tags") or []]).lower()
+                bad = [w for w in NOT_MUSIC_WORDS if re.search(r"\b" + w + r"s?\b", said)]
+                if bad:
+                    say(f"   {r.get('title')}: not added - its title/tags say '{bad[0]}' (a voice or an effect, not music)")
+                    continue
                 got += fetch(ctx, "music", folder, [r], allow_by, count=True) or 0
             page += 1
         total += got

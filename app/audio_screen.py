@@ -32,6 +32,21 @@ TREAT = {
     "music_range": "acompressor=threshold=0.1:ratio=3:attack=20:release=400:makeup=1.5",
     "sfx": "lowpass=f=5200,equalizer=f=3500:t=o:w=1.4:g=-6,acompressor=threshold=0.05:ratio=6:attack=1:release=120:makeup=2,alimiter=limit=0.7",
 }
+# does the music sound like its folder's mood? (18 Oct 2026) Bhay-Mystery-Mansion opened on "Lonely Troutman II"
+# (BGM\Tension): a steady, bright beat that sounds upbeat, not tense. The pick trusted the folder name, and when a
+# folder had nothing usable it used the rejected tracks anyway. Measured on all 90 BGM tracks: the dark moods' music
+# (Dark, Eerie atmospheres, slow Sad pieces) has little steady pulse; the tracks that sound wrong there have a strong
+# regular beat, and the worst also a bright sound ("groove"). A track that breaks its folder's rule is a reject for
+# music (the Sounds page "use as is" still wins); the pick then takes a neighbouring mood (emotion_music.MOOD_NEAR).
+#   pulse     0-1, how regular the beat is (autocorrelation of the note onsets over 0.25-1.5 s); ambient pads ~0.05
+#   bright_hz the middle of the sound's spectrum (centroid); dark/eerie music sits under ~1100 Hz
+MOOD_FIT = {
+    "on": True,
+    "groove": {"pulse": 0.6, "bright_hz": 1400},     # both at once = an upbeat groove
+    "moods": {"Dark": {"pulse_max": 0.7, "no_groove": True}, "Eerie": {"pulse_max": 0.7, "no_groove": True},
+              "Tension": {"pulse_max": 0.85, "no_groove": True}, "Sad": {"pulse_max": 0.75, "no_groove": True},
+              "Calm": {"pulse_max": 0.75, "no_groove": True}, "angry": {}, "Love": {}, "Happy": {}},
+}
 _LOCK = threading.Lock()
 _MEM = {}
 
@@ -85,6 +100,30 @@ def _decode(cfg, path, sr, seconds):
     return np.frombuffer(p.stdout, np.float32)
 
 
+def rhythm(a, sr):
+    """pulse (0-1, how steady the beat is) and bright_hz (spectral centroid) of up to 90 s from the middle"""
+    import numpy as np
+    if len(a) > 90 * sr:
+        m = (len(a) - 90 * sr) // 2
+        a = a[m:m + 90 * sr]
+    n, h = 2048, 512
+    if len(a) < 10 * sr:
+        return {}
+    fr = np.lib.stride_tricks.sliding_window_view(a.astype(np.float32), n)[::h] * np.hanning(n).astype(np.float32)
+    S = np.abs(np.fft.rfft(fr, axis=1))
+    f = np.fft.rfftfreq(n, 1 / sr)
+    cent = float(np.median((S * f).sum(1) / (S.sum(1) + 1e-12)))
+    L = np.log1p(1000 * S)
+    flux = np.maximum(0, np.diff(L, axis=0)).sum(1)
+    flux = np.maximum(flux - np.convolve(flux, np.ones(32) / 32, "same"), 0)
+    e = flux - flux.mean()
+    ac = np.correlate(e, e, "full")[len(e) - 1:]
+    ac = ac / (ac[0] + 1e-12)
+    fps = sr / h
+    lo, hi = int(0.25 * fps), int(1.5 * fps)
+    return {"pulse": round(float(ac[lo:hi].max()), 3), "bright_hz": round(cent)}
+
+
 def measure(cfg, path, kind):
     """numbers that describe how a file sits under a voice"""
     import numpy as np
@@ -92,6 +131,12 @@ def measure(cfg, path, kind):
     a = _decode(cfg, path, sr, 300 if kind == "music" else 60).astype(np.float64)
     if len(a) < sr // 5:
         return {"error": "too short or unreadable"}
+    extra = {}
+    if kind == "music":
+        try:
+            extra = rhythm(a, sr)
+        except Exception:
+            extra = {}
     n = 2048
     frames = a[: len(a) // n * n].reshape(-1, n)
     rms = np.sqrt((frames ** 2).mean(1)) + 1e-12
@@ -113,7 +158,7 @@ def measure(cfg, path, kind):
             "bright_p95": round(float(np.percentile(bright, 95)), 3),
             "range_db": round(float(np.percentile(short, 95) - np.percentile(short, 10)), 1) if len(short) > 3 else 0.0,
             "crest_db": round(float(peak - 10 * np.log10((rms[act] ** 2).mean())), 1),
-            "seconds": round(len(a) / sr, 1)}
+            "seconds": round(len(a) / sr, 1), **extra}
 
 
 def verdict(m, kind):
@@ -172,7 +217,8 @@ def screen(cfg, path, kind, force=False):
     d = _load(cfg)
     k = norm(path)
     row = d["files"].get(k)
-    if force or not row or row.get("key") != _key(path) or row.get("limits") != _limits_tag(kind):
+    old_music = kind == "music" and row and "pulse" not in (row.get("m") or {}) and not (row.get("m") or {}).get("error")
+    if force or not row or old_music or row.get("key") != _key(path) or row.get("limits") != _limits_tag(kind):
         try:
             m = measure(cfg, path, kind)
         except Exception as e:
@@ -186,7 +232,7 @@ def screen(cfg, path, kind, force=False):
             _save(cfg, d)
     out = dict(row)
     out["override"] = d["overrides"].get(k, "")
-    return _with_vocals(cfg, path, out) if kind == "music" else out
+    return _with_fit(cfg, path, _with_vocals(cfg, path, out)) if kind == "music" else out
 
 
 # sung music (17 Oct 2026): Kisse-Memories-Old-Atlas-Cycle got "Torn - Patrick Jordan Patrikios" (BGM\Love), a song
@@ -230,6 +276,35 @@ def _with_vocals(cfg, path, row):
     return row
 
 
+def mood_of(cfg, path):
+    """the BGM folder a music file sits in (a treated copy counts as its original)"""
+    return os.path.basename(os.path.dirname(original_of(cfg, path) or path or ""))
+
+
+def misfit(m, mood):
+    """'' when the measured music fits the mood folder, else the reason in plain words"""
+    if not MOOD_FIT.get("on", True) or not m or m.get("pulse") is None:
+        return ""
+    rules = {k.lower(): v for k, v in (MOOD_FIT.get("moods") or {}).items()}.get(str(mood).lower()) or {}
+    pulse, bright = float(m["pulse"]), float(m.get("bright_hz") or 0)
+    g = MOOD_FIT.get("groove") or {}
+    if rules.get("no_groove") and pulse >= float(g.get("pulse", 1)) and bright >= float(g.get("bright_hz", 1e9)):
+        return (f"it does not sound {mood}: a steady beat (pulse {pulse:.2f}) and a bright sound ({bright:.0f} Hz) - "
+                "an upbeat groove")
+    if rules.get("pulse_max") is not None and pulse > float(rules["pulse_max"]):
+        return f"it does not sound {mood}: a strong steady beat (pulse {pulse:.2f}, {mood} allows {float(rules['pulse_max']):.2f})"
+    return ""
+
+
+def _with_fit(cfg, path, row):
+    why = misfit(row.get("m") or {}, mood_of(cfg, path)) if row.get("kind", "music") == "music" else ""
+    if why:
+        row["verdict"] = "reject"
+        row["why"] = list(row.get("why") or []) + [why]
+        row["misfit"] = why
+    return row
+
+
 def _limits_tag(kind):
     return hashlib.sha1(json.dumps([LIMITS.get(kind), TREAT], sort_keys=True).encode()).hexdigest()[:8]
 
@@ -241,7 +316,7 @@ def cached(cfg, path):
     if row and row.get("key") != _key(path):
         row["stale"] = True
     row["override"] = d["overrides"].get(k, "")
-    return _with_vocals(cfg, path, row) if row.get("kind") == "music" else row
+    return _with_fit(cfg, path, _with_vocals(cfg, path, row)) if row.get("kind") == "music" else row
 
 
 def set_override(cfg, path, value):

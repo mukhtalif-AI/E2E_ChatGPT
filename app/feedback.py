@@ -490,7 +490,14 @@ def pick_track(cfg, folders, orig):
     ok = [f for f in cands if norm(f) not in blocked and not rejected(scores.get(norm(f)))] or cands
     import audio_screen
     rows = {f: audio_screen.screen(cfg, f, "music") for f in ok}
-    ok = [f for f in ok if audio_screen.effective(rows[f]) != "reject"] or ok
+    # 18 Oct 2026: when every track in these folders is rejected (a song, no voice band, does not sound like the mood)
+    # the answer is '' and the caller tries a neighbouring mood - it used to take a rejected track anyway
+    ok = [f for f in ok if audio_screen.effective(rows[f]) != "reject"]
+    if not ok:
+        cfg.setdefault("_music_misfit", []).append(
+            f"{'/'.join(folders)}: " + "; ".join(f"{os.path.basename(f)} - {(rows[f].get('why') or ['rejected'])[-1]}"
+                                                 for f in rows))
+        return ""
     skip = float(cfg.get("music_harsh_skip", 19))
     ok = [f for f in ok if tools.harshness(cfg, f) < skip] or ok
     up = os.path.join(cfg["media_dir"], "bhay_music_used.json")

@@ -84,6 +84,9 @@ TABLES = {
     "sfx_lib.SERIES": "Sound effects per series: [effect list, effects per minute]",
     "sound_words.SOUND_WORDS": "Sound words taken out of the speech and played as effects: on, pause_s, kinds (words in Hindi / Roman, library file names best first)",
     "audio_screen.LIMITS": "Audio screening limits: speech band share, piercing highs, music ducking, clarity dB",
+    "audio_screen.MOOD_FIT": "Music must sound like its mood folder: per mood pulse_max (steady beat 0-1) and no_groove "
+                             "(steady beat + bright sound); a track that breaks it is not picked",
+    "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
     "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
     "narrator.SERIES": "Corner narrator per series: on, narrator, corner / size / margin for the video and reels (Narrator page)",
     "narrator.THEMES": "Corner narrator look per series for ComfyUI pictures",

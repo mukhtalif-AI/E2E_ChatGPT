@@ -196,6 +196,16 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
             say(f"   music mood from the story: {mood}")
         cfg["_music_series"], cfg["_music_episode"] = genre, name
     track = track or tools._horror_track(cfg, pick)
+    if not track and _is_exp(cfg):                         # 18 Oct 2026: no track in that folder fits its mood
+        import emotion_music
+        emotion_music.misfit_note(cfg, say)
+        for m2 in (emotion_music.near_moods(pick[0], folders)[1:] if len(pick) == 1 else []) + [folders]:
+            track = tools._horror_track(cfg, m2 if isinstance(m2, list) else [m2])
+            emotion_music.misfit_note(cfg, say)
+            if track:
+                say(f"   music mood {pick[0] if len(pick) == 1 else '/'.join(pick)} has no fitting track - using "
+                    f"{os.path.basename(os.path.dirname(track))}")
+                break
     track, music_db = _usable_music(ctx, track, folders, music_db)
     say(f"   music: {os.path.basename(track)}")
     tools._series_note(cfg, name, genre=genre, track=track, pictures=pictures)

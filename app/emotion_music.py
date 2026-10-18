@@ -49,6 +49,10 @@ TURN_GAP_S = 30                      # two stingers at least this far apart
 TAG_MOOD = {"डर": ("Dark", "Tension", "Eerie"), "रहस्य": ("Tension", "Dark", "Eerie"), "उदास": ("Sad", "Calm"),
             "प्यार": ("Love", "Calm"), "गुस्सा": ("Tension", "Dark"), "उत्साह": ("Happy", "Love"),
             "फुसफुसाहट": ("Eerie", "Calm", "Love")}
+# a mood folder with no track that fits it (audio_screen.MOOD_FIT) hands over to the nearest mood, best first
+MOOD_NEAR = {"Tension": ("Dark", "Eerie"), "Dark": ("Eerie", "Tension"), "Eerie": ("Dark", "Tension"),
+             "Sad": ("Calm", "Dark"), "Calm": ("Sad", "Love"), "Love": ("Calm", "Happy"), "Happy": ("Calm", "Love"),
+             "angry": ("Tension", "Dark")}
 TAG_WEIGHT = {"डर": 1, "रहस्य": 1, "उदास": 1, "प्यार": 1, "गुस्सा": 1, "उत्साह": 1, "फुसफुसाहट": 0}
 TAG_RE = re.compile(r"^\s*\[([^\]]+)\]\s*")
 # how a mood reads in MAP_ASK (17 Oct 2026): Kisse-Memories-Old-Atlas-Cycle, a story of two boyhood friends, opened
@@ -751,12 +755,26 @@ def folder_of(track, cfg=None):
     return os.path.basename(os.path.dirname(str(track or ""))).lower()
 
 
+def near_moods(mood, allowed=None):
+    """the mood itself, then its neighbours (MOOD_NEAR) - only folders the series may use when 'allowed' is given"""
+    out = [mood] + [m for m in MOOD_NEAR.get(mood, ()) if m != mood]
+    return [m for m in out if m == mood or not allowed or m in allowed]
+
+
+def misfit_note(cfg, say):
+    """say why mood folders were passed over (feedback.pick_track fills cfg['_music_misfit'])"""
+    for n in cfg.pop("_music_misfit", None) or []:
+        say(f"   (no usable track in {n})")
+
+
 def pick_tracks(ctx, segs, first_track, music_db, fixed=False):
     """a usable track per mood: the series' usual pick (your ratings, least used, screening) inside that mood folder.
-    A mood folder with nothing usable keeps the track before it. -> {mood: file}, music_db"""
+    A folder with no track that fits its mood hands over to the nearest mood (MOOD_NEAR); with none, the section keeps
+    the track before it. -> {mood: file}, music_db"""
     import tools
     cfg, say = ctx["cfg"], ctx["say"]
     md = cfg.get("music_dir") or ""
+    allowed = series_moods(cfg, cfg.get("_music_series") or "") if cfg.get("_music_series") else None
     out = {}
     for g in segs:
         mood = g["mood"]
@@ -769,14 +787,24 @@ def pick_tracks(ctx, segs, first_track, music_db, fixed=False):
             out[mood] = first_track
             continue
         t = ""
-        for _ in range(4):
-            c = tools._horror_track(cfg, [mood]) if glob.glob(os.path.join(md, mood, "*.mp3")) else ""
-            if c and c not in out.values():
-                ok, _db = tools._usable_music(ctx, c, [mood], music_db)
-                # _usable_music falls back to a softened Calm track when the folder has nothing: not for a section
-                if ok and os.path.exists(ok) and ok not in out.values() and folder_of(ok, cfg) == mood.lower():
-                    t = ok
+        for m2 in near_moods(mood, allowed):
+            if m2 != mood and not out and first_track and folder_of(first_track, cfg) == m2.lower():
+                t = first_track                         # the opening track already came from this neighbour
+            for _ in range(0 if t else 4):
+                c = tools._horror_track(cfg, [m2]) if glob.glob(os.path.join(md, m2, "*.mp3")) else ""
+                if not c:
                     break
+                if c not in out.values():
+                    ok, _db = tools._usable_music(ctx, c, [m2], music_db)
+                    # _usable_music falls back to a softened Calm track when the folder has nothing: not for a section
+                    if ok and os.path.exists(ok) and ok not in out.values() and folder_of(ok, cfg) == m2.lower():
+                        t = ok
+                        break
+            misfit_note(cfg, say)
+            if t:
+                if m2 != mood:
+                    say(f"   section mood {mood}: nothing in {mood} sounds like it - using {m2}: {os.path.basename(t)}")
+                break
         if not t:
             prev = list(out.values())[-1] if out else first_track
             say(f"   (no other usable track in {mood} - the music stays on {os.path.basename(prev or '')})")
