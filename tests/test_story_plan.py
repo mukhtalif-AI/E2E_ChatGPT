@@ -121,4 +121,13 @@ check("450" not in out and "आधे घंटे" in out and kis[0] in out, "f
 S.STORY_PLAN["facts"] = False; FACTS_SEEN.clear()
 check(S.facts_check({}, "\n".join(kis), plan, "x", "auto", say, lambda t: t) == "\n".join(kis) and not FACTS_SEEN, "facts off in the table")
 S.STORY_PLAN["facts"] = True; FACTS_REPLY[0] = {"problems": []}
+# a 'continue' reply that starts the story over is dropped (Bhay-Mystery-Mansion 18 Oct held the story twice)
+rl = [l for l in real.splitlines() if l.strip() and l.strip() != "(...)"]
+half = "\n".join(rl[:len(rl) // 2])
+keep_ask = S.ask
+S.ask = lambda *a, **k: (half, "m")
+check(S._long_enough({}, half, S.nwords(half) * 3, "P", "auto", say, lambda t: t) == half, "retold continuation dropped")
+S.ask = lambda *a, **k: ("\n".join(rl[len(rl) // 2:]), "m")
+check(S.nwords(S._long_enough({}, half, S.nwords(real) + 1, "P", "auto", say, lambda t: t)) > S.nwords(half), "real continuation kept")
+S.ask = keep_ask
 print(f"{ok} checks passed")

@@ -1383,7 +1383,9 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
         prompt = with_plan(prompt, plan)
         t0 = time.time()
     text, model = ask(cfg, prompt, engine, 0.95, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
-    script = _long_enough(cfg, text, int(float(minutes) * wpm(cfg, "hi", "bhay")), prompt, engine, say, clean_horror)
+    words = int(float(minutes) * wpm(cfg, "hi", "bhay"))
+    script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror,
+                          int(STORY_PLAN["ctx"]) if plan else 8192)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
     if (not plan or STORY_PLAN.get("review", True)) and not stopped():
         try:
@@ -1395,7 +1397,7 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
                            + script, review_engine, 0.4, say=say,
                            ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
             fixed = clean_horror(fixed)
-            if nwords(fixed) >= nwords(script) * 0.8:
+            if nwords(fixed) >= min(nwords(script), words) * 0.8:
                 script = fixed
                 say(f"   checked + fixed: {nwords(script)} words")
             else:
@@ -1564,17 +1566,41 @@ def _rules_for(G, level):
     return r
 
 
-def _long_enough(cfg, text, words, prompt, engine, say, cleaner):
-    """small local models stop early: ask them to go on until the script has its length"""
+RETELL_MAX = 0.25  # share of a 'continuation' already in the script above which it counts as the story told again
+
+
+def _grams(text, n=3):
+    w = re.findall(r"[\w\u0900-\u097F]+", text)
+    return {" ".join(w[i:i + n]) for i in range(len(w) - n + 1)}
+
+
+def _retold(add, script):
+    """share of the new part's 3-word runs already in the script: a real continuation stays under ~0.07, a
+    model that starts the story over again (Bhay-Mystery-Mansion, 18 Oct: 0.46) far above RETELL_MAX"""
+    a = _grams(add)
+    return len(a & _grams(script)) / max(1, len(a))
+
+
+def _long_enough(cfg, text, words, prompt, engine, say, cleaner, ctx_len=8192):
+    """small local models stop early: ask them to go on until the script has its length. A reply that starts the
+    story over (instead of going on) is dropped, so a script never holds the same story twice"""
     script = cleaner(text)
     for _ in range(3):
         if nwords(script) >= words * 0.75:
             break
         say(f"   only {nwords(script)} of ~{words} words - asking it to continue ...")
-        more, _m = ask(cfg, prompt + "\n\nSO FAR (continue from here, do not repeat, same format):\n\n"
-                       + script[-3000:] + "\n\nContinue:", engine, 0.9, say=say)
+        more, _m = ask(cfg, prompt + "\n\nSO FAR - this script is UNFINISHED. Write ONLY the new lines that come after "
+                       "its last line, same format. Do NOT start the story again: no new opening, hook, subscribe line "
+                       "or event that is already told above. If the story above already reached its ending, answer "
+                       "only the word END.\n\n" + script[-3000:] + "\n\nContinue after the last line:", engine, 0.9,
+                       say=say, ctx_len=ctx_len)
         add = cleaner(more)
         if nwords(add) < 20:
+            break
+        r = _retold(add, script)
+        if r > RETELL_MAX:
+            say(f"   (the continuation told the story again from the start ({r:.0%} the same) - dropped it, "
+                f"kept the {nwords(script)}-word story)")
             break
         script = script.rstrip("\n") + "\n" + add
     return script
@@ -1624,7 +1650,8 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
         prompt = with_plan(prompt, plan)
     t0 = time.time()
     text, model = ask(cfg, prompt, engine, 0.9, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
-    script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror)
+    script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror,
+                          int(STORY_PLAN["ctx"]) if plan else 8192)
     say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
     if (not plan or STORY_PLAN.get("review", True)) and not stopped():
         try:
@@ -1635,7 +1662,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
                       "Return the corrected full script only, with no notes or commentary after the final line.\n\nSCRIPT:\n\n" + script)
             fixed, _ = ask(cfg, review, review_engine, 0.25, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
             fixed = clean_horror(fixed)
-            if nwords(fixed) >= nwords(script) * 0.8:
+            if nwords(fixed) >= min(nwords(script), words) * 0.8:
                 script = fixed
                 say(f"   editorial review complete: {nwords(script)} words")
             else:
