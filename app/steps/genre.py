@@ -270,6 +270,14 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
     norm = lambda t: re.sub(r"[^\w\s]", "", str(t)).split()
     cue_db = {"bhay": -10, "rahasya": -11, "kisse": -13, "romanch": -15, "kareeb": -16}.get(genre, -14)
     used, ncue = [], 0
+    pauses = None                                       # the narration's silences, for voice-like effects
+    if exp:
+        try:
+            import emotion_music
+            sp_n, _ = emotion_music.speech_frames(tools._decode(cfg, os.path.join(d, "narration.wav"), sr, 1), sr)
+            pauses = emotion_music.gaps(sp_n)
+        except Exception as e_:
+            say(f"   (pauses of the narration not measured: {e_})")
     for si, s in enumerate(shots):
         for ci, c in enumerate(s.get("cues") or []):
             if sp_plan is not None and c.get("at") is not None and (si, ci) not in sp_plan["cues"] \
@@ -295,6 +303,15 @@ def horror_sound(ctx, name, pictures, track="", genre="bhay", tail="1min", music
             if not len(h):
                 continue
             g = 10 ** ((voice_db + cue_db - 20 * np.log10(float(np.sqrt(np.mean(h ** 2))) + 1e-9)) / 20)
+            if pauses is not None and emotion_music.is_voice_fx(c["file"]):   # 18 Oct 2026: never over the speech
+                slot = emotion_music.voice_fx_slot(float(at), len(h) / sr, pauses)
+                name_fx = os.path.basename(c["file"])
+                if not slot:
+                    say(f"   effect {name_fx} left out: it sounds like a voice and there is no pause near "
+                        f"'{c.get('words')}' to play it in")
+                    continue
+                at, room = slot
+                h = h[: int(room * sr)]
             fade = np.minimum(1, (len(h) - np.arange(len(h))) / (0.4 * sr))[:, None]
             st = int((lead + at) * sr)
             e = min(len(mix), st + len(h))

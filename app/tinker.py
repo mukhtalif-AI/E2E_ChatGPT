@@ -89,6 +89,8 @@ TABLES = {
     "emotion_music.STINGERS": "Stingers per series (turns, scene hits, mood effects together): min_gap_s between two, per_min "
                               "at most per minute of story, strongest emotion kept first; bed_peak_db = how far an ambience "
                               "bed may rise over its usual level",
+    "emotion_music.VOICE_FX": "Effects that sound like a voice (whisper, scream, laugh...): played only in a pause of the "
+                              "narration (min_pause_s, looked for within search_s of the word, min_play_s of room), never over it",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
     "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
     "narrator.SERIES": "Corner narrator per series: on, narrator, corner / size / margin for the video and reels (Narrator page)",

@@ -60,6 +60,14 @@ STINGERS = {
     "kareeb": {"on": True, "min_gap_s": 45, "per_min": 0.5, "bed_peak_db": 5},
     "default": {"on": True, "min_gap_s": 30, "per_min": 1.0, "bed_peak_db": 6},
 }
+# effects that sound like a voice (whisper, scream, laugh, breath ...) hide the narration when they play over it (18 Oct
+# 2026, Bhay-Acoustic-Parasite-Mystery: an 8.6 s whisper started mid-sentence at 6:04, 10 dB under the voice). They play
+# only in a pause of the narration: the first pause of at least min_pause_s that starts within search_s of the word,
+# cut to end fade_s before the next word; no such pause (or less than min_play_s of room) -> left out.
+# Tinker: emotion_music.VOICE_FX (words are matched in the file path, like STING_WORDS)
+VOICE_FX = {"on": True, "min_pause_s": 0.8, "search_s": 5.0, "min_play_s": 1.2, "fade_s": 0.25, "early_s": 0.5,
+            "words": ["whisper", "voice", "vocal", "scream", "shriek", "laugh", "giggle", "breath", "moan", "groan",
+                      "sob", "crying", "cries", "child", "chant", "murmur", "talk", "speech", "humming", "sigh", "gasp"]}
 STING_WORDS = ("braam", "impact", "hit", "sting", "riser", "whoosh", "boom", "scream", "whisper", "slam", "thud")
 # emotion mark -> music folders that fit it, best first (the first one the series has wins)
 TAG_MOOD = {"डर": ("Dark", "Tension", "Eerie"), "रहस्य": ("Tension", "Dark", "Eerie"), "उदास": ("Sad", "Calm"),
@@ -937,6 +945,29 @@ def sting_settings(genre):
 def _is_sting_file(path):
     p = str(path or "").replace("\\", "/").lower()
     return any(re.search(r"(^|[/_ .-])" + w, p) for w in STING_WORDS)
+
+
+def is_voice_fx(path):
+    p = str(path or "").replace("\\", "/").lower()
+    return bool(VOICE_FX.get("on", True)) and any(re.search(r"(^|[/_ .-])" + re.escape(str(w).lower()), p)
+                                                    for w in VOICE_FX.get("words") or [])
+
+
+def voice_fx_slot(at, length, pauses):
+    """where a voice-like effect may play: (start, seconds) in a pause of the narration (story times), or None.
+    pauses: [(start, end)] of the narration's silences"""
+    v = VOICE_FX
+    mp, early = float(v.get("min_pause_s", 0.8)), float(v.get("early_s", 0.5))
+    for a, b in sorted(pauses):
+        if b - a < mp or a < at - early:
+            continue
+        if a > at + float(v.get("search_s", 5.0)):
+            break
+        st = a + 0.1
+        room = min(float(length), (b - float(v.get("fade_s", 0.25))) - st)
+        if room >= float(v.get("min_play_s", 1.2)):
+            return st, room
+    return None
 
 
 def stinger_plan(genre, shots, m=None, total_s=None):
