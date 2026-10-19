@@ -1,6 +1,6 @@
 # HubGPT project map
 
-Last reviewed against source: 17 Oct 2026. Start here for the current architecture.
+Last reviewed against source: 19 Oct 2026 (commit `3e8903d`). Start here for the current architecture.
 **Rule (agreed 17 Oct):** commit before and after each change (Save / Git page or git); make no more `*_old_*` backup copies, git is the backup.
 Companion files in the same folder: `CHANGELOG.md` (what changed when), `KNOWN_PROBLEMS.md` (what is wrong,
 what is right, what was decided), `CLEANUP_PLAN.md` (historical cleanup status and remaining proposals).
@@ -37,16 +37,19 @@ E:\Projects\hub_chatgpt
   PROJECT_MAP.md     this file (CHANGELOG.md, KNOWN_PROBLEMS.md, CLEANUP_PLAN.md beside it)
   MASTER_SOUND_PLAN.md   the one build order for music, ambience and effects (+ EMOTION_MUSIC_PLAN.md,
                      SOUNDSCAPE_MOVE_LIST.md); TOOLS_SPLIT_PLAN.md = how the tools.py split was done
-  tests\            smoke_tools.py (+ tools_baseline.json) checks the step code, test_emotion_music.py,
-                     emotion_on_copy.py / soundfix_on_copy.py (sound on a copied episode), split_move.py,
-                     soundscape_move.py (moves soundscapes out of BGM, --undo; not run yet)
+  tests\            smoke_tools.py (+ tools_baseline.json) checks the step code; unit tests test_emotion_music.py,
+                     test_music_fit.py, test_story_plan.py, test_story_by_scene.py, test_sound_words.py,
+                     test_voice_cast.py, test_fix_music_check.py; calib_music_check.py (music check on finished mixes);
+                     emotion_on_copy.py / soundfix_on_copy.py / sukoon_tail_on_copy.py (on a copied episode);
+                     voice_cast_samples.py / voice_cast_study.py (ghost voice samples), split_move.py,
+                     soundscape_move.py (moved soundscapes out of BGM on 17 Oct, --undo)
   app\               the hub itself (Python server + two web pages)  -> see "Files in app" below
   engines\voice\     your Hindi voice (Chatterbox Multilingual + your trained LoRA models in models\)
   engines\video\     the video renderer (Sukoon living art, genre videos, reels, subtitles), own .venv
   engines\english\   the English narrator (Qwen3-TTS) for English Sukoon episodes
   Code\              ALL_CODE.txt snapshots made by update_all_code.bat (for pasting into chats)
-  *_old_<date>_<what>   backup of a file before a change, next to the file (old ones were cleaned on 16 Oct;
-                     a `_backups\` folder, if present, is ignored by git)
+  *_old_<date>_<what>   old backup copies (none are made since 17 Oct: git is the backup; old ones cleaned 16-17 Oct;
+                     `_backups\` is ignored by git)
   _tmp\              test scripts and results from AI sessions, e.g. model_test_20261016, vision_test_20261016
   logs\              hub logs
 ```
@@ -59,9 +62,9 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 ### Core (used by both modes)
 | File | Size | What it does |
 |---|---|---|
-| `server.py` | ~1170 lines | The web server. Serves both pages, all `/api/...` routes, the job queue (one GPU job at a time + a light lane), restart/resume, git snapshot on restart. Runs each job step by calling `tools.<fn>` (or `experimental_workspace.exp_*`). |
-| `tools.py` + `steps\` | ~625 + 12 files (split 17 Oct) | Every job step. `plan(kind, body)` turns a request into named steps; `tools.py` holds series tables and prompts and re-exports the implementations from `steps\`. See "Where the `tools.py` code lives" below. |
-| `story.py` | ~1260 lines | Script writing (`local_chat` sends `think: false` to Gemma 4 / Qwen3 when a step asks for it): Sukoon (Hindi/English), the six genres, recipes, topic bank, ledger (no repeats), Gemini with Ollama fallback, check pass. Holds `GENRE_TEXT`, `GENRE_TELLINGS`, `LEVELS`. |
+| `server.py` | ~1270 lines | The web server. Serves both pages, all `/api/...` routes, the job queue (one GPU job at a time + a light lane), restart/resume, git snapshot on restart. Runs each job step by calling `tools.<fn>` (or `experimental_workspace.exp_*`). |
+| `tools.py` + `steps\` | ~685 + 12 files (split 17 Oct) | Every job step. `plan(kind, body)` turns a request into named steps; `tools.py` holds series tables and prompts and re-exports the implementations from `steps\`. See "Where the `tools.py` code lives" below. |
+| `story.py` | ~2000 lines | Script writing (`local_chat` sends `think: false` to Gemma 4 / Qwen3 when a step asks for it): Sukoon (Hindi/English), the six genres, recipes, topic bank, ledger (no repeats), Gemini with Ollama fallback, check pass. Holds `GENRE_TEXT`, `GENRE_TELLINGS`, `LEVELS`. Story plan + logic and facts checks (`STORY_PLAN`, 17 Oct), a story told twice is cut (`_cut_retell`, 18 Oct), and the **scene-by-scene writer** (19 Oct, `STORY_PLAN['by_scene']` or the Create box, off by default). Every story saves `<story>.versions.json` (plan, draft, review, final); scene runs save `<story>.scenes.json`. |
 | `path_config.py` | small | Reads `config.json`, works out every folder path. |
 | `comfy.py` | small | Talks to ComfyUI (starts it if needed) to paint pictures. |
 | `sfx_lib.py` | small | Sound-effect library by folder; `CATS` = effect kinds (incl. ambience beds such as `atmo`, added 17 Oct), `SERIES` = which effects each genre uses and how often. Experimental scene plans offer everyday effects to every series and mood sounds only where `SERIES` lists them. |
@@ -81,13 +84,15 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | `self_review.py` | The AI reviews its own video (effect timing, voice vs script, subtitles, pictures, clarity) and pre-fills ratings. | 16 Oct |
 | `word_times.py` | Exact time of each spoken word (Whisper) so effects land on the right word. | 16 Oct |
 | `sound_library.py` | Sounds page: browse/rate/import BGM and SFX, search Openverse/Freesound (CC0). | 16 Oct |
-| `audio_screen.py` | Checks if a music track or effect would cover the voice; ok / risky (treated copy) / reject. | 16 Oct |
+| `audio_screen.py` | Checks if a music track or effect would cover the voice; ok / risky (treated copy) / reject. Since 18 Oct it also measures beat and brightness and stores which mood folders a track fits (`MOOD_FIT`, row in `Activity\audio_screen.json`), done at index time. | 16 Oct |
 | `git_save.py` | Save / Git page: commit, push, pull with fixed commands. | 16 Oct |
 | `narrator.py`, `narrator_render.py` | Corner narrator with lip sync (Narrator page, `narrator.SERIES` table). Not run on the PC yet. | 16 Oct |
 | `thumbnail.py` (+ `engines\video\engine\thumbnail.py`) | Thumbnails page: 1920x1080 thumbnail per episode in each series' look (`thumbnail.SERIES` table, logo/name from `tools.CHANNEL`); made after every Experimental genre video. | 18 Oct |
+| `voice_cast.py` | Ghost voice (Bhay): `exp_voice_cast` (before the voice: the model says who speaks each quoted line, 2 asks must agree; only a ghost's own spoken lines, at most 4) and `exp_voice_fx` (before the mix: those lines re-voiced from `narration_dry.wav` with pitched layers + a reverse swell). Table `voice_cast.CAST`; report `voice_cast.txt` in the episode folder. | 19 Oct |
+| `sound_words.py` | Sound words in a genre script ('ठक... ठक...') are taken out of the spoken text (`exp_sound_words`) and become effect cues (`exp_sound_word_cues`). Table `SOUND_WORDS`. | 17 Oct |
 | `picture_check.py` | New picture check for genre scenes: checklist from 'what happens', judge answers plain questions, code decides, up to 2 repaints, then flag. `CHECK_MODEL` = gemma3:12b. | 16 Oct |
 | `music_check.py` | After the music step (Experimental, every series): checks the finished mix (swell, jumps, drop-outs, gaps, stingers, effects over the words, clarity, ending, tracks), fixes what it can, `music_report.txt` in the episode folder; step `exp_music_check`, Tinker `music_check.RULES`. | 19 Oct |
-| `emotion_music.py` | Music that follows the story's emotion: the emotion map (mood + weight per scene, music sections, turn lines; step `exp_emotion_map`) and the mixer `horror_sound` uses for it (`EMOTION_MUSIC_PLAN.md`). | 17 Oct |
+| `emotion_music.py` | Music that follows the story's emotion: the emotion map (mood + weight per scene, music sections, turn lines; step `exp_emotion_map`) and the mixer `horror_sound` uses for it (`EMOTION_MUSIC_PLAN.md`). Since 18-19 Oct also: one limit for stingers (`STINGERS`), voice-like effects only in a pause (`VOICE_FX`), nearest mood when a folder has nothing fitting (`MOOD_NEAR`), 8 s eased swell, weight-2 turns dip instead of stopping. | 17 Oct |
 | `sound_needs.py` | Report of the music moods and effects the stories need and the library lacks (`Activity\Reports\sound_needs_*.md`); downloads nothing. | 17 Oct |
 | `create_form.py` | One Create form for every series; `DEFAULTS` per series (Tinker table). | 16 Oct |
 | `migrate_data_root.py` | One-off: moves Experimental data from `D:\HubGPT` to `D:\MukhtalifGPT` and switches `experimental_root` (dry run by default; the switch was made 16 Oct). | 16 Oct |
@@ -109,7 +114,7 @@ Rules for code in `app\steps\` (write `tools.X` for tables, prompts and swapped 
 
 | File | What | Main functions |
 |---|---|---|
-| `tools.py` (~625 lines) | paths, model call, all tables and long prompts | `narration_dir`, `slug`, `model_chat`, `STYLES`, `GENRES`, `VOICES`, `DIRECTION`, `SCENES_ASK` and the other Tinker prompts, `END_SECONDS`, `SCENE_SECONDS` |
+| `tools.py` (~685 lines) | paths, model call, all tables and long prompts | `narration_dir`, `slug`, `model_chat`, `STYLES`, `SERIES_LOOK` (fixed art style per series), `CHANNEL` (channel name + logo per series), `VISUAL_ASK`, `GENRES`, `VOICES`, `DIRECTION`, `SCENES_ASK` and the other Tinker prompts, `END_SECONDS`, `SCENE_SECONDS` |
 | `steps\planner.py` | **job planner** | `plan(kind, body, cfg)`, `presets`, `voice_sets`, `unique_genre_name`, `save_upload` |
 | `steps\script.py` | scripts, translation, elements, emotion marks | `llm_story`, `fit_script`, `write_script`, `write_stories`, `translate`, `mark_emotions` (`EMO_BATCH`) |
 | `steps\voice.py` | GPU and voices, word rack | `free_gpu`, `free_llm`, `sv_speak`, `en_speak`, `avoid_hard_words`, `rack_save` |
@@ -139,7 +144,12 @@ Rules for code in `app\steps\` (write `tools.X` for tables, prompts and swapped 
 `studio_prepare` -> `studio_video` (engine `engines\video\engine\sleep_pipeline.py`: living art, subtitles, reels).
 
 ### Genre episode (`kind: "genre"`, series bhay / rahasya / kisse / romanch / kareeb / gyaan, Hindi only)
-Experimental run, as in the Kisse-Blue-Ink-Diary log (17 Oct, 15 steps): script (26B; episode renamed to
+Experimental Bhay run as queued on 19 Oct (Bhay-1019-1840, 20 steps): `horror_story` -> `mark_emotions` -> `free_gpu` ->
+`exp_sound_words` -> `exp_voice_cast` (Bhay only) -> `sv_speak` -> `sfx_fetch` -> `horror_scenes` -> `exp_sound_word_cues` ->
+`exp_cue_times` -> `exp_emotion_map` -> `exp_voice_fx` (Bhay only) -> `horror_sound` -> `exp_music_check` -> `comfy_images` ->
+`pick_scenes` -> `free_gpu` -> `horror_video` (thumbnail made right after the video) -> `exp_after_video` -> `genre_reels`.
+The other series have the same steps without the two ghost-voice ones. Older description,
+as in the Kisse-Blue-Ink-Diary log (17 Oct, 15 steps): script (26B; episode renamed to
 `<Series>-<title words>`) -> emotion marks -> free the card -> voice -> SFX library top-up -> scene plan (scenes end
 at a sentence end about every 30 s; director writes a 'what happens' line per scene and picks beds and effects only
 from the series' lists; a second ask turns it into the picture prompt; invented props or weather are rewritten;
@@ -165,6 +175,13 @@ The `stages` list (script, voice, scenes, sound, pictures, video, reels) lets a 
 | Gemini / Pixabay / Freesound keys, script engine | `secrets.json` | Settings page |
 | Series settings (music folders, voice, pause, drama) | `tools.GENRES` | Tinker > Series settings |
 | Picture looks per series | `tools.STYLES` | Tinker |
+| Fixed art style per series (Experimental; all but Sukoon) | `tools.SERIES_LOOK` | Tinker |
+| Thumbnail look per series (layout, picture, grade, letters, colours) | `thumbnail.SERIES`; per-episode words/placement in `thumbnail.json` next to the episode | Tinker; Thumbnails page |
+| Stinger spacing, voice-like effects only in pauses, nearest mood | `emotion_music.STINGERS`, `emotion_music.VOICE_FX`, `emotion_music.MOOD_NEAR` | Tinker |
+| Does a track sound like its mood folder | `audio_screen.MOOD_FIT` (results in `Activity\audio_screen.json`) | Tinker; Settings > Your music > Build / update re-measures |
+| Music check limits (12 rules) | `music_check.RULES` | Tinker |
+| Ghost voice (who, how many lines, layers, reverse swell) | `voice_cast.CAST` | Tinker |
+| Scene-by-scene writer on for every run | `story.STORY_PLAN` `by_scene` (off) | Tinker; or the Create box "Write it scene by scene (test)" for one job |
 | Channel name + logo per series (opening, badge, Subscribe ending, thumbnail; Experimental) | `tools.CHANNEL` | Tinker |
 | Voice direction per emotion | `tools.DIRECTION` | Tinker |
 | Writing rules, story shapes, topics per genre | `story.GENRE_TEXT / GENRE_TELLINGS / LEVELS`, overridden by `genre_rules.json` | Tinker > Writing rules |
@@ -183,6 +200,7 @@ The `stages` list (script, voice, scenes, sound, pictures, video, reels) lets a 
 | Music level under the voice (default 18 dB) | `create_form.DEFAULTS` `music_db`, the Create form slider | Tinker > Series settings, the form |
 | Music use count per series (Experimental) | `D:\MukhtalifGPT\Library\music_used.json` (old shared `bhay_music_used.json` still written) | written by the hub |
 | Per-episode emotion map | `emotion_map.json` next to `shots.json` (director's raw answer: `director_reply.txt`) | written by the hub |
+| Per-episode reports (Experimental) | episode folder: `music_report.txt` + `music_check.json` (+ `narration_music_before_check.wav` when the check changed the mix), `voice_cast.txt`, `<episode>_thumbnail.jpg`; next to the script: `<story>.versions.json`, `<story>.scenes.json`, `<name>.voice_cast.json`, `<name>.sound_words.json` | written by the hub |
 
 Adding a new genre today touches about 7 places (GENRES, STYLES, GENRE_TEXT, unique_genre_name, horror_sound
 cue_db, sfx_lib.SERIES, horror_video MOODS) plus music folders. See `KNOWN_PROBLEMS.md`.
@@ -199,6 +217,6 @@ cue_db, sfx_lib.SERIES, horror_video MOODS) plus music folders. See `KNOWN_PROBL
 
 1. Read `KNOWN_PROBLEMS.md` "Decisions" so you don't undo something on purpose.
 2. Change Experimental first; note it in `app\ui\experimental\EXPERIMENT_NOTES.md` and `CHANGELOG.md`.
-3. Make a backup (the hub's habit is `file_old_<date>_<what>`).
+3. Commit first (Save / Git page or git), and again after the change. No `*_old_*` copies (rule of 17 Oct).
 4. Restart the hub with `restart_hub.bat` while no job runs; the in-app Restart button also makes a git snapshot.
 5. Run a short test episode and write "verified on PC" next to the change in `CHANGELOG.md`.

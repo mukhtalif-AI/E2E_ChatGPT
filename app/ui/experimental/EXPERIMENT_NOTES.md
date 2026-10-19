@@ -184,3 +184,24 @@ ambience and effects were planned but none were placed.
 - **Channel name + logo per series** (18 Oct, git efd1a9d): Tinker table `tools.CHANNEL`; `steps\genre.horror_video` adds
   `plan["channel"]` and stamps the thumbnail only when `experimental_mode` is set, so Working videos keep the text label.
   Shared engine files `horror_video.py` / `subscribe_end.py` draw the logo only when the plan has `channel`.
+
+## 18-19 Oct 2026: looks, branding, thumbnails, music fit and checks, ghost voice, scene-by-scene writer
+
+Status per change (ran live / compiled only) is in `CHANGELOG.md`; all of it is loaded since the 19 Oct 18:38 restart.
+Everything below is Experimental only unless it says so.
+- Pictures: fixed art style per series (`tools.SERIES_LOOK`), fixed descriptions + one seed per character and key
+  object, clothes-only on wide / two-person shots, young/old looks per character (`steps\scenes.py`, `tools.VISUAL_ASK`).
+- Branding: channel name + logo per series (`tools.CHANNEL`; Bhay = Haunted Gatha) on the opening, corner badge,
+  Subscribe ending and thumbnail (`steps\genre.py`, video engine).
+- Thumbnails page + `thumbnail.py` (`thumbnail.SERIES`): 1920x1080 per episode after every genre video; words,
+  drag-and-drop pieces and a ComfyUI repaint on the page.
+- Sound: tracks must fit their mood folder (`audio_screen.MOOD_FIT`, measured at index time, nearest mood via
+  `emotion_music.MOOD_NEAR`), one stinger limit (`emotion_music.STINGERS`), voice-like effects only in pauses
+  (`emotion_music.VOICE_FX`), 8 s eased swell and dips instead of stops, music check after the music step
+  (`music_check.py`, `music_check.RULES`, step `exp_music_check`). Sukoon in Experimental finds `audio_index.json`
+  in the data root again. Shared with Working: `audio_index.py` reads config through `path_config`; the video
+  engine's black/green flash fix (`horror_video` brightness).
+- Voice: ghost voice for a ghost's own lines in Bhay (`voice_cast.py`, `voice_cast.CAST`, steps `exp_voice_cast`,
+  `exp_voice_fx`).
+- Story: a 'continue' reply that retells the story is dropped, `_cut_retell` guard (shared `story.py`); scene-by-scene
+  writer behind the Create box "Write it scene by scene (test)" (`story.STORY_PLAN['by_scene']`, `create_form.py`).

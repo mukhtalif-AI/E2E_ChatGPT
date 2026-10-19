@@ -1,20 +1,25 @@
 # Known problems and decisions
 
-Last updated: 17 Oct 2026, ~15:50. Short on purpose. When something here is fixed, move it to "What is right" with the date.
+Last updated: 19 Oct 2026, ~19:50 IST. Short on purpose. When something here is fixed, move it to "What is right" with the date.
 Quality problems per series (what to fix, what to hide) are in `reviews/fix_or_mask_plan.md` (project folder).
 What changed and how far each change was tested: `CHANGELOG.md`.
 
 ## What is wrong or unknown right now
 
 ### Not yet proven
-1. **Very little has been checked by you.** You have heard one real run of the 17 Oct sound code: Kisse-Blue-Ink-Diary
-   (13:36). Nothing is tagged "verified on PC" yet. The fixes made from it (lighter return and silence length,
-   category bed pick, second effects ask) and the 'atmo' category have **not run in a hub job** and need a restart.
-   Never heard in a real episode: the continuous ambience bed, effects matched across two lines, any Bhay, Rahasya or
-   Romanch emotion music. Fix: restart while no job runs, make one Kisse and one Bhay, rate them on the Review page,
-   and change the tags in `CHANGELOG.md`.
-1a. **Kisse-Blue-Ink-Diary may not have finished.** Its job record still says "running", its log stopped at 15:18
-   while the video was drawing (84 %), and `Output` holds only `Kisse-Blue-Ink-Diary_silent.mp4`. Look at Activity.
+1. **Very little has been checked by you.** Nothing is tagged "verified on PC" since 16 Oct. Most 18-19 Oct changes have
+   now **run live** (see the 19 Oct block at the top of `CHANGELOG.md`), but only in logs: you have not rated the results.
+   The hub was last restarted 19 Oct 18:38 IST, so all committed code is loaded.
+1a. **Not run in any job yet:** the music check (`exp_music_check`) and the scene-by-scene writer (first in the queued
+   Bhay-1019-1840), Sukoon music after the voice in Experimental (Sukoon job 1019_145118_e03b is running), the ghost
+   voice on a real ghost line (Bhay-Infinite-Loop had 0 ghost lines), voice-like effects moved into pauses, and the
+   thumbnail ComfyUI repaint button.
+1b. **The music check's 'make the music again without the failing track' path has never run**, not even on a copy.
+1c. **The scene-by-scene writer was tested with a fake AI only** (34/34). How long it takes with the 26B and whether
+   the stories get better is unknown until Bhay-1019-1840 has run.
+1d. **The smoke test has 5 failures that are not new** (`tests\smoke_tools.py --quick` 86/93 on 19 Oct; the other 2 were
+   the new Bhay ghost-voice steps): `thumb_paint` and `shape_mix` in the Experimental episode / voice plans. The baseline
+   (`tests\tools_baseline.json`) has not been re-saved, so every later smoke run shows them too. Not looked into.
 2. **"Plan the scenes and paint the pictures again" has never been used in a real job** (tested on a copy only).
 3. **The corner narrator has not run on the PC.** No series has it switched on.
 
@@ -36,18 +41,25 @@ What changed and how far each change was tested: `CHANGELOG.md`.
    the code value gemma3:12b.
 
 ### Scenes, sound and script
-9. **Genre runs still come out with no ambience or sound effects.** Kisse-1016-2155 and Kisse-Blue-Ink-Diary both
-   logged "no sound effect cues in this plan" and "0 ambience / sound effects placed"; the director's big ask gave no
-   effects in 7 of the last 10 runs. Blue Ink Diary's only bed (a train-horn file picked as the first of its category)
-   was dropped. Fixes written 17 Oct, not live yet: a category name now picks a file that fits the scene, and a second
-   small ask just for effects. Until a run proves them, expect music only.
+9. **Genre runs still get very few sound effects.** Since the 17 Oct fixes, beds are named in the scene plans again
+   (e.g. Heavy Rain in Kisse-Blue-Cup-Wait), but the logs show only 1-2 word-timed effects per story (Bhay-Infinite-Loop
+   2, Kisse-Blue-Cup-Wait 1, Rahasya-Temple-Bell 1).
+9e. **Picture prompts from the 'what happens' lines often fail** ('no JSON in the model's reply' or 'an empty reply' in
+   Rahasya-Shanti-Niwas, Bhay-Infinite-Loop and Kisse-Blue-Cup-Wait); the director's own prompts are kept then.
+9f. **The picture check still fails most scenes** (Kisse-Blue-Cup-Wait: 6 of 7 checked failed, mostly 'N people
+   visible, the scene allows M'; Romanch-Beyond-Words 6 failed even after the repaint), see items 4-6.
+9g. **Stories still have loose ends the logic check misses.** It fixed 0 lines in the latest Bhay, Rahasya, Kisse,
+   Romanch and Gyaan stories (19 Oct read-through: unanswered clues in Bhay-Infinite-Loop and Rahasya-Shanti-Niwas, a
+   he/she slip in Romanch, the Gyaan grandfather frame drops after line 22). The scene-by-scene writer is the fix under test.
+9h. **The Tension music folder has no usable track** (the logs say its tracks are songs or misfits), so Tension parts
+   always use the nearest mood (Dark / Eerie). Add Tension music or accept it.
+9i. **Channel name + logo is filled in for Bhay only** (Haunted Gatha); the other series stay off until you add theirs
+   (Tinker `tools.CHANNEL`).
 9a. **The emotion mixer has no clarity guard** (`MASTER_SOUND_PLAN.md` step 3, not built): nothing stops the music
    rising above the voice-clarity limit in the pauses it lifts, and an effect that *is* the heavy line's sound is
    silenced with everything else.
-9b. **The music library still mixes music and soundscapes.** The soundscape move (decision B) has not run: the 12
-   soundscapes and 5 non-music files are still in `BGM`. The new 'atmo' ambience category points at `SFX\atmo`,
-   which does not exist yet. 'The Hungry Ghost' (Sad, "maybe" list) was Blue Ink Diary's first track.
-9d. **The music check measures, it does not listen.** `music_check.py` (19 Oct) catches the faults you have reported (fast swell, cuts, drop-outs, stingers, effects over words, songs and grooves, short endings), but it cannot tell whether a track feels right for the story. Its stinger and effect limits were set only on episodes you complained about (no episode was rated good for effects). Making the music again without a failing track has not run in a real job yet.
+9d. **The music check flags a mix you liked:** Romanch Monsoon Night (music rated 5) fails for jumps and stingers, so its
+   limits may be too tight for Romanch. Its limits were set only on episodes you complained about. **It measures, it does not listen.** `music_check.py` (19 Oct) catches the faults you have reported (fast swell, cuts, drop-outs, stingers, effects over words, songs and grooves, short endings), but it cannot tell whether a track feels right for the story. Its stinger and effect limits were set only on episodes you complained about (no episode was rated good for effects). Making the music again without a failing track has not run in a real job yet.
 9c. **Two music use counters.** The new per-series `D:\MukhtalifGPT\Library\music_used.json` (Experimental Bhay,
    Rahasya, Kisse, Romanch) and the old shared `bhay_music_used.json` (in `D:\MukhtalifGPT` and in `Library`) are both
    still written. The music analysis and fit-based pick (`MASTER_SOUND_PLAN.md` section 3) are plan only.
@@ -78,12 +90,16 @@ What changed and how far each change was tested: `CHANGELOG.md`.
     `engines\studio` path and at `D:\HubGPT`).
 24. **`D:\HubGPT` still exists** as the old Experimental data folder. The hub only reads it now (old jobs and files).
     It must not be deleted without your OK.
-25. **The doc updates from 17 Oct ~15:50 are not committed yet** (everything else is, up to `2743c9c`). That
-   commit's message says it fixes missing sound effects, but it holds only notes and `tests\soundscape_move.py`;
-   the effects fix is `0b1d337`.
+25. **Two job records look odd.** Kisse-Blue-Ink-Diary (17 Oct) is now 'done' in Activity; Gyaan-Ramayana (19 Oct)
+   hit 'ComfyUI took too long' once and still finished. Neither was looked at further.
 
 ## What is right (keep it)
 
+- (19 Oct, from logs) Every Experimental series now paints in its fixed look, Bhay shows the Haunted Gatha logo, each
+  genre episode gets a 1920x1080 thumbnail, stingers closer than 25 s are left out, songs and misfit tracks are no
+  longer picked, and the music swells in over 8 s. You have not rated these runs yet.
+- (17 Oct) The soundscapes were moved out of the music folders (17 files, `SFX\atmo` holds the beds now).
+- (19 Oct) Everything is committed in git; the 19 Oct 18:38 restart loaded all of it.
 - Both pipelines run end to end; Bhay was verified on the PC (13 Oct), Bhay reel fix verified (15 Oct).
 - Kisse-Blue-Ink-Diary (17 Oct) ran the emotion map with Ollama and the emotion music live: a Sad and a Calm track,
   silence before three heavy lines, a full drop at 2:34, -16 LUFS, music 18 dB under the voice, the mood folder from
@@ -96,8 +112,8 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 - All output goes to one data folder, `D:\MukhtalifGPT` (Working and Experimental), since ~16:40 on 16 Oct.
 - Experimental mode is isolated: own page, own job list, own Tinker settings. Working mode is untouched unless you
   install or promote.
-- Every change keeps a backup next to the file (`_old_<date>_<what>`). Old clutter was cleaned once on 16 Oct, with
-  your OK; git keeps the committed versions.
+- Git is the backup (rule agreed 17 Oct): commit before and after each change, no new `*_old_*` copies. Old backups
+  were cleaned on 16 and 17 Oct with your OK.
 - Hub restarts resume jobs from the step they were on.
 - One GPU job at a time; every `free_gpu` step unloads ComfyUI and every Ollama model the job used (script writer,
   director, picture prompts, picture judge), so the 26B is out before the voice and ComfyUI.
@@ -139,3 +155,11 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 | Soundscapes leave the music folders, but only after you have seen the list; the 5 "maybe" tracks stay until you listen | decision B | 17 Oct |
 | Everyday effects (knock, door, footsteps, phone, paper...) are shared by every series; mood sounds (whisper, scream, braam, riser, impact...) only where the series lists them | a Kisse story should never get a horror sting | 17 Oct |
 | A track is chosen by fit first; "least used" only breaks ties (once the music analysis exists) | `MASTER_SOUND_PLAN.md` | 17 Oct |
+| Commit before and after each change; no more `*_old_*` copies | git keeps the history; you chose "Adopt it" | 17 Oct |
+| Every series except Sukoon has one fixed art style (Kisse gouache, Rahasya noir gouache, Romanch soft pastel, Kareeb lo-fi painted, Gyaan gouache editorial, Bhay unchanged) | the style test sheets of 18 Oct | 18 Oct |
+| A track must sound like its mood folder; when none fits, the nearest mood takes over, never a rejected track | Bhay-Mystery-Mansion's weak first part | 18 Oct |
+| Stingers, scene hits and mood effects share one limit; voice-like effects (whisper, scream...) only in a pause of the voice | your notes on Bhay-Acoustic-Parasite-Mystery | 18 Oct |
+| Thumbnails are 1920x1080, one per episode, in each series' look | your ask | 18 Oct |
+| Ghost voice only on a ghost's own spoken lines, automatic, never on the wrong speaker | your ask | 19 Oct |
+| Music is checked after every music step and fixed where possible; it never stops a run | your question: why fix music one problem at a time | 19 Oct |
+| The scene-by-scene writer is a per-job test box (off by default) for all six story series | test it before it replaces the usual writer | 19 Oct |
