@@ -1050,9 +1050,13 @@ def horror_recipe(cfg, topic="", seed=None, also=(), engine="auto"):
     L = [e for e in ledger(cfg) if e.get("genre") == "horror"]
     if _brief_on(cfg):          # the brief's seeds join the list; no case-file telling (it turns भय into रहस्य)
         b = dict(b, topics=_brief_seeds("bhay", b["topics"]), tellings=_brief_tellings("bhay", b["tellings"]))
-    r = {"genre": "horror", "topic": topic or _pick_seed(cfg, "भय", "a Hindi horror audio-story channel", b["topics"],
-                                                          L, rng, also, engine,
-                                                          brief_rule("bhay") if _brief_on(cfg) else "")}
+    book, bseed = _book_pick(cfg, "bhay", topic, rng, also)
+    r = {"genre": "horror", "topic": topic or bseed or _pick_seed(cfg, "भय", "a Hindi horror audio-story channel",
+                                                                   b["topics"], L, rng, also, engine,
+                                                                   brief_rule("bhay") if _brief_on(cfg) else "")}
+    if book:
+        r["book"] = {"id": book["id"], "title": book.get("title", ""), "author": book.get("author", ""),
+                     "seed": bool(bseed and not topic)}
     for k, key in (("telling", "tellings"), ("fear", "fears"), ("ending", "endings")):
         r[k] = _least_used(b[key], [e.get("recipe", {}).get(k) for e in L], rng)
     return r
@@ -1071,6 +1075,7 @@ def horror_prompt(cfg, r, minutes=15, notes=""):
             "the ending.\n\n"
             f"STYLE RULES: {RULES_HORROR}\n\n"
             + (brief_text("bhay", "भय") + "\n\n" if _brief_on(cfg) else "")
+            + _book_block(cfg, r)
             + avoid
             + "Now write the story. Output only spoken story lines. Stop at the final narrative line; do not append "
             "an explanation, interpretation, editor's note, or comments about the story.\n")
@@ -1629,6 +1634,7 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
         r["topic"] = topic
     say(f"   story seed: {r['topic']}")
     say(f"   told as: {r['telling']} | fear: {r['fear']} | ending: {r['ending']}")
+    _say_book(r, say)
     say(f"   ~{minutes:.0f} min ≈ {int(float(minutes) * wpm(cfg, 'hi', 'bhay'))} words "
         f"(your voice: {wpm(cfg, 'hi', 'bhay')} words/min)")
     t0 = time.time()
@@ -2019,6 +2025,47 @@ def brief_rule(gid):
             + (". Of today: " + B["now"] if B.get("now") else "") + ".")
 
 
+def _book_pick(cfg, gid, topic, rng, also=()):
+    """Experimental: a note from the story library (free books read once, story_library.py) for this story - craft
+    inspiration, and for a share of stories (BOOKS seed_share, no typed topic) one of its ideas as the seed.
+    -> (note or None, seed or '')"""
+    if not _brief_on(cfg):
+        return None, ""
+    try:
+        import story_library
+        if not story_library.BOOKS.get("on", True):
+            return None, ""
+        L = ledger(cfg)
+        n = story_library.pick(cfg, gid, L, rng)
+        if not n:
+            return None, ""
+        s = "" if topic or rng.random() >= float(story_library.BOOKS.get("seed_share", 0.5)) else \
+            story_library.seed(n, _used_topics(L) | {str(a).strip().lower() for a in also}, rng)
+        return n, s
+    except Exception:
+        return None, ""
+
+
+def _book_block(cfg, r):
+    """the book note as a prompt block ('' without one); the plan and the scene writer get it with the prompt"""
+    b = r.get("book") or {}
+    if not b.get("id") or not _brief_on(cfg):
+        return ""
+    try:
+        import story_library
+        n = story_library.note(cfg, b["id"])
+        return story_library.prompt_block(n) + "\n\n" if n else ""
+    except Exception:
+        return ""
+
+
+def _say_book(r, say):
+    b = r.get("book") or {}
+    if b.get("id"):
+        say(f"   book idea: '{b.get('title', '')}'" + (f" by {b['author']}" if b.get("author") else "")
+            + (" (the seed is one of its ideas)" if b.get("seed") else " (craft only)"))
+
+
 def _brief_tellings(gid, tellings):
     """the series' tellings without those that pull it into another series, plus the brief's own"""
     B = genre_brief(gid)
@@ -2236,8 +2283,13 @@ def genre_recipe(cfg, gid, topic="", seed=None, also=(), engine="auto"):
     if _brief_on(cfg) and genre_brief(gid):   # brief seeds join the list; tellings that pull it into another series go
         topics, tellings = _brief_seeds(gid, topics), _brief_tellings(gid, tellings)
         rule = (rule + " " + brief_rule(gid)).strip()
-    r = {"genre": gid, "topic": topic or _pick_seed(cfg, G["name"], G["channel"], topics, L, rng, also, engine, rule),
+    book, bseed = _book_pick(cfg, gid, topic, rng, also)
+    r = {"genre": gid, "topic": topic or bseed or _pick_seed(cfg, G["name"], G["channel"], topics, L, rng, also, engine,
+                                                             rule),
          "telling": _least_used(tellings, [e.get("recipe", {}).get("telling") for e in L], rng)}
+    if book:
+        r["book"] = {"id": book["id"], "title": book.get("title", ""), "author": book.get("author", ""),
+                     "seed": bool(bseed and not topic)}
     if G.get("angles"):
         r["angle"] = _least_used(G["angles"], [e.get("recipe", {}).get("angle") for e in L], rng)
     return r
@@ -2255,6 +2307,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
     avoid = _story_avoid(cfg, gid)
     say(f"   {G['name']}: {r['topic']}  | told as: {r['telling']}" + (f"  | turn: {r['angle']}" if r.get("angle") else "")
         + f"  | ~{words} words")
+    _say_book(r, say)
     prompt = (f"You write for '{G['name']}', {G['channel']}: one male narrator. Write tonight's complete script.\n\n"
               f"TOPIC: {r['topic']}\n" + (f"NOTES FROM THE CREATOR: {notes}\n" if notes else "")
               + f"TOLD AS: {r['telling']}\n" + (f"THE TURN THIS TIME: {r['angle']}\n" if r.get("angle") else "")
@@ -2264,7 +2317,8 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
               + (G.get("mature", "") + " " if level == "mature" else "") + "This is NOT a sleep or meditation script: "
               "no breathing exercises, no 'close your eyes', no good-night ending (unless the series is ASMR). Prefer one "
               "complete, naturally connected sentence per line; use a line with only (...) only for an intentional longer pause. No headings, lists, emojis or "
-              "stage directions.\n\n" + (brief_text(gid, G["name"]) + "\n\n" if _brief_on(cfg) else "") + avoid
+              "stage directions.\n\n" + (brief_text(gid, G["name"]) + "\n\n" if _brief_on(cfg) else "")
+              + _book_block(cfg, r) + avoid
               + "Now write it. Output only spoken script lines. Stop at the final narrative line; do not append an "
               "explanation, interpretation, editor's note, or comments about the story.\n")
     plan, plan_obj = story_outline(cfg, prompt, G["name"], engine, say, want_obj=True, gid=gid) if _plan_on(cfg) else ("", None)

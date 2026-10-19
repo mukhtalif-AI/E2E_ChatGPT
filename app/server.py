@@ -681,6 +681,12 @@ class H(BaseHTTPRequestHandler):
         if p.startswith("/api/git/"):              # Save / Git page (app/git_save.py, fixed git commands only)
             import git_save
             return self.send(*git_save.handle_get(CFG, p, q))
+        if p == "/api/books" or p.startswith("/api/books/"):   # Experimental story library (app/story_library.py)
+            import story_library
+            try:
+                return self.send(*story_library.handle_get(CFG, p, q))
+            except Exception as e:
+                return self.send(500, {"error": str(e)})
         if p.startswith("/api/rate/") or p == "/api/sounds":   # Experimental ratings (feedback.py) and Sounds page
             import feedback, sound_library
             try:
@@ -933,6 +939,12 @@ class H(BaseHTTPRequestHandler):
             if p.startswith("/api/git/"):          # Save / Git page (app/git_save.py)
                 import git_save
                 return self.send(*git_save.handle_post(CFG, p, body, JOBS))
+            if p.startswith("/api/books/"):           # Experimental story library: Build / update (app/story_library.py)
+                import story_library
+                try:
+                    return self.send(*story_library.handle_post(CFG, p, body, JOBS))
+                except ValueError as e:
+                    return self.send(400, {"error": str(e)})
             if p.startswith("/api/rate/") or p.startswith("/api/sounds/"):   # ratings (feedback.py), Sounds page
                 import feedback, sound_library
                 try:

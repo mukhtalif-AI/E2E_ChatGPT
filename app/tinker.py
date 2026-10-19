@@ -51,7 +51,7 @@ SECRET_KEYS = {"local_model", "story_engine", "gemini_model"}
 CFG_KEYS = {"llm", "prompt_model", "vision_llm", "image_engine", "director_model", "scene_picture_model", "scene_seconds",
             "end_seconds", "subscribe_end"}
 
-PROMPT_MODULES = ("story", "tools", "emotion_music", "voice_cast")
+PROMPT_MODULES = ("story", "tools", "emotion_music", "voice_cast", "story_library")
 PROMPT_LABELS = {
     "story.RULES": "Sukoon script rules (Hindi)",
     "story.CHECK": "Sukoon checklist pass (Hindi)",
@@ -76,6 +76,9 @@ PROMPT_LABELS = {
     "tools.TRANSLATE_ASK": "Translate to Hindi",
     "emotion_music.MAP_ASK": "Emotion map: mood and weight per scene, turn lines (music that follows the story)",
     "voice_cast.CAST_ASK": "Ghost voice: who speaks each quoted line (ghost / human / written, heard aloud, sure)",
+    "story_library.PART_ASK": "Story library: notes on one part of a free book (what happens, tricks, people, mood)",
+    "story_library.NOTE_ASK": "Story library: the one note kept per book (shape, twist, characters, opening, fit, 3 ideas)",
+    "story_library.USE_RULE": "Story library: how a book note is given to the writer (craft only, write an original story)",
 }
 TABLES = {
     "tools.GENRES": "Series machine settings: music folders, voice, expressiveness (ex), pause, temperature, drama",
@@ -87,6 +90,12 @@ TABLES = {
     "story.GENRE_BRIEF": "Experimental genre stories: what each series MUST have and must NEVER have, tone, setting, what makes "
                          "it of today (now), what it is not (not_like), example premises, extra seeds, tellings to skip / add. "
                          "Used by the seed, the plan, the writer, the review and the genre check",
+    "story_library.BOOKS": "Experimental story library (free books as inspiration): on, new_per_series (books fetched per "
+                           "series each Build / update), parts / part_chars (how much of a book is read), min_chars, "
+                           "max_mb (books folder cap), min_fit (notes under it are not used), seed_share (share of "
+                           "stories whose seed is a book idea), pause_s, model (\"\" = script writer), think",
+    "story_library.SOURCES": "Story library: where each series looks for free books - gutenberg topics (English, public "
+                             "domain), wikisource_hi / wikisource_en search words, pages_hi / pages_en exact page titles",
     "story.GENRE_FIT": "Experimental genre stories: genre check on (on), plan_check, script_check, rewrite = one rewrite when the "
                        "script scores under min_score (0-10); the better-scoring version is kept",
     "tools.SERIES_LOOK": "Experimental: fixed picture look per series (on, keep_era, look; lead = the medium put first in every shot) instead of the director's look",

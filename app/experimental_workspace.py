@@ -530,6 +530,12 @@ def exp_sound_screen(ctx):
     return audio_screen.screen_all(ctx)
 
 
+def exp_story_library(ctx, series="", fetch=True, rebuild=False):
+    """Settings > Story library > Build / update: free books per story series -> one short note each (story_library.py)"""
+    import story_library
+    return story_library.build(ctx, series, fetch, rebuild)
+
+
 def _replace_paths(value, old, new):
     if isinstance(value, str):
         return value.replace(old, new)
