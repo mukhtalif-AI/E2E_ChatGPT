@@ -6,6 +6,8 @@ problems is written again once and kept only when better; the rewrite cap; a ret
 back to the old writer; Bhay too; the picture step's young/old look, named person and who-line helpers."""
 import sys, json, re, tempfile
 sys.path.insert(0, sys.argv[1]); import story as S
+if hasattr(S, "GENRE_FIT"):   # the genre brief + fit check has its own test (test_genre_fit.py)
+    S.GENRE_FIT["on"] = False
 TMP = tempfile.mkdtemp()
 calls, MODE = [], {}
 PLAN = {"facts": ["1982 and 2022", "station near Bhopal"], "people": ["Avinash - narrator", "Vaidehi - tea girl"],

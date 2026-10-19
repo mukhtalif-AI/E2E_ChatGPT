@@ -1048,8 +1048,11 @@ def horror_recipe(cfg, topic="", seed=None, also=(), engine="auto"):
         if not os.path.exists(_media(cfg, "horror_bank.json")):
             json.dump(HORROR_BANK, open(_media(cfg, "horror_bank.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     L = [e for e in ledger(cfg) if e.get("genre") == "horror"]
+    if _brief_on(cfg):          # the brief's seeds join the list; no case-file telling (it turns भय into रहस्य)
+        b = dict(b, topics=_brief_seeds("bhay", b["topics"]), tellings=_brief_tellings("bhay", b["tellings"]))
     r = {"genre": "horror", "topic": topic or _pick_seed(cfg, "भय", "a Hindi horror audio-story channel", b["topics"],
-                                                          L, rng, also, engine)}
+                                                          L, rng, also, engine,
+                                                          brief_rule("bhay") if _brief_on(cfg) else "")}
     for k, key in (("telling", "tellings"), ("fear", "fears"), ("ending", "endings")):
         r[k] = _least_used(b[key], [e.get("recipe", {}).get(k) for e in L], rng)
     return r
@@ -1067,6 +1070,7 @@ def horror_prompt(cfg, r, minutes=15, notes=""):
             "ordinary life and the place -> first wrong detail -> it grows -> the night it happens -> climax -> "
             "the ending.\n\n"
             f"STYLE RULES: {RULES_HORROR}\n\n"
+            + (brief_text("bhay", "भय") + "\n\n" if _brief_on(cfg) else "")
             + avoid
             + "Now write the story. Output only spoken story lines. Stop at the final narrative line; do not append "
             "an explanation, interpretation, editor's note, or comments about the story.\n")
@@ -1243,7 +1247,7 @@ def _plan_text(o):
     return "\n".join(out)
 
 
-def story_outline(cfg, prompt, series, engine, say, want_obj=False):
+def story_outline(cfg, prompt, series, engine, say, want_obj=False, gid=""):
     """the plan for a story from its writing prompt -> plan text, or '' (then the story is written the old way);
     want_obj: -> (plan text, plan dict) for the scene-by-scene writer"""
     t0 = time.time()
@@ -1257,6 +1261,8 @@ def story_outline(cfg, prompt, series, engine, say, want_obj=False):
     except Exception as e:
         say(f"   (story plan unavailable - written without one: {e})")
         return ("", None) if want_obj else ""
+    if gid:
+        o = genre_plan_check(cfg, gid, series, o, engine, say)
     txt = _plan_text(o)
     say(f"   story plan ({time.time() - t0:.0f} s): {len(o.get('beats') or [])} beats, {len(o.get('clues') or [])} clues, "
         f"{len(o.get('facts') or [])} fixed facts")
@@ -1605,6 +1611,17 @@ def write_by_scene(cfg, prompt, plan_obj, series, words, engine, say, cleaner, s
     return script, model, doc
 
 
+def _fit_and_keep(cfg, gid, name, script, plan, words, model, say, cleaner, versions, rules, stopped):
+    """genre_fit + a logic check of a kept rewrite (its new lines are checked against the plan like the first ones)"""
+    engine = "local" if model == local_model(cfg) else "auto"
+    new, fit = genre_fit(cfg, gid, name, script, plan, words, engine, say, cleaner, rules, stopped)
+    if fit and fit.get("rewrite"):
+        versions["genre_rewrite"] = fit.pop("rewrite")
+    if new is not script and plan and not stopped():
+        new = _cut_retell(logic_check(cfg, new, plan, name, engine, say, cleaner), say)
+    return new, fit
+
+
 def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=None, stopped=lambda: False,
                  level="standard", by_scene=None):
     r = dict(rec or {}) or horror_recipe(cfg, topic, engine=engine)
@@ -1619,7 +1636,7 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
     if level == "mature":
         prompt = prompt.replace("No gore, no cheap shocks", genre_rules(cfg, "bhay").get("mature") or LEVELS["mature"]["bhay"]
                                 + " No cheap shocks")
-    plan, plan_obj = story_outline(cfg, prompt, "भय", engine, say, want_obj=True) if _plan_on(cfg) else ("", None)
+    plan, plan_obj = story_outline(cfg, prompt, "भय", engine, say, want_obj=True, gid="bhay") if _plan_on(cfg) else ("", None)
     words = int(float(minutes) * wpm(cfg, "hi", "bhay"))
     by = write_by_scene(cfg, prompt, plan_obj, "भय (horror)", words, engine, say, clean_horror, stopped) \
         if plan and _by_scene_on(cfg, by_scene) and not stopped() else None
@@ -1641,7 +1658,9 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
             review_engine = "local" if model == local_model(cfg) else "auto"
             fixed, _ = ask(cfg, "Check this complete Hindi horror story: natural spoken Hindi, steadily building dread, "
                            "clear cause and effect, a fair hook, no repeated ideas, and an ending that lands. Preserve "
-                           "the events and approximate length. Return the corrected full story only, with no notes or "
+                           "the events and approximate length. "
+                           + ("Keep it a true भय story. " + brief_rule("bhay") + " " if _brief_on(cfg) else "")
+                           + "Return the corrected full story only, with no notes or "
                            "commentary after the final line.\n\nSTORY:\n\n"
                            + script, review_engine, 0.4, say=say,
                            ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
@@ -1658,9 +1677,11 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
         script = logic_check(cfg, script, plan, "भय (horror)", "local" if model == local_model(cfg) else "auto", say,
                              clean_horror)
     script = _cut_retell(script, say)
+    script, fit = _fit_and_keep(cfg, "bhay", "भय (horror)", script, plan, words, model, say, clean_horror, versions,
+                                RULES_HORROR, stopped)
     versions["final"] = script
     return script, {"recipe": r, "model": model, "minutes": minutes, "genre": "horror", "plan": plan,
-                    "versions": versions, "by_scene": by[2] if by else None}
+                    "versions": versions, "by_scene": by[2] if by else None, "genre_fit": fit}
 
 
 def horror_ideas(cfg, topic="", n=3, engine="auto"):
@@ -1765,8 +1786,8 @@ GENRE_TELLINGS = {
 # the turn of each story, least-used first (what Bhay's fear + ending do) - so the same plot shape does not come
 # back each time (किस्से 16-17 Oct: three stories in a row were 'an old object reveals a hidden sacrifice')
 GENRE_ANGLES = {
-    "rahasya": ["the culprit is someone the listener meets in the first minute", "nobody was killed: the mystery is a "
-                "disappearance or a person passing as someone else", "the narrator is hiding something until the end", "a small everyday object "
+    "rahasya": ["the culprit is someone the listener meets in the first minute", "the death looked like an accident "
+                "or a suicide until one detail did not fit", "the narrator is hiding something until the end", "a small everyday object "
                 "is the key clue", "the twist is about why, not who", "a boring old record holds the answer",
                 "two separate cases turn out to be one"],
     "kisse": ["the truth comes out in one conversation, not in a found letter, diary or box", "it happens now, in the "
@@ -1791,6 +1812,309 @@ LEVELS = {
         "kisse": "MATURE: adult themes (death, betrayal, addiction, abuse survived) may be faced honestly.",
         "kareeb": "", "gyaan": ""},
 }
+
+
+# ------------------------------------------------------------------ genre brief + genre-fit check (19 Oct 2026)
+# The series were defined by one line of style rules each, so a story drifted into the series next to it: रहस्य turned
+# 'never supernatural' into 'an eerie sound or scent with a harmless cause' (Temple Bell, Shanti Niwas: smuggling found
+# at the end; Lighthouse: air in old pipes, no crime at all) and its angle 'nobody was killed' asked for no crime; भय's
+# 'calm investigator reconstructing' telling made case-file stories that read as रहस्य (Acoustic Parasite); किस्से's
+# tellings ('years later', 'across many years', 'a letter read aloud') set every story in 1982-1995 around a found
+# object. Each series now has a brief - what it MUST have, what it must NEVER have, tone, setting, what makes it of
+# today, what it is not (the series next to it), short example premises and seeds. Experimental only: the seed, the
+# plan, the writer and the editorial review get it; the plan is scored against it (one plan redo when it misses), and
+# the finished script is scored by a cheap no-think call - under min_score it is rewritten ONCE with the misses named,
+# scored again, and the better-scoring version is kept (a tie keeps the first), so it can never loop.
+GENRE_BRIEF = {
+    "bhay": {
+        "must": ["a real supernatural threat (a ghost, spirit, curse, possession or something not human) that is "
+                 "real inside the story and is never explained away",
+                 "real danger: someone died there before, and in this story someone is hurt, taken, dies or barely "
+                 "escapes",
+                 "dread that builds through the senses in ordinary places, first small wrong details then the night "
+                 "it happens",
+                 "an ending that does not solve it: it is not over, or the explanation is worse"],
+        "never": ["a human trick, a smuggler, pipes, wind, a gas leak or any science that explains the haunting away "
+                  "(that is रहस्य)",
+                  "an investigator, case file, police report or reconstruction as the main thread (that is रहस्य)",
+                  "invented pseudo-science names (an 'acoustic parasite', a 'frequency entity')",
+                  "a warm family-lesson ending (that is किस्से)"],
+        "tone": "late-night, close, slow-burn fear told by someone who was there",
+        "setting": "real Indian places: a flat, hostel, hospital, highway, village house, office building",
+        "now": "it happens in the last few years, in today's life: phones that die, CCTV that shows something, a "
+               "night shift, a cab ride, a rented flat - the old evil meets modern life",
+        "not_like": "रहस्य explains everything with a human culprit; भय leaves the listener afraid and unsure",
+        "examples": ["a delivery rider keeps getting orders at 2:40 am from a flat that was sealed after a death",
+                     "a night nurse hears a patient call her name from the bed of a woman who died last week",
+                     "a family's new home CCTV shows one more person at the dinner table every night"],
+        "seeds": ["a food delivery order every night from a sealed flat",
+                  "a cab driver's last ride of the night picks up the same woman again",
+                  "a WhatsApp voice note from a friend who drowned last month",
+                  "a hostel's CCTV shows a girl who is not on any register",
+                  "a highway dhaba that serves one plate to an empty table",
+                  "a new flat whose previous tenant left all the mirrors covered"],
+        "skip_tellings": ["investigator"],
+        "add_tellings": []},
+    "rahasya": {
+        "must": ["a real crime at the centre, clear in the first minute: a murder, a death that looks like an "
+                 "accident or suicide, a poisoning, a kidnapping, or a theft or fraud that ends in a death",
+                 "a named victim and 2-3 suspects, each with a motive and something to hide",
+                 "someone who investigates (a police inspector, a detective, a journalist or a family member) and "
+                 "follows fair clues, with one red herring",
+                 "a reveal that names who did it, how and why, proved by the planted clues; the culprit is caught or "
+                 "exposed"],
+        "never": ["ghosts, spirits, curses, magic, possession, mirror worlds or time loops (that is भय)",
+                  "a strange sound, light or scent in an empty place whose answer is nature, engineering or a "
+                  "harmless prank, with no crime and no victim",
+                  "a mystery whose only crime is found in the last minute (the crime is the story, from the start)",
+                  "an emotional family story where the puzzle is only a frame (that is किस्से)"],
+        "tone": "tense, sharp, a storyteller who knows the answer and reveals it fairly",
+        "setting": "real Indian towns and cities: a housing society, a coaching hub, a hill town, an office, a "
+                   "family business, a railway colony",
+        "now": "today's India: CCTV, call records, a UPI trail, WhatsApp chats, a post-mortem report, a police "
+               "station - the investigator uses them, or the culprit cleverly beats them",
+        "not_like": "भय has a real ghost and no answer; रहस्य has a real culprit and a proved answer",
+        "examples": ["a chartered accountant is found dead in a locked office; the CCTV shows nobody entering, but "
+                     "his phone sent a UPI payment after he died",
+                     "a bride's grandmother dies of 'food poisoning' the night before the wedding; only her plate "
+                     "was poisoned",
+                     "a coaching-centre topper goes missing two days before results; three people lied about the "
+                     "last time they saw him"],
+        "seeds": ["a death in a locked office with CCTV that shows nobody",
+                  "a poisoning at a family wedding where only one plate was poisoned",
+                  "a missing coaching topper and three people who lied about the last evening",
+                  "a hit-and-run that a dashcam recorded from the wrong angle",
+                  "an old man's 'heart attack' a week after he changed his will",
+                  "a housing society's watchman found dead the morning the CCTV hard disk vanished",
+                  "a bank manager's suicide note written by someone left-handed"],
+        "skip_tellings": [],
+        "add_tellings": ["a police inspector solving it, case day by case day"]},
+    "kisse": {
+        "must": ["ordinary people of today and one bond (family, friends, neighbours, colleagues, strangers)",
+                 "a real conflict or choice that tests the bond, shown in scenes and small details",
+                 "a moment of truth that changes someone, then a warm ending or a quiet ache"],
+        "never": ["the main story set in the 1980s or 1990s or told 'years later' (a flashback of a few lines is "
+                  "fine)",
+                  "the truth found in an old letter, diary, tin box or trunk again",
+                  "ghosts or anything supernatural (that is भय)",
+                  "a crime puzzle or detective (that is रहस्य)",
+                  "speeches or a moral spelled out at the end"],
+        "tone": "warm, simple, everyday, moving without being preachy",
+        "setting": "a city flat, a small-town home, a metro, an office, a hospital waiting room, a school gate",
+        "now": "it happens now, in the 2020s: phones, video calls, WhatsApp family groups, UPI, gig jobs, rent, "
+               "EMIs, parents alone while children work far away, exams and coaching",
+        "not_like": "किस्से is about people and feelings; no mystery to solve and nothing to fear",
+        "examples": ["a delivery rider and the old man who orders one tea every evening so someone will ring his bell",
+                     "a daughter teaching her father UPI so he can pay for her coaching without telling her mother",
+                     "two flatmates who stopped talking, and the night one of them is in hospital"],
+        "seeds": ["a delivery rider and the old man who orders one tea every evening",
+                  "a father learning UPI to pay his daughter's fees in secret",
+                  "two flatmates who stopped talking, and one night at a hospital",
+                  "a mother's first video call with her son's new wife abroad",
+                  "an auto driver who returns a phone and gets pulled into a family's crisis",
+                  "a security guard and a lonely boy in a gated society"],
+        "skip_tellings": ["years later", "across many years", "letter read aloud"],
+        "add_tellings": ["first person, as it happens this year", "told by a friend who saw it happen last month"]},
+    "romanch": {
+        "must": ["two consenting adults and real chemistry built in scenes (looks, words, small touches)",
+                 "an obstacle that keeps them apart", "a moment of closeness and a tender or hopeful ending"],
+        "never": ["anything explicit or graphic", "minors or non-consent",
+                  "a grief or family-sacrifice story where the romance is a side note (that is किस्से)",
+                  "ghosts or crime (that is भय / रहस्य)"],
+        "tone": "warm, intimate, playful and longing",
+        "setting": "a monsoon city, a café, an office, a train, a wedding, the hills",
+        "now": "today's India: office life, dating apps, texts left on 'seen', a work trip, a shared cab",
+        "not_like": "रोमांच is about the pull between two people; feelings for family belong to किस्से",
+        "examples": ["two colleagues on a delayed night flight who have only ever argued in meetings",
+                     "a wedding photographer and the bride's sister who keeps walking into his frame"],
+        "seeds": ["two rival colleagues on a delayed night flight", "a wedding photographer and the bride's sister",
+                  "a shared cab every morning for a week of metro repairs"],
+        "skip_tellings": [], "add_tellings": []},
+    "kareeb": {
+        "must": ["soft words spoken to the listener as 'you'", "slow sounds and textures described one at a time",
+                 "settling the listener towards rest"],
+        "never": ["a plot, conflict, fear or death", "anything loud or sudden"],
+        "tone": "very soft, close, unhurried", "setting": "a quiet room, rain at a window, a hill cottage",
+        "now": "a modern cosy night: a flat's balcony, phone on silent, a cup of chai, a warm blanket",
+        "not_like": "करीब is not a story; it is attention and sound",
+        "examples": ["making chai slowly on a rainy evening, every sound close by"], "seeds": [],
+        "skip_tellings": [], "add_tellings": []},
+    "gyaan": {
+        "must": ["one clear question answered step by step", "correct facts only; 'माना जाता है' for belief or "
+                 "anything uncertain", "simple everyday examples from today's Indian life",
+                 "a clear takeaway the listener can use"],
+        "never": ["invented numbers, studies or 'scientists proved' claims", "a fictional frame (a grandfather and "
+                  "child, a story) longer than 3-4 lines", "preaching or a lecture tone",
+                  "beliefs stated as proven fact (for a scripture: what the text says, then what it means today)"],
+        "tone": "friendly, curious, clear", "setting": "the listener's own day",
+        "now": "tie it to the 2020s: phones, exams, office stress, UPI, traffic, social media, health",
+        "not_like": "ज्ञान explains; it is not a story",
+        "examples": ["why your phone battery dies faster in winter", "what the Bhagavad Gita says about doing your "
+                     "work without worrying about results, and what that means before an exam"],
+        "seeds": [], "skip_tellings": [], "add_tellings": []},
+}
+GENRE_FIT = {"on": True, "plan_check": True, "script_check": True, "rewrite": True, "min_score": 7}
+
+GENRE_PLAN_ASK = (
+    "You check the PLAN of a story for the Hindi series {name} against its GENRE BRIEF.\n\n{brief}\n\n"
+    "Score 0-10 how well the plan fits (10 = every MUST is clearly there, nothing from NEVER, nobody could take it "
+    "for another series). List each MUST that is missing or weak and each NEVER that is present. When the score is "
+    "under {min}, give the WHOLE plan again in the same JSON shape, changed only as far as the brief needs (keep the "
+    "names, places and facts that fit; the clues still lead to the one reveal). Answer ONLY JSON: {\"score\": 0, "
+    "\"reads_as\": \"(the series it reads like)\", \"missing\": [\"\"], \"plan\": {\"facts\": [\"\"], \"people\": "
+    "[\"\"], \"clues\": [{\"clue\": \"\", \"answer\": \"\"}], \"twist\": \"\", \"reveal\": \"\", \"beats\": [\"\"]}} "
+    "(no plan when the score is {min} or more).\n\nPLAN:\n{plan}")
+
+GENRE_FIT_ASK = (
+    "You judge whether a finished Hindi audio script belongs to its series {name}. GENRE BRIEF:\n\n{brief}\n\n"
+    "Score 0-10 how well the SCRIPT fits (10 = every MUST is clearly there, nothing from NEVER, it could not be "
+    "mistaken for another series). Judge the genre only, not the style. List each MUST missing or weak and each "
+    "NEVER present, and give 2-5 concrete changes that would make it fit (in English, naming the people and events "
+    "of this script). Answer ONLY JSON: {\"score\": 0, \"reads_as\": \"\", \"missing\": [\"\"], \"changes\": [\"\"]}"
+    "\n\nSCRIPT:\n{script}")
+
+GENRE_REWRITE_ASK = (
+    "{brief}\n\nThe finished Hindi {name} script below does not fit its series well enough (genre score {score}/10; "
+    "it reads like {reads_as}). Missing or wrong: {missing}. Make these changes: {changes}\n"
+    "Write the WHOLE script again so that it fits the brief: keep the names, places, fixed facts and the voice, keep "
+    "about the same length (about {words} Hindi words), keep the subscribe line once near the start, change the "
+    "events only as far as the changes need, and answer every clue before the end. " + "{rules}"
+    "\nOutput only spoken script lines; stop at the final narrative line.\n\nPLAN IT WAS WRITTEN FROM:\n{plan}"
+    "\n\nSCRIPT:\n{script}")
+
+
+def _brief_on(cfg):
+    return bool(cfg.get("experimental_mode") or cfg.get("_experimental_workspace")) and bool(GENRE_FIT.get("on", True))
+
+
+def genre_brief(gid):
+    return GENRE_BRIEF.get("bhay" if gid == "horror" else gid) or {}
+
+
+def brief_text(gid, name=""):
+    """the brief as a prompt block ('' when the series has none)"""
+    B = genre_brief(gid)
+    if not B:
+        return ""
+    out = [f"GENRE BRIEF{' - ' + name if name else ''} (the story must be clearly this series and no other):"]
+    if B.get("must"):
+        out.append("MUST HAVE: " + "; ".join(B["must"]) + ".")
+    if B.get("never"):
+        out.append("NEVER: " + "; ".join(B["never"]) + ".")
+    for key, label in (("tone", "TONE"), ("setting", "SETTING"), ("now", "OF TODAY"), ("not_like", "NOT TO BE "
+                                                                                       "CONFUSED")):
+        if B.get(key):
+            out.append(f"{label}: {B[key]}.")
+    if B.get("examples"):
+        out.append("PREMISES OF THE RIGHT KIND (do not copy them): " + " / ".join(B["examples"]) + ".")
+    return "\n".join(out)
+
+
+def brief_rule(gid):
+    """the short form a fresh seed and the editorial review get"""
+    B = genre_brief(gid)
+    if not B:
+        return ""
+    return ("It must have: " + "; ".join(B.get("must") or []) + ". Never: " + "; ".join(B.get("never") or [])
+            + (". Of today: " + B["now"] if B.get("now") else "") + ".")
+
+
+def _brief_tellings(gid, tellings):
+    """the series' tellings without those that pull it into another series, plus the brief's own"""
+    B = genre_brief(gid)
+    skip = [s.lower() for s in B.get("skip_tellings") or []]
+    keep = [t for t in tellings or [] if not any(s in str(t).lower() for s in skip)]
+    keep += [t for t in B.get("add_tellings") or [] if t not in keep]
+    return keep or list(tellings or [])
+
+
+def _brief_seeds(gid, topics):
+    B = genre_brief(gid)
+    return list(topics or []) + [s for s in B.get("seeds") or [] if s not in (topics or [])]
+
+
+def _fit_num(x):
+    try:
+        return max(0.0, min(10.0, float(x)))
+    except (TypeError, ValueError):
+        return -1.0
+
+
+def genre_plan_check(cfg, gid, name, plan_obj, engine, say):
+    """-> plan dict: scored against the brief; redone once (in the same shape) when it scores under min_score"""
+    if not (_brief_on(cfg) and GENRE_FIT.get("plan_check", True) and genre_brief(gid) and isinstance(plan_obj, dict)):
+        return plan_obj
+    mn = int(GENRE_FIT.get("min_score", 7))
+    t0 = time.time()
+    try:
+        o = _json_ask(cfg, GENRE_PLAN_ASK.replace("{name}", name).replace("{brief}", brief_text(gid, name))
+                      .replace("{min}", str(mn)).replace("{plan}", _plan_text(plan_obj)), engine, 0.3, False, say)
+    except Exception as e:
+        say(f"   (genre check of the plan unavailable: {e})")
+        return plan_obj
+    s = _fit_num(o.get("score"))
+    miss = "; ".join(str(m) for m in (o.get("missing") or []) if str(m).strip())[:300]
+    p2 = o.get("plan")
+    if 0 <= s < mn and isinstance(p2, dict) and len([b for b in (p2.get("beats") or []) if b]) >= 4 and p2.get("twist"):
+        say(f"   genre check of the plan ({time.time() - t0:.0f} s): {s:.0f}/10, reads as {o.get('reads_as') or '?'}"
+            f" - plan changed to fit {name}: {miss}")
+        return p2
+    say(f"   genre check of the plan ({time.time() - t0:.0f} s): {s:.0f}/10" + (f" ({miss})" if miss and s < mn else "")
+        + (" - kept (no usable new plan)" if 0 <= s < mn else " - fits"))
+    return plan_obj
+
+
+def _fit_score(cfg, gid, name, script, engine, say):
+    o = _json_ask(cfg, GENRE_FIT_ASK.replace("{name}", name).replace("{brief}", brief_text(gid, name))
+                  .replace("{script}", script), engine, 0.2, False, say)
+    return {"score": _fit_num(o.get("score")), "reads_as": str(o.get("reads_as") or ""),
+            "missing": [str(m) for m in (o.get("missing") or []) if str(m).strip()][:6],
+            "changes": [str(m) for m in (o.get("changes") or []) if str(m).strip()][:5]}
+
+
+def genre_fit(cfg, gid, name, script, plan, words, engine, say, cleaner, rules="", stopped=lambda: False):
+    """-> (script, report). The finished script scored against the brief; under min_score: ONE rewrite naming what is
+    missing, scored again, and the better-scoring version is kept (a tie or a failed rewrite keeps the first)"""
+    if not (_brief_on(cfg) and GENRE_FIT.get("script_check", True) and genre_brief(gid)) or stopped():
+        return script, None
+    mn = int(GENRE_FIT.get("min_score", 7))
+    t0 = time.time()
+    try:
+        first = _fit_score(cfg, gid, name, script, engine, say)
+    except Exception as e:
+        say(f"   (genre check unavailable - script kept: {e})")
+        return script, None
+    rep = {"first": first, "kept": "first"}
+    say(f"   genre check ({time.time() - t0:.0f} s): {first['score']:.0f}/10 for {name}"
+        + (f", reads as {first['reads_as']}" if first["reads_as"] else "")
+        + (f"; missing: {'; '.join(first['missing'])[:240]}" if first["missing"] and first["score"] < mn else ""))
+    if not (0 <= first["score"] < mn) or not GENRE_FIT.get("rewrite", True) or stopped():
+        return script, rep
+    t0 = time.time()
+    try:
+        ask_ = (GENRE_REWRITE_ASK.replace("{brief}", brief_text(gid, name)).replace("{name}", name)
+                .replace("{score}", f"{first['score']:.0f}").replace("{reads_as}", first["reads_as"] or "another series")
+                .replace("{missing}", "; ".join(first["missing"]) or "see the brief")
+                .replace("{changes}", " ".join(f"({i}) {c}" for i, c in enumerate(first["changes"], 1)) or "follow the brief")
+                .replace("{words}", str(words)).replace("{rules}", (rules + " ") if rules else "")
+                .replace("{plan}", plan or "(none)").replace("{script}", script))
+        text, _m = ask(cfg, ask_, engine, 0.7, say=say, ctx_len=int(STORY_PLAN.get("ctx") or 16384))
+        new = _cut_retell(cleaner(text), say, "genre rewrite")
+        if nwords(new) < min(nwords(script), words) * 0.8:
+            say(f"   genre rewrite came back too short ({nwords(new)} words) - kept the first version")
+            rep["kept"] = "first (rewrite too short)"
+            return script, rep
+        second = _fit_score(cfg, gid, name, new, engine, say)
+    except Exception as e:
+        say(f"   (genre rewrite unavailable - kept the first version: {e})")
+        return script, rep
+    rep["second"] = second
+    rep["rewrite"] = new
+    better = second["score"] > first["score"]
+    rep["kept"] = "rewrite" if better else "first"
+    say(f"   genre rewrite ({time.time() - t0:.0f} s): {nwords(new)} words, {second['score']:.0f}/10 - "
+        + ("kept the rewrite" if better else "the first version stays"))
+    return (new if better else script), rep
 
 
 def genre_rules(cfg, gid):
@@ -1908,10 +2232,12 @@ def genre_recipe(cfg, gid, topic="", seed=None, also=(), engine="auto"):
     rng = random.Random(seed)
     G = genre_rules(cfg, gid)
     L = [e for e in ledger(cfg) if e.get("genre") == gid]
-    r = {"genre": gid, "topic": topic or _pick_seed(cfg, G["name"], G["channel"], G["topics"], L, rng, also, engine,
-                                               G.get("never", "")),
-         "telling": _least_used(G.get("tellings") or HORROR_BANK["tellings"],
-                                [e.get("recipe", {}).get("telling") for e in L], rng)}
+    topics, tellings, rule = G["topics"], G.get("tellings") or HORROR_BANK["tellings"], G.get("never", "")
+    if _brief_on(cfg) and genre_brief(gid):   # brief seeds join the list; tellings that pull it into another series go
+        topics, tellings = _brief_seeds(gid, topics), _brief_tellings(gid, tellings)
+        rule = (rule + " " + brief_rule(gid)).strip()
+    r = {"genre": gid, "topic": topic or _pick_seed(cfg, G["name"], G["channel"], topics, L, rng, also, engine, rule),
+         "telling": _least_used(tellings, [e.get("recipe", {}).get("telling") for e in L], rng)}
     if G.get("angles"):
         r["angle"] = _least_used(G["angles"], [e.get("recipe", {}).get("angle") for e in L], rng)
     return r
@@ -1938,10 +2264,10 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
               + (G.get("mature", "") + " " if level == "mature" else "") + "This is NOT a sleep or meditation script: "
               "no breathing exercises, no 'close your eyes', no good-night ending (unless the series is ASMR). Prefer one "
               "complete, naturally connected sentence per line; use a line with only (...) only for an intentional longer pause. No headings, lists, emojis or "
-              "stage directions.\n\n" + avoid
+              "stage directions.\n\n" + (brief_text(gid, G["name"]) + "\n\n" if _brief_on(cfg) else "") + avoid
               + "Now write it. Output only spoken script lines. Stop at the final narrative line; do not append an "
               "explanation, interpretation, editor's note, or comments about the story.\n")
-    plan, plan_obj = story_outline(cfg, prompt, G["name"], engine, say, want_obj=True) if _plan_on(cfg) else ("", None)
+    plan, plan_obj = story_outline(cfg, prompt, G["name"], engine, say, want_obj=True, gid=gid) if _plan_on(cfg) else ("", None)
     by = write_by_scene(cfg, prompt, plan_obj, G["name"], words, engine, say, clean_horror, stopped) \
         if plan and _by_scene_on(cfg, by_scene) and not stopped() else None
     versions = {}
@@ -1963,6 +2289,8 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
             review = ("Review this complete Hindi " + G["name"] + " audio story. Preserve its events, voice, and length. "
                       "Check the story shape, cause and effect, character consistency, repeated ideas, natural spoken "
                       "Hindi, and a satisfying ending. For knowledge content, remove unsupported factual claims. "
+                      + (f"Keep it a true {G['name']} script. " + brief_rule(gid) + " " if _brief_on(cfg) else "")
+                      + 
                       "Return the corrected full script only, with no notes or commentary after the final line.\n\nSCRIPT:\n\n" + script)
             fixed, _ = ask(cfg, review, review_engine, 0.25, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
             fixed = _cut_retell(clean_horror(fixed), say, "review")
@@ -1978,9 +2306,11 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
         script = logic_check(cfg, script, plan, G["name"], "local" if model == local_model(cfg) else "auto", say,
                              clean_horror)
     script = _cut_retell(script, say)
+    script, fit = _fit_and_keep(cfg, gid, G["name"], script, plan, words, model, say, clean_horror, versions,
+                                _rules_for(G, level), stopped)
     versions["final"] = script
     return script, {"recipe": r, "model": model, "minutes": minutes, "genre": gid, "level": level,
-                    "plan": plan, "versions": versions, "by_scene": by[2] if by else None}
+                    "plan": plan, "versions": versions, "by_scene": by[2] if by else None, "genre_fit": fit}
 
 
 def genre_ideas(cfg, gid, topic="", n=3, engine="auto"):

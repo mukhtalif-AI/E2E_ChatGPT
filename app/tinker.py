@@ -65,6 +65,9 @@ PROMPT_LABELS = {
     "story.LOGIC_ASK": "Experimental genre stories: logic check against the plan (rewrites only the lines that break it)",
     "story.QUOTE_RULE": "Experimental genre stories: how quotes are written (added with the plan)",
     "story.SOUND_WORD_RULE": "Experimental genre stories: no sound words read aloud (ठक... ट्रिंग...) - the video plays the sound",
+    "story.GENRE_PLAN_ASK": "Experimental genre stories: the plan scored against the series' genre brief (redone once when it scores low)",
+    "story.GENRE_FIT_ASK": "Experimental genre stories: the finished script scored against the series' genre brief",
+    "story.GENRE_REWRITE_ASK": "Experimental genre stories: the one rewrite of a script that scored under min_score",
     "tools.SCENES_ASK": "Scene planner (genre videos)",
     "tools.SCENE_ASK": "Single scene prompt",
     "tools.ART_ASK": "Sukoon artwork designer",
@@ -81,6 +84,11 @@ TABLES = {
     "story.STORY_PLAN": "Experimental genre stories: plan first + logic check (on, outline_think, check_think, ctx, max_fixes, review = old editorial pass too; "
                         "by_scene = write every story scene by scene (the Create checkbox does it for one job), scenes_min/max, rewrite_at = audit "
                         "problems that make a scene be written again, scene_rewrites = most rewrites per story)",
+    "story.GENRE_BRIEF": "Experimental genre stories: what each series MUST have and must NEVER have, tone, setting, what makes "
+                         "it of today (now), what it is not (not_like), example premises, extra seeds, tellings to skip / add. "
+                         "Used by the seed, the plan, the writer, the review and the genre check",
+    "story.GENRE_FIT": "Experimental genre stories: genre check on (on), plan_check, script_check, rewrite = one rewrite when the "
+                       "script scores under min_score (0-10); the better-scoring version is kept",
     "tools.SERIES_LOOK": "Experimental: fixed picture look per series (on, keep_era, look; lead = the medium put first in every shot) instead of the director's look",
     "tools.CHANNEL": "Experimental: channel per series - on, name, logo (PNG path, transparent background), thumb (logo on the "
                      "thumbnail). Shown on the opening, corner badge, Subscribe ending and thumbnail",

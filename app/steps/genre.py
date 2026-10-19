@@ -45,7 +45,7 @@ def horror_story(ctx, name, topic="", minutes=15, notes="", engine="auto", recip
     entry = {"name": name, "date": time.strftime("%Y-%m-%d %H:%M"), "genre": "horror" if genre == "bhay" else genre,
              "topic": info["recipe"]["topic"],
              "recipe": info["recipe"], "model": info["model"], "words": story.nwords(script), "summary": summ,
-             "level": info.get("level") or level}
+             "level": info.get("level") or level, "genre_fit": info.get("genre_fit")}
     story.add_ledger(cfg, entry)
     json.dump(entry, open(p[:-4] + ".story.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     try:            # every version of the story (plan, draft, review, final) so a fault can be traced to its step

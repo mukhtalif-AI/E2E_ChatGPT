@@ -4,6 +4,8 @@ Checks: plan -> write -> check in Experimental (16k, plan + check no-think, both
 bad answers skipped, Working and table on=false keep the old full review, a failed plan or check falls back."""
 import sys, json, re, tempfile
 sys.path.insert(0, sys.argv[1]); import story as S
+if hasattr(S, "GENRE_FIT"):   # the genre brief + fit check has its own test (test_genre_fit.py)
+    S.GENRE_FIT["on"] = False
 real = open(sys.argv[2], encoding="utf-8").read()
 TMP = tempfile.mkdtemp()
 real = re.sub(r"\(\.\.\.[^)]*\)", "(...)", real)
