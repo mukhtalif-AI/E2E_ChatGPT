@@ -249,8 +249,10 @@ class Video:
         if tl < T:                                                # the opening title darkens the picture a little
             a = min(1.0, max(0.0, (tl - 0.8) / 1.5)) * min(1.0, max(0.0, (T - tl) / 1.5))
             dim = 1 - 0.55 * a
-        mul = (self.vig * np.float32(fl * gain * dim * 256)).astype(np.uint16)
-        out = (img.astype(np.uint16) * mul[..., None]) >> 8
+        # 32-bit product: flicker / lightning push the gain above 1, and in 16 bits 255 x 257+ wrapped round,
+        # turning the brightest pixels into black and green blotches for a frame or two
+        mul = (self.vig * np.float32(fl * gain * dim * 256)).astype(np.uint32)
+        out = (img.astype(np.uint32) * mul[..., None]) >> 8
         off = int((t * 14) % W)
         out = out.astype(np.int16) + (self.fog[:, off:off + W] * np.int16(max(0.0, gain))).astype(np.int16) \
             + self.grain[k % len(self.grain)]
