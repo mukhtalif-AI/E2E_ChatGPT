@@ -1,5 +1,7 @@
 # HubGPT changelog
 ## 20 Oct 2026 — Experimental UI redesign
+- **Unverified in browser:** Replaced the Create page grids with a story-selection workbench, production-flow rail, recent-work panel, and individual tool launcher; `?from=working` now opens that page in the Experimental copy.
+- **Unverified in browser:** Rebuilt Create page into a series-selection workbench with workflow and recent-activity side panels plus single-tool launchers; all existing go/actions remain wired (commit pending).
 - **Unverified in browser:** Replaced the banner-only shell with a persistent workspace header, current-page context, queue shortcut, grouped navigation rail, and a shared page canvas. Existing renderer/API behavior remains unchanged (implementation commit d7e5f44).
 - **Untested:** Replaced the initial teal palette with a distinct parchment-and-ink workspace, dark plum navigation, and copper accents after review showed the first pass looked too similar.
 - **Untested:** Reworked the Experimental page styling and mobile navigation in app/ui/experimental/index.html; added hub_experimental_8782.bat to launch the experimental copy on port 8782. Existing renderers, APIs, generation order, model selection, media paths and job behavior are unchanged. Browser/live verification remains to be done; the launcher was not run because the copy shares configured media/output folders.

@@ -5,9 +5,9 @@ This is a separate full-site UI copy. The standard hub serves it at `http://127.
 ## Current experiment: isolated workspace and visual refresh
 
 - Structural redesign: workspace header with live page/section context and queue shortcut, grouped navigation rail, shared page canvas, and responsive mobile drawer. Parchment/ink palette, card and control hierarchy, and light/dark themes are Experimental-only.
-- Page titles now use one shared workspace header; renderer content mounts inside a consistent framed canvas. Existing page actions and API calls are preserved.
+- Create page rebuilt as a series-selection workbench with a feature series tile, production flow rail, recent work, and a compact single-tool launcher. Existing page actions and API calls are preserved.
 - Mobile slide-in navigation, skip-to-content link, keyboard focus states, and reduced-motion support.
-- Persistent mode banner with a return link and a note describing the experiment.
+- Workspace header carries the Experimental badge, page context, queue shortcut, and Working mode link.
 - Overview page (19 Oct): every page in 3 groups with one line each, a how-a-video-is-made strip, grouped sidebar; a failing page shows its own error box; status polling slows when idle and stops while the tab is hidden.
 
 The Experimental UI is served from `app/ui/experimental/index.html`; the alternate-port launcher changes the server port only and uses the copy configured data/output roots (currently shared paths), stable mode remains at `/`. Shared server changes are limited to dispatching Experimental requests and routing their files and jobs to the isolated workspace. Job ordering, model selection, and media-generation functions stay the same.
