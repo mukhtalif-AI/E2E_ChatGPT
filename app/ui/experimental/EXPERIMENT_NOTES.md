@@ -1,16 +1,16 @@
 # HubGPT Experimental Mode
 
-This is a separate full-site UI copy, opened at `http://127.0.0.1:8781/experimental`.
+This is a separate full-site UI copy. The standard hub serves it at `http://127.0.0.1:8781/experimental`; `hub_experimental_8782.bat` launches the experimental copy at `http://127.0.0.1:8782/experimental`.
 
 ## Current experiment: isolated workspace and visual refresh
 
-- Warmer, higher-contrast surface colors with a readable light default and a working dark theme.
+- Redesigned studio shell with compact desktop sidebar, mobile slide-in navigation, quieter high-contrast surfaces, responsive forms/cards, and a readable light default plus dark theme.
 - Clearer title hierarchy, spacing, cards, form controls, buttons, and focus indicators.
-- Responsive horizontal navigation on small screens, skip-to-content link, and reduced-motion support.
+- Mobile slide-in navigation, skip-to-content link, keyboard focus states, and reduced-motion support.
 - Persistent mode banner with a return link and a note describing the experiment.
 - Overview page (19 Oct): every page in 3 groups with one line each, a how-a-video-is-made strip, grouped sidebar; a failing page shows its own error box; status polling slows when idle and stops while the tab is hidden.
 
-The Experimental UI is served from `app/ui/experimental/index.html`; stable mode remains at `/`. Shared server changes are limited to dispatching Experimental requests and routing their files and jobs to the isolated workspace. Job ordering, model selection, and media-generation functions stay the same.
+The Experimental UI is served from `app/ui/experimental/index.html`; the alternate-port launcher changes the server port only and uses the copy configured data/output roots (currently shared paths), stable mode remains at `/`. Shared server changes are limited to dispatching Experimental requests and routing their files and jobs to the isolated workspace. Job ordering, model selection, and media-generation functions stay the same.
 
 Experimental outputs go under the Experimental root, `config.json` `paths.experimental_root` (`D:\MukhtalifGPT` since 16 Oct ~16:40; before that `D:\HubGPT`, which the hub still reads for old jobs and files): scripts and uploads in `Library`, per-run files in `Series/<series>/Episodes/<episode>/` (`00_Input`, `01_Script`, `02_Narration`, `03_Artwork`, and `Output`), and job logs and history in `Activity`. Existing configured output folders remain in use by the regular HubGPT page. Voice model and training files remain shared; Experimental narration audio goes into each episode workspace.
 

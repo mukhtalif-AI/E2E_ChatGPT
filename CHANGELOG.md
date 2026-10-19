@@ -1,4 +1,6 @@
 # HubGPT changelog
+## 20 Oct 2026 — Experimental UI redesign
+- **Untested:** Reworked the Experimental page styling and mobile navigation in app/ui/experimental/index.html; added hub_experimental_8782.bat to launch the experimental copy on port 8782. Existing renderers, APIs, generation order, model selection, media paths and job behavior are unchanged. Browser/live verification remains to be done; the launcher was not run because the copy shares configured media/output folders.
 
 Newest first. Each item says whether it was **verified on PC** (you ran it and it worked), **ran live** (it ran in a
 real hub job, but you have not checked the result yet), **compiled only** (the code loads, maybe tested on a copy or
