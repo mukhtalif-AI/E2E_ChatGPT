@@ -466,7 +466,8 @@ def plan(kind, b, cfg):
             [{"fn": "horror_story", "label": f"the AI writes a fresh {G['label']} script (no repeats)",
               "args": {"name": name, "topic": b.get("topic", ""), "minutes": minutes, "notes": b.get("notes", ""),
                        "engine": b.get("writer", "auto"), "recipe": b.get("recipe") or None, "genre": gid,
-                       "level": b.get("level") or "standard", "auto_name": bool(b.get("auto_name"))}}]
+                       "level": b.get("level") or "standard", "auto_name": bool(b.get("auto_name")),
+                       **({"by_scene": True} if b.get("by_scene") else {})}}]
         if float(b.get("total_min") or 0) and b.get("fit", True) is not False:
             steps.append({"fn": "fit_script", "label": "fit the script into the video length (AI shortens if needed)",
                           "args": {"name": name, "total_min": float(b["total_min"]), "engine": b.get("writer", "auto"),

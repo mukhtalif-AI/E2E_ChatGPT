@@ -9,11 +9,12 @@ import tools
 
 
 # ------------------------------------------------------------------ भय (Bhay) horror stories
-def horror_story(ctx, name, topic="", minutes=15, notes="", engine="auto", recipe=None, genre="bhay", level="standard", auto_name=False):
+def horror_story(ctx, name, topic="", minutes=15, notes="", engine="auto", recipe=None, genre="bhay", level="standard",
+                 auto_name=False, by_scene=None):
     import story
     cfg, say = ctx["cfg"], ctx["say"]
     script, info = story.write_genre(cfg, genre, say, topic, float(minutes or 15), notes, engine, recipe, ctx["stopped"],
-                                     level)
+                                     level, by_scene)
     if story.nwords(script) < 150:
         raise RuntimeError("the story came out too short - try again")
     summ = story.summarise(cfg, script, say)
@@ -47,6 +48,14 @@ def horror_story(ctx, name, topic="", minutes=15, notes="", engine="auto", recip
              "level": info.get("level") or level}
     story.add_ledger(cfg, entry)
     json.dump(entry, open(p[:-4] + ".story.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    try:            # every version of the story (plan, draft, review, final) so a fault can be traced to its step
+        if info.get("versions"):
+            json.dump({"plan": info.get("plan") or "", **info["versions"]},
+                      open(p[:-4] + ".versions.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        if info.get("by_scene"):    # the scene list (who is there, how old, then/now) - the picture step reads it too
+            json.dump(info["by_scene"], open(p[:-4] + ".scenes.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    except (OSError, TypeError, ValueError) as e:
+        say(f"   (story versions not saved: {e})")
     if summ.get("title_hi"):
         say(f"   title: {summ.get('title_hi')}  /  {summ.get('title_en', '')}")
     for ln in [l for l in script.splitlines() if l != "(...)"][:4]:

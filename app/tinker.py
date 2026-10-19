@@ -78,7 +78,9 @@ TABLES = {
     "tools.GENRES": "Series machine settings: music folders, voice, expressiveness (ex), pause, temperature, drama",
     "tools.STYLES": "Image styles: [label, style prompt]",
     "tools.DIRECTION": "Narration direction per series (where to pause and breathe)",
-    "story.STORY_PLAN": "Experimental genre stories: plan first + logic check (on, outline_think, check_think, ctx, max_fixes, review = old editorial pass too)",
+    "story.STORY_PLAN": "Experimental genre stories: plan first + logic check (on, outline_think, check_think, ctx, max_fixes, review = old editorial pass too; "
+                        "by_scene = write every story scene by scene (the Create checkbox does it for one job), scenes_min/max, rewrite_at = audit "
+                        "problems that make a scene be written again, scene_rewrites = most rewrites per story)",
     "tools.SERIES_LOOK": "Experimental: fixed picture look per series (on, keep_era, look; lead = the medium put first in every shot) instead of the director's look",
     "tools.CHANNEL": "Experimental: channel per series - on, name, logo (PNG path, transparent background), thumb (logo on the "
                      "thumbnail). Shown on the opening, corner badge, Subscribe ending and thumbnail",

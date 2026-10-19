@@ -599,9 +599,115 @@ def _visual_bible(cfg, say, desc, parts, anchors, look):
 
 
 def _named_character(text, ids):
-    """a character ID whose name is in the scene text (the director left 'character' empty); '' if none or unclear"""
+    """a character ID whose name is in the scene text (the director left 'character' empty); '' if none or unclear.
+    One person at two ages (vaidehi_young, vaidehi_old) counts once: the age is chosen by _age_variant"""
     hits = [k for k in ids if re.search(r"\b" + re.escape(re.split(r"[_\s]", k)[0]) + r"\b", text, re.I)]
-    return hits[0] if len(hits) == 1 else ""
+    return hits[0] if hits and len({_base(k) for k in hits}) == 1 else ""
+
+
+# 19 Oct (Kisse-Blue-Cup-Wait): the story ran from 18 to 58 years but the hero had ONE look (a 40-year-old man) in
+# every picture, and the reveal of the old Vaidehi showed a young man with two young girls; Bhay-Infinite-Loop drew
+# Sameer with Abhimanyu's look. Now: a character the story shows at two ages gets two looks (<id>_young, <id>_old) and
+# each picture takes the one for its time; a picture that names one character gets that character's look; with the
+# scene-by-scene writer's scene list, a shot of several people says who they are (man/woman, age) and nobody else.
+_AGE_TAG = re.compile(r"_(?:young|younger|old|older|then|now|child|kid|teen|adult|past|present|\d+)$", re.I)
+_OLD_WORDS = re.compile(r"\b(elderly|aged|ageing|aging|(?:grey|gray|white|silver)[- ]haired|wrinkl\w*|"
+                        r"old (?:man|woman|lady|couple|men|women)|older|senior|years later|decades later)\b", re.I)
+_YOUNG_WORDS = re.compile(r"\b(young|younger|youth|teen\w*|boy|girl|eighteen|nineteen|student|college|flashback)\b",
+                          re.I)
+
+
+def _base(k):
+    return _AGE_TAG.sub("", str(k or "")).lower()
+
+
+def _look_age(c):
+    m = re.search(r"(\d{1,2})[- ]year[- ]old|(\d{1,2})\s+years?\s+old", str((c or {}).get("look") or ""), re.I)
+    return int(m.group(1) or m.group(2)) if m else None
+
+
+def _age_variant(character, chars, words, age=None, period=""):
+    """the look of this person at the shot's time: protagonist -> protagonist_young / protagonist_old. age: the
+    person's age in the story scene (scene list); period: 'young' / 'old' from the scene's time; else the shot's words"""
+    if not character or not chars:
+        return character
+    sibs = [k for k in chars if _base(k) == _base(character)]
+    if len(sibs) < 2:
+        return character
+    ages = {k: _look_age(chars[k]) for k in sibs}
+    if age:
+        known = [k for k in sibs if ages[k] is not None]
+        if known:
+            return min(known, key=lambda k: abs(ages[k] - age))
+    if not period:
+        o, y = bool(_OLD_WORDS.search(words)), bool(_YOUNG_WORDS.search(words))
+        period = "old" if o and not y else "young" if y and not o else ""
+    if not period:
+        return character if character in chars else sibs[0]
+    by_age = sorted(sibs, key=lambda k: (ages[k] if ages[k] is not None else
+                                         (90 if re.search(r"old|now|older|adult|present", k, re.I) else 10)))
+    return by_age[-1] if period == "old" else by_age[0]
+
+
+def _story_scenes(ctx, name):
+    """the scene-by-scene writer's scene list for this story: (scenes, people), or ([], [])"""
+    try:
+        d = json.load(open(os.path.join(tools.ctx_folder(ctx, "scripts"), tools.slug(name) + ".scenes.json"),
+                           encoding="utf-8"))
+        return [s for s in d.get("scenes") or [] if isinstance(s, dict) and s.get("text")], d.get("people") or []
+    except (OSError, ValueError, TypeError, AttributeError):
+        return [], []
+
+
+def _scene_of(text, scenes):
+    """the story scene a shot's narration comes from (most shared 3-word runs), or None"""
+    import story
+    g = story._grams(text)
+    best = max(((len(g & story._grams(s["text"])), k) for k, s in enumerate(scenes)), default=(0, -1))
+    return scenes[best[1]] if best[0] >= 3 else None
+
+
+def _period(st, scenes):
+    """'young' / 'old' / '' for a story scene: its 'when' says then/now, or its year is the story's first / last"""
+    w = str((st or {}).get("when") or "")
+    if re.search(r"\b(now|present|today|later)\b", w, re.I):
+        return "old"
+    if re.search(r"\b(then|past|flashback|childhood|young)\b", w, re.I):
+        return "young"
+    yr = re.search(r"\b(1[89]\d\d|20\d\d)\b", w)
+    years = sorted({int(m) for s in scenes for m in re.findall(r"\b(1[89]\d\d|20\d\d)\b", str(s.get("when") or ""))})
+    if yr and len(years) > 1 and years[-1] - years[0] >= 10:
+        return "young" if int(yr.group(1)) - years[0] < (years[-1] - years[0]) / 2 else "old"
+    return ""
+
+
+def _age_of(st, character):
+    """the age the story scene gives the person whose name is the character ID (protagonist: the only man/woman)"""
+    ps = [p for p in (st or {}).get("present") or [] if isinstance(p, dict)]
+    for p in ps:
+        if _base(character) and _base(p.get("name")).split()[:1] == _base(character).split()[:1]:
+            try:
+                return int(p.get("age"))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _who_line(st):
+    """'In this picture: an 18-year-old Indian man and an 18-year-old Indian woman, nobody else' from the scene list"""
+    ps = [p for p in (st or {}).get("present") or [] if isinstance(p, dict) and p.get("name")]
+    if len(ps) < 2 or len(ps) > 4:
+        return ""
+    who = []
+    for p in ps:
+        sex = str(p.get("sex") or "person").strip().lower()
+        try:
+            age = int(p.get("age"))
+        except (TypeError, ValueError):
+            age = 0
+        who.append(f"{'an' if str(age)[:1] == '8' or age in (11, 18) else 'a'} {age}-year-old Indian {sex}" if age
+                   else f"an Indian {sex}")
+    return "In this picture: " + (", ".join(who[:-1]) + " and " + who[-1]) + ", nobody else"
 
 
 _WIDE_SHOT = re.compile(r"\b(wide|establishing|far|distance|distant|long shot|aerial|tiny)\b", re.I)
@@ -755,7 +861,14 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     character_anchors = d.get("character_anchors") or {}
     if look:
         say(f"   the look of this story: {look}")
-    chars, things = _visual_bible(cfg, say, G["desc"], parts, character_anchors, look) if exp else ({}, {})
+    story_scenes, story_people = _story_scenes(ctx, name) if exp else ([], [])
+    if story_scenes:
+        say(f"   the writer's scene list is used: {len(story_scenes)} story scenes with who is there and how old")
+    notes = dict(character_anchors) if isinstance(character_anchors, dict) else {"notes": character_anchors}
+    if story_people:                        # the ages the story shows, so the descriptions split young / old
+        notes["ages in the story"] = "; ".join(f"{p.get('name')}: {p.get('sex', '')}, {p.get('ages', '')}"
+                                               for p in story_people if isinstance(p, dict))
+    chars, things = _visual_bible(cfg, say, G["desc"], parts, notes, look) if exp else ({}, {})
     shots, seen, fixed_cues, dropped_cues, capped_beds = [], [], 0, 0, 0
     look_p = _look_for_prompt(look)
     if exp and look_p:
@@ -787,11 +900,27 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         # the moment first (image models weigh the start most), the shared style after -> varied but coherent
         pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
         seed_key = ""
+        who = ""
+        if exp and chars:                   # 19 Oct: the right person, at the right age for this picture
+            named = _named_character(scene, list(chars))
+            if named and character and _base(named) != _base(character) and not re.search(
+                    r"\b" + re.escape(re.split(r"[_\s]", _base(character))[0]) + r"\b", scene, re.I):
+                say(f"   scene {i + 1}: the picture names {_base(named)}, the director said {character} - {_base(named)}'s look")
+                character = named
+            st = _scene_of(p["text"], story_scenes) if story_scenes else None
+            was = character
+            character = _age_variant(character, chars, f"{scene} {happens}", _age_of(st, character),
+                                     _period(st, story_scenes))
+            if character != was and was:
+                say(f"   scene {i + 1}: {was} at this time -> {character}")
+            if st and _MANY_IN_SHOT.search(scene):
+                who = _who_line(st)
         if exp:                             # 18 Oct: the fixed descriptions go FIRST (the model weighs the start most)
             if _up_close(scene, character):         # the full description goes first -> one subject, not two
                 scene = _one_subject(scene)
                 pr = f"{scene}. Setting and style: {look_p}" if look_p else scene
             anchor, after, seed_key = _lead_for(scene, character, chars, things, anchor)
+            after = ". ".join(x for x in (after, who) if x)
             if after:
                 pr = f"{scene.rstrip('. ')}. {after}." + (f" Setting and style: {look_p}" if look_p else "")
             if anchor:

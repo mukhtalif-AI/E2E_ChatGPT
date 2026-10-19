@@ -481,7 +481,9 @@ VISUAL_ASK = (                # Experimental genre scenes: one fixed look per ch
     "\"things\": {{\"<one English noun for it, e.g. doll>\": \"15-30 English words\"}}}}.\n"
     "A character: age in years, build, skin tone, face shape, hair (colour, length, style), facial hair, one "
     "distinctive face feature, clothing with exact colours and fabric, one accessory. Only what can be seen: no name, "
-    "no feelings, no actions, no setting. A character shown at two ages keeps the two IDs from the notes. "
+    "no feelings, no actions, no setting. A character the story shows at clearly different ages (young in the "
+    "past and old now, a child who grows up; see 'ages in the story' in the notes) gets two IDs, <ID>_young and "
+    "<ID>_old, each with its own age in years; IDs at two ages already in the notes are kept. "
     "Things: only objects, vehicles or buildings the story returns to at least twice that must look the same each "
     "time (a doll, a house, a car); at most 4; colour, material, size, condition. {{}} if none.\n\nSTORY:\n{story}")
 SCENE_PICTURE_ASK = (

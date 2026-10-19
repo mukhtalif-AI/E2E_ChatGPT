@@ -1504,11 +1504,11 @@ async function mkDefaults(force){if(!MK.d||force){try{const r=await api("/api/cr
 function mkFallback(gid){const suk=gid=="sukoon",ex={bhay:.5,rahasya:.5,kisse:.55,romanch:.5,kareeb:.3,gyaan:.5},pa={bhay:.75,rahasya:.6,kisse:.65,romanch:.75,kareeb:1,gyaan:.55};   // only until the hub is restarted with create_form.py
   return {language:"hi",source:suk?"mine":"ai",speech_min:suk?12:15,total_min:suk?30:0,fit:true,writer:"auto",level:"standard",voice:suk?"v3":"auto",acoustic:true,takes:3,
     ex:suk?.35:ex[gid]||.5,pause:suk?1:pa[gid]||.7,dramatic:!suk,emotions:!suk,music:"",tail:suk?"usual":"1min",music_db:18,shape:suk,reels:suk?3:2,reel_len:30,scenes:0,
-    best_pictures:false,art_choices:3,art_style:"",typo:"mukhtalif",font:"",en_speaker:"Ryan",script_lang:"hi",category:""}}
+    best_pictures:false,by_scene:false,art_choices:3,art_style:"",typo:"mukhtalif",font:"",en_speaker:"Ryan",script_lang:"hi",category:""}}
 function mkVals(){const ch=(id,d)=>chipVal(id)||d,num=(id,d)=>{const x=$("#"+id);return x&&x.value!==""?+x.value:d},on=id=>!!($("#"+id)&&$("#"+id).checked);
   return {language:ch("mLng","hi"),source:ch("mSrc","ai"),name:$("#mName").value,script:$("#mScript").value,topic:$("#mTopic").value,category:ch("mCat",""),level:ch("mLevel","standard"),
     speech_min:num("mMin",15),voice:$("#mVoice").value,acoustic:on("mAcoustic"),total_min:num("mTotal",0),fit:on("mFit"),writer:ch("mWriter","auto"),reels:num("mReels",2),
-    reel_len:num("mReelLen",30),scenes:num("mScenes",0),title:$("#mTitle").value,best_pictures:on("mBest"),art_style:ch("mStyle",""),art_choices:num("mArtN",3),art_idea:$("#mIdea").value,
+    reel_len:num("mReelLen",30),scenes:num("mScenes",0),title:$("#mTitle").value,best_pictures:on("mBest"),by_scene:on("mByScene"),art_style:ch("mStyle",""),art_choices:num("mArtN",3),art_idea:$("#mIdea").value,
     takes:+ch("mTakes","3"),ex:num("mEx",.5),pause:num("mPause",1),dramatic:on("mDrama"),emotions:on("mEmo"),script_lang:ch("mSLang","hi"),en_speaker:ch("mSpk","Ryan"),
     music:$("#mMusic").value,shape:on("mShape"),tail:ch("mTail","1min"),music_db:num("mDb",18),typo:$("#mTypo").value,font:$("#mFont").value}}
 R.episode=()=>R.make("sukoon");
@@ -1526,7 +1526,7 @@ R.make=async(gid,carry)=>{await pre();try{await loadLib()}catch(e){}const D=awai
     scenes:"Sukoon uses one artwork for the whole video, not scenes",art:"Genre videos paint one picture per scene in the series look (Scenes and Best pictures above)",
     sl:suk?"Not needed: the English narrator reads English":"Genre scripts are Hindi; translating from English is only built for Sukoon",spk:"Only used when a Sukoon episode is in English",
     shape:suk?"Build the music index in Settings first":"Genre music comes from the series' mood folders, mixed scene by scene",db:"Genre music levels are set by the scene mix",
-    typo:"Genre videos use the series' own subtitle look",enDel:"The English narrator has its own delivery"};
+    typo:"Genre videos use the series' own subtitle look",byScene:"Sukoon scripts have their own writer; scene by scene is for the six story series",enDel:"The English narrator has its own delivery"};
   $("main").innerHTML=`<div class="simple"><h1>${esc(G.name)} · ${esc(G.en)}</h1><p class="sub">${esc(G.about)} ${suk?"Script or topic in → voice, artwork, living video and reels out.":"Script → your voice → scenes that follow the story → music + sounds → video with subtitles."}</p>
   <div class="card">
    ${serBar("mSer",gid)}
@@ -1546,6 +1546,7 @@ R.make=async(gid,carry)=>{await pre();try{await loadLib()}catch(e){}const D=awai
    <div class="hint" id="mFitHint"></div>
    <div class="actions"><button class="btn primary" id="mGo">${svg("episode")} Make the ${esc(G.name)} video</button><span class="hint">goes into the build queue below · add as many episodes as you like, any series, they build one after another</span></div>
    ${more("Writer, reels & title",`<label>Writer</label>${chips("mWriter",{auto:"Gemini (local if busy)",local:"Local model only"},v.writer)}
+     <div style="margin-top:8px">${mkOff(!suk,why.byScene,sw("mByScene","Write it scene by scene (test): the plan is checked first, then 6-9 scenes are written one at a time with a story record (who, how old, who gave what), each scene checked against it (+8-15 min). Off = the usual one-piece writer",v.by_scene))}</div>
      <div class="row"><div style="flex:0 0 150px"><label>Reels (9:16)</label><input id="mReels" type="number" min="0" max="8" value="${+v.reels||0}"></div>
        <div style="flex:0 0 170px">${mkOff(!suk,why.reel,`<label>Reel length (s)</label><input id="mReelLen" type="number" min="15" max="60" value="${+v.reel_len||30}">`)}</div>
        <div style="flex:0 0 170px">${mkOff(!suk,why.scenes,`<label>Scenes</label><input id="mScenes" type="number" min="0" max="24" value="${+v.scenes||0}" title="0 = about one per 70 s">`)}</div></div>
@@ -1618,7 +1619,7 @@ R.make=async(gid,carry)=>{await pre();try{await loadLib()}catch(e){}const D=awai
       body={genre:gid,name,script:own?x.script:"",topic:own?"":x.topic,recipe:own?null:(MK.recipe||null),notes:own?"":MK.note,speech_min:x.speech_min,
         voice_style:manual?x.voice:"",voice_style_manual:manual,title_text:x.title,scenes:x.scenes,exaggeration:x.ex,pause_scale:x.pause,acoustic_context:x.acoustic,
         takes:x.takes,music_track:(x.music&&x.music!="none")?x.music:"",writer:x.writer,reels:x.reels,reel_len:x.reel_len,total_min:x.total_min,fit:x.fit,tail:x.tail=="usual"?"1min":x.tail,music_db:x.music_db,
-        level:MKLVL.includes(gid)?x.level:"standard",dramatic:x.dramatic,emotions:x.emotions,best_pictures:x.best_pictures}}
+        level:MKLVL.includes(gid)?x.level:"standard",dramatic:x.dramatic,emotions:x.emotions,best_pictures:x.best_pictures,by_scene:!own&&x.by_scene}}
     const id=await start(kind,body,e.currentTarget);if(!id)return;
     MK.recipe=null;MK.note="";P.sel.mArt="";["#mName","#mScript","#mTopic","#mTitle","#mIdea"].forEach(s=>{if($(s))$(s).value=""});$("#mIdeaList").innerHTML="";$("#mEst").textContent="";P.estMin=0;fitHint();
     const q=await drawQueue(true),w=((q&&q.queued)||[]).find(r=>r.id==id);toast(w?`Added to the build queue - number ${w.position}. Fill the form again to add the next one.`:"Added - it is building now")};

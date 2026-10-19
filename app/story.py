@@ -1124,7 +1124,8 @@ def _trim_dangling(ln):
 # check - without it the planned Rahasya-Mirror-Doppelganger (17 Oct) went out as a raw first draft. "on": False = the
 # old writer (no plan, review only).
 STORY_PLAN = {"on": True, "outline_think": False, "check_think": False, "ctx": 16384, "max_fixes": 12,
-              "max_tokens": 4096, "review": True, "facts": True, "facts_max_lines": 70}
+              "max_tokens": 4096, "review": True, "facts": True, "facts_max_lines": 70,
+              "by_scene": False, "scenes_min": 6, "scenes_max": 9, "rewrite_at": 3, "scene_rewrites": 2}
 
 OUTLINE_ASK = (
     "Before tonight's story is written, plan it. The brief for the story is below.\n\n{brief}\n\n"
@@ -1242,8 +1243,9 @@ def _plan_text(o):
     return "\n".join(out)
 
 
-def story_outline(cfg, prompt, series, engine, say):
-    """the plan for a story from its writing prompt -> plan text, or '' (then the story is written the old way)"""
+def story_outline(cfg, prompt, series, engine, say, want_obj=False):
+    """the plan for a story from its writing prompt -> plan text, or '' (then the story is written the old way);
+    want_obj: -> (plan text, plan dict) for the scene-by-scene writer"""
     t0 = time.time()
     k = prompt.rfind("Now write")
     brief = prompt[:k] if k > 0 else prompt
@@ -1254,13 +1256,13 @@ def story_outline(cfg, prompt, series, engine, say):
             raise RuntimeError("the plan had no twist or fewer than 4 beats")
     except Exception as e:
         say(f"   (story plan unavailable - written without one: {e})")
-        return ""
+        return ("", None) if want_obj else ""
     txt = _plan_text(o)
     say(f"   story plan ({time.time() - t0:.0f} s): {len(o.get('beats') or [])} beats, {len(o.get('clues') or [])} clues, "
         f"{len(o.get('facts') or [])} fixed facts")
     for ln in txt.splitlines():
         say("      " + ln[:220])
-    return txt
+    return (txt, o) if want_obj else txt
 
 
 def with_plan(prompt, plan):
@@ -1366,8 +1368,245 @@ def logic_check(cfg, script, plan, series, engine, say, cleaner):
         + f"; {nwords(out)} words")
     return facts_check(cfg, out, plan, series, engine, say, cleaner)
 
+# ------------------------------------------------------------------ scene by scene (19 Oct 2026, a test switch)
+# Kisse-Blue-Cup-Wait (19 Oct) was written in one go and checked in one 14 s pass. Two faults came from the plan
+# itself (a train that 'no longer comes' and its whistle; he visits every year, she lives by the station, they never
+# meet), the cup changed hands at the end, a woman of his own age called him 'बेटा'. This writer: the plan is checked
+# first, cut into 6-9 scenes (when, where, who is there and how old), written one scene at a time with a small story
+# state updated after every scene, and every scene is audited against that state. Only broken lines are fixed; a scene
+# is written again at most once (STORY_PLAN scene_rewrites for the whole story) and the new version is kept only when
+# its audit finds fewer problems, so it can never go round in circles. Any failure -> the old one-piece writer.
+# On per job (Create form 'Write it scene by scene') or for every Experimental run with STORY_PLAN "by_scene".
+PLAN_CHECK_ASK = (
+    "You check a story PLAN before anything is written. Find where the plan contradicts itself or will not make sense "
+    "to a listener: something said to be gone, stopped, closed or dead that is later seen or heard (a train that no "
+    "longer comes, and then its whistle); two people in the same place for years who never meet, with no reason; an "
+    "age, year or duration that does not add up; who gave what to whom told two ways; a clue whose answer does not "
+    "fit the reveal; a reveal that no clue leads to; a twist that needs a coincidence; an answer that hedges "
+    "('letters or medicine or belongings') instead of deciding.\n"
+    "For each problem say in one line what is wrong and how the plan changes. Then give the WHOLE plan again in the "
+    "same JSON shape, changing only what the problems need. Answer ONLY JSON: {\"problems\": [\"\"], \"plan\": "
+    "{\"facts\": [\"\"], \"people\": [\"\"], \"clues\": [{\"clue\": \"\", \"answer\": \"\"}], \"twist\": \"\", "
+    "\"reveal\": \"\", \"beats\": [\"\"]}} (no problems: an empty list and the plan unchanged).\n\nPLAN:\n{plan}")
+
+SCENE_LIST_ASK = (
+    "Cut this story plan into {nmin}-{nmax} scenes, told in this order, for a Hindi audio story of about {words} "
+    "words. Every beat goes into exactly one scene, in the plan's order. For each scene: when (the year, and 'then' "
+    "or 'now' when the story moves between times), the place, who is present with their sex (man, woman, boy, girl) "
+    "and their age IN THAT SCENE, the beat numbers it tells, what happens (2-3 English sentences), and about how many "
+    "words it gets. Also list each person once: sex, their age at each time the story shows, and how they address the "
+    "people they talk to (by name, तुम, आप; बेटा/बेटी only from someone much older). A story that opens inside a "
+    "frame (someone telling it, someone listening) comes back to that frame in its last scene.\n"
+    "Answer ONLY JSON: {\"people\": [{\"name\": \"\", \"sex\": \"\", \"ages\": {\"then\": 0, \"now\": 0}, "
+    "\"calls\": \"\"}], \"scenes\": [{\"when\": \"\", \"place\": \"\", \"present\": [{\"name\": \"\", \"sex\": \"\", "
+    "\"age\": 0}], \"beats\": [1], \"happens\": \"\", \"words\": 0}]}\n\nPLAN:\n{plan}")
+
+STATE_ASK = (
+    "Update the STATE of a story after its newest scene. Keep it short (English). Record only what the scene shows: "
+    "objects (who owns or gave what to whom, where it is now); what the listener now knows (one short line per new "
+    "fact, never repeat one); each person's age and how people address each other; clues planted, and clues answered "
+    "(move those out of open_clues); anything said to be gone, stopped, closed or dead (it cannot come back later). "
+    "Never invent. Answer ONLY the whole updated JSON with the same keys.\n\nSTATE:\n{state}\n\nSCENE {n} (Hindi):\n{text}")
+
+SCENE_AUDIT_ASK = (
+    "You check ONE new scene of a Hindi {series} audio story against what is already true. Look only for: a fact "
+    "that differs from the STATE or the PLAN FACTS (years, ages, places, distances, who gave what to whom, who knew "
+    "what); something said before to be gone, stopped, closed or dead that is back; a word for a person that does "
+    "not fit their age or relation in this scene (बेटा from someone of the same age, बूढ़ी/बूढ़ा for a young person, "
+    "बचपन for a time when they were grown up, a girl called a boy); someone present who cannot be there; something "
+    "already told said again as if it were new; a quote never closed. Do NOT touch style, wording or length.\n"
+    "For each problem give the line number, the line as written, why, and the corrected Hindi line: the WHOLE line, "
+    "its own words kept except what must change. Answer ONLY JSON: {\"problems\": [{\"n\": 0, \"line\": \"\", "
+    "\"why\": \"\", \"fix\": \"\"}]} (an empty list when the scene fits).\n\nPLAN FACTS:\n{facts}\n\nSTATE BEFORE "
+    "THIS SCENE:\n{state}\n\nTHIS SCENE: {when}, {place}; present: {present}\n\nSCENE LINES:\n{lines}")
+
+
+def _by_scene_on(cfg, by_scene=None):
+    """the scene-by-scene writer: the job's own switch, else the Tinker table (off by default); Experimental only"""
+    on = STORY_PLAN.get("by_scene", False) if by_scene is None else bool(by_scene)
+    return on and _plan_on(cfg)
+
+
+def _present(sc):
+    out = []
+    for p in sc.get("present") or []:
+        if isinstance(p, dict) and p.get("name"):
+            bits = [str(p.get("sex") or "").strip(), f"{p['age']} years" if str(p.get("age") or "").strip() else ""]
+            out.append(f"{p['name']} ({', '.join(b for b in bits if b)})" if any(bits) else str(p["name"]))
+        elif isinstance(p, str) and p.strip():
+            out.append(p.strip())
+    return "; ".join(out) or "the narrator alone"
+
+
+def _state_json(state, limit=3500):
+    """the state as JSON for a prompt, oldest 'told' lines dropped first when it grows too long"""
+    st = dict(state)
+    t = json.dumps(st, ensure_ascii=False)
+    while len(t) > limit and isinstance(st.get("told"), list) and len(st["told"]) > 6:
+        st["told"] = st["told"][2:]
+        t = json.dumps(st, ensure_ascii=False)
+    return t[:limit]
+
+
+def _scene_list(cfg, plan_txt, words, engine, say):
+    o = _json_ask(cfg, SCENE_LIST_ASK.replace("{nmin}", str(STORY_PLAN.get("scenes_min", 6)))
+                  .replace("{nmax}", str(STORY_PLAN.get("scenes_max", 9))).replace("{words}", str(words))
+                  .replace("{plan}", plan_txt), engine, 0.4, False, say)
+    sc = [s for s in (o.get("scenes") or []) if isinstance(s, dict) and str(s.get("happens") or "").strip()]
+    if not 4 <= len(sc) <= 12:
+        raise RuntimeError(f"the scene list had {len(sc)} scenes")
+    share = []
+    for s in sc:
+        try:
+            share.append(max(40.0, float(s.get("words") or 0)))
+        except (TypeError, ValueError):
+            share.append(40.0)
+    for s, w in zip(sc, share):                       # the words follow the asked length, in the scenes' proportions
+        s["words"] = max(60, int(round(words * w / sum(share))))
+    return [p for p in (o.get("people") or []) if isinstance(p, dict) and p.get("name")], sc
+
+
+def _audit_scene(cfg, series, sc, text, state, facts, engine, say):
+    """-> (problems, lines, idx) for one scene"""
+    lines = text.splitlines()
+    idx = [i for i, l in enumerate(lines) if l.strip() and l.strip() != "(...)"]
+    o = _json_ask(cfg, SCENE_AUDIT_ASK.replace("{series}", series).replace("{facts}", facts)
+                  .replace("{state}", _state_json(state)).replace("{when}", str(sc.get("when") or ""))
+                  .replace("{place}", str(sc.get("place") or "")).replace("{present}", _present(sc))
+                  .replace("{lines}", "\n".join(f"{n}: {lines[i]}" for n, i in enumerate(idx, 1))),
+                  engine, 0.2, False, say)
+    probs = o.get("problems") if isinstance(o, dict) else []
+    return [p for p in (probs or []) if isinstance(p, dict) and str(p.get("fix") or "").strip()], lines, idx
+
+
+def write_by_scene(cfg, prompt, plan_obj, series, words, engine, say, cleaner, stopped=lambda: False):
+    """-> (script, model, doc) or None (then the old one-piece writer runs). doc: the checked plan, people, scenes
+    (when, place, who and how old, text, audit), the final state and timings - saved next to the script"""
+    t_all, tm = time.time(), {}
+    k = prompt.rfind("Now write")
+    brief = (prompt[:k] if k > 0 else prompt).strip()
+    ctx = int(STORY_PLAN.get("ctx") or 16384)
+    say("   story flow: scene by scene (test switch)")
+    try:
+        t0 = time.time()
+        plan = dict(plan_obj or {})
+        fixes = []
+        try:
+            o = _json_ask(cfg, PLAN_CHECK_ASK.replace("{plan}", json.dumps(plan, ensure_ascii=False)), engine, 0.2,
+                          False, say)
+            p2 = o.get("plan") if isinstance(o, dict) else None
+            fixes = [str(x) for x in (o.get("problems") or []) if str(x).strip()] if isinstance(o, dict) else []
+            if fixes and isinstance(p2, dict) and len([b for b in (p2.get("beats") or []) if b]) >= 4 and p2.get("twist"):
+                plan = p2
+            elif fixes:
+                say("      (the plan check found problems but gave no usable plan - kept the first plan)")
+                fixes = []
+        except Exception as e:
+            say(f"      (plan check unavailable - kept the plan: {e})")
+        tm["plan_check"] = round(time.time() - t0)
+        say(f"   plan check ({tm['plan_check']} s): {len(fixes)} problem(s) fixed in the plan")
+        for f in fixes[:8]:
+            say("      plan fix: " + f[:200])
+        plan_txt = _plan_text(plan)
+        t0 = time.time()
+        people, scenes = _scene_list(cfg, plan_txt, words, engine, say)
+        tm["scene_list"] = round(time.time() - t0)
+        say(f"   scene list ({tm['scene_list']} s): {len(scenes)} scenes")
+        for i, s in enumerate(scenes, 1):
+            say(f"      scene {i}: {s.get('when', '')} | {s.get('place', '')} | {_present(s)} | ~{s['words']} words | "
+                f"{str(s.get('happens'))[:120]}")
+        facts = "\n".join(l for l in plan_txt.splitlines() if l.startswith(("Fixed facts", "People"))) or "(none)"
+        state = {"facts": [str(x) for x in plan.get("facts") or []],
+                 "people": {str(p["name"]): {k2: p.get(k2) for k2 in ("sex", "ages", "calls") if p.get(k2)} for p in people},
+                 "objects": {}, "told": [], "gone": [],
+                 "open_clues": [str(c.get("clue")) for c in plan.get("clues") or [] if isinstance(c, dict) and c.get("clue")]}
+        outline = "\n".join(f"Scene {i}: {s.get('when', '')}, {s.get('place', '')}; {_present(s)}: {s.get('happens', '')}"
+                            for i, s in enumerate(scenes, 1))
+        done, model, rewrites = [], "", int(STORY_PLAN.get("scene_rewrites", 2))
+        tm["write"] = tm["audit"] = tm["state"] = 0
+        for i, s in enumerate(scenes, 1):
+            if stopped():
+                break
+            so_far = "\n".join(d["text"] for d in done)
+            tail = "\n".join([l for l in so_far.splitlines() if l.strip()][-10:]) or "(nothing yet: this scene opens the story)"
+            last = i == len(scenes)
+            ask_ = (brief + "\n\nPLAN OF THE WHOLE STORY:\n" + plan_txt + "\n\nTHE SCENES:\n" + outline
+                    + "\n\nSTORY STATE SO FAR (all of it stays true; never contradict it):\n" + _state_json(state)
+                    + "\n\n" + QUOTE_RULE + "\n" + SOUND_WORD_RULE + "\n\nTHE STORY SO FAR ENDS WITH:\n" + tail
+                    + f"\n\nNow write ONLY scene {i} of {len(scenes)}: {s.get('when', '')}, {s.get('place', '')}; "
+                    f"present: {_present(s)}. What happens: {s.get('happens', '')} About {s['words']} Hindi words. "
+                    + ("Open the story here. " if i == 1 else "Go on from the last line above: never retell it, no new "
+                       "opening, hook or subscribe line that is already told. ")
+                    + "People talk and are talked about as fits their age in THIS scene. "
+                    + ("This is the last scene: close what is open, bring in nothing new, stop on the final line. "
+                       + (f"Still unanswered, answer them here: {'; '.join(map(str, state.get('open_clues') or []))[:600]}. "
+                          if state.get("open_clues") else "")
+                       if last else "Stop at the end of this scene; do not write the next one. ")
+                    + "Output only spoken script lines.")
+            t0 = time.time()
+            text, model = ask(cfg, ask_, engine, 0.9, say=say, ctx_len=ctx)
+            text = cleaner(text)
+            if so_far and _retold(text, so_far) > RETELL_MAX:
+                say(f"      scene {i} told the story again - asked once more")
+                text, model = ask(cfg, ask_ + " The last answer started the story again: write ONLY the new scene.",
+                                  engine, 0.8, say=say, ctx_len=ctx)
+                text = cleaner(text)
+                if _retold(text, so_far) > RETELL_MAX:
+                    raise RuntimeError(f"scene {i} kept retelling the story")
+            if nwords(text) < 25:
+                raise RuntimeError(f"scene {i} came back empty")
+            tm["write"] += time.time() - t0
+            t0 = time.time()
+            probs, lines, idx = _audit_scene(cfg, series, s, text, state, facts, engine, say)
+            rewritten = False
+            if len(probs) >= int(STORY_PLAN.get("rewrite_at", 3)) and rewrites > 0 and not stopped():
+                rewrites -= 1
+                why = "; ".join(str(p.get("why") or "")[:120] for p in probs[:6])
+                t1 = time.time()
+                text2, _m = ask(cfg, ask_ + " An earlier version of this scene had these faults, avoid them: " + why,
+                                engine, 0.8, say=say, ctx_len=ctx)
+                text2 = cleaner(text2)
+                tm["write"] += time.time() - t1
+                if nwords(text2) >= 25 and not (so_far and _retold(text2, so_far) > RETELL_MAX):
+                    p2, l2, i2 = _audit_scene(cfg, series, s, text2, state, facts, engine, say)
+                    say(f"      scene {i} written again ({len(probs)} problems): the new version has {len(p2)}"
+                        + (" - kept" if len(p2) < len(probs) else " - the first version stays"))
+                    if len(p2) < len(probs):
+                        text, probs, lines, idx, rewritten = text2, p2, l2, i2, True
+            fixed, skipped = _apply_fixes(lines, idx, probs, int(STORY_PLAN.get("max_fixes") or 12), say, f"scene {i} fix")
+            if fixed:
+                text = cleaner("\n".join(lines))
+            tm["audit"] += time.time() - t0
+            say(f"   scene {i}/{len(scenes)}: {nwords(text)} words, {len(probs)} problem(s), {fixed} line(s) fixed"
+                + (f", {skipped} not usable" if skipped else "") + (", written again" if rewritten else ""))
+            done.append(dict(s, n=i, text=text, problems=probs, fixed=fixed, rewritten=rewritten))
+            if not last:
+                t0 = time.time()
+                try:
+                    st = _json_ask(cfg, STATE_ASK.replace("{state}", _state_json(state)).replace("{n}", str(i))
+                                   .replace("{text}", text), engine, 0.2, False, say)
+                    if isinstance(st, dict) and st:
+                        state = {k2: st.get(k2, state.get(k2)) for k2 in set(state) | set(st)}
+                except Exception as e:
+                    say(f"      (story state not updated after scene {i}: {e})")
+                tm["state"] += time.time() - t0
+        if not done:
+            raise RuntimeError("no scene was written")
+    except Exception as e:
+        say(f"   (scene-by-scene writer stopped: {e} - the story is written the usual way)")
+        return None
+    script = cleaner("\n".join(d["text"] for d in done))
+    for key in ("write", "audit", "state"):
+        tm[key] = round(tm[key])
+    tm["all"] = round(time.time() - t_all)
+    say(f"   written scene by scene by {model}: {nwords(script)} words ({tm['all']} s: plan check {tm['plan_check']}, "
+        f"scene list {tm['scene_list']}, writing {tm['write']}, audits {tm['audit']}, state {tm['state']})")
+    doc = {"plan": plan, "plan_fixes": fixes, "people": people, "scenes": done, "state": state, "timings": tm}
+    return script, model, doc
+
+
 def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=None, stopped=lambda: False,
-                 level="standard"):
+                 level="standard", by_scene=None):
     r = dict(rec or {}) or horror_recipe(cfg, topic, engine=engine)
     if topic:
         r["topic"] = topic
@@ -1380,16 +1619,24 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
     if level == "mature":
         prompt = prompt.replace("No gore, no cheap shocks", genre_rules(cfg, "bhay").get("mature") or LEVELS["mature"]["bhay"]
                                 + " No cheap shocks")
-    plan = story_outline(cfg, prompt, "भय", engine, say) if _plan_on(cfg) else ""
-    if plan:
-        prompt = with_plan(prompt, plan)
-        t0 = time.time()
-    text, model = ask(cfg, prompt, engine, 0.95, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
+    plan, plan_obj = story_outline(cfg, prompt, "भय", engine, say, want_obj=True) if _plan_on(cfg) else ("", None)
     words = int(float(minutes) * wpm(cfg, "hi", "bhay"))
-    script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror,
-                          int(STORY_PLAN["ctx"]) if plan else 8192)
-    say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
-    if (not plan or STORY_PLAN.get("review", True)) and not stopped():
+    by = write_by_scene(cfg, prompt, plan_obj, "भय (horror)", words, engine, say, clean_horror, stopped) \
+        if plan and _by_scene_on(cfg, by_scene) and not stopped() else None
+    versions = {}
+    if by:                                    # scene by scene: each scene already audited, no whole-story rewrite
+        script, model, doc = by
+        plan = _plan_text(doc["plan"])
+    else:
+        if plan:
+            prompt = with_plan(prompt, plan)
+            t0 = time.time()
+        text, model = ask(cfg, prompt, engine, 0.95, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
+        script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror,
+                              int(STORY_PLAN["ctx"]) if plan else 8192)
+        say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
+    versions["draft"] = script
+    if not by and (not plan or STORY_PLAN.get("review", True)) and not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             fixed, _ = ask(cfg, "Check this complete Hindi horror story: natural spoken Hindi, steadily building dread, "
@@ -1401,6 +1648,7 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
             fixed = _cut_retell(clean_horror(fixed), say, "review")
             if nwords(fixed) >= min(nwords(script), words) * 0.8:
                 script = fixed
+                versions["review"] = script
                 say(f"   checked + fixed: {nwords(script)} words")
             else:
                 say("   (check pass came back too short - kept the first version)")
@@ -1410,7 +1658,9 @@ def write_horror(cfg, say, topic="", minutes=15, notes="", engine="auto", rec=No
         script = logic_check(cfg, script, plan, "भय (horror)", "local" if model == local_model(cfg) else "auto", say,
                              clean_horror)
     script = _cut_retell(script, say)
-    return script, {"recipe": r, "model": model, "minutes": minutes, "genre": "horror"}
+    versions["final"] = script
+    return script, {"recipe": r, "model": model, "minutes": minutes, "genre": "horror", "plan": plan,
+                    "versions": versions, "by_scene": by[2] if by else None}
 
 
 def horror_ideas(cfg, topic="", n=3, engine="auto"):
@@ -1668,9 +1918,9 @@ def genre_recipe(cfg, gid, topic="", seed=None, also=(), engine="auto"):
 
 
 def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", rec=None, stopped=lambda: False,
-                level="standard"):
+                level="standard", by_scene=None):
     if gid == "bhay":
-        return write_horror(cfg, say, topic, minutes, notes, engine, rec, stopped, level)
+        return write_horror(cfg, say, topic, minutes, notes, engine, rec, stopped, level, by_scene)
     G = genre_rules(cfg, gid)
     r = dict(rec or {}) or genre_recipe(cfg, gid, topic, engine=engine)
     if topic:
@@ -1691,15 +1941,23 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
               "stage directions.\n\n" + avoid
               + "Now write it. Output only spoken script lines. Stop at the final narrative line; do not append an "
               "explanation, interpretation, editor's note, or comments about the story.\n")
-    plan = story_outline(cfg, prompt, G["name"], engine, say) if _plan_on(cfg) else ""
-    if plan:
-        prompt = with_plan(prompt, plan)
-    t0 = time.time()
-    text, model = ask(cfg, prompt, engine, 0.9, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
-    script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror,
-                          int(STORY_PLAN["ctx"]) if plan else 8192)
-    say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
-    if (not plan or STORY_PLAN.get("review", True)) and not stopped():
+    plan, plan_obj = story_outline(cfg, prompt, G["name"], engine, say, want_obj=True) if _plan_on(cfg) else ("", None)
+    by = write_by_scene(cfg, prompt, plan_obj, G["name"], words, engine, say, clean_horror, stopped) \
+        if plan and _by_scene_on(cfg, by_scene) and not stopped() else None
+    versions = {}
+    if by:                                    # scene by scene: each scene already audited, no whole-story rewrite
+        script, model, doc = by
+        plan = _plan_text(doc["plan"])
+    else:
+        if plan:
+            prompt = with_plan(prompt, plan)
+        t0 = time.time()
+        text, model = ask(cfg, prompt, engine, 0.9, say=say, ctx_len=int(STORY_PLAN["ctx"]) if plan else 8192)
+        script = _long_enough(cfg, text, words, prompt, engine, say, clean_horror,
+                              int(STORY_PLAN["ctx"]) if plan else 8192)
+        say(f"   written by {model}: {nwords(script)} words ({time.time() - t0:.0f} s)")
+    versions["draft"] = script
+    if not by and (not plan or STORY_PLAN.get("review", True)) and not stopped():
         try:
             review_engine = "local" if model == local_model(cfg) else "auto"
             review = ("Review this complete Hindi " + G["name"] + " audio story. Preserve its events, voice, and length. "
@@ -1710,6 +1968,7 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
             fixed = _cut_retell(clean_horror(fixed), say, "review")
             if nwords(fixed) >= min(nwords(script), words) * 0.8:
                 script = fixed
+                versions["review"] = script
                 say(f"   editorial review complete: {nwords(script)} words")
             else:
                 say("   editorial review was too short; kept the original draft")
@@ -1719,7 +1978,9 @@ def write_genre(cfg, gid, say, topic="", minutes=12, notes="", engine="auto", re
         script = logic_check(cfg, script, plan, G["name"], "local" if model == local_model(cfg) else "auto", say,
                              clean_horror)
     script = _cut_retell(script, say)
-    return script, {"recipe": r, "model": model, "minutes": minutes, "genre": gid, "level": level}
+    versions["final"] = script
+    return script, {"recipe": r, "model": model, "minutes": minutes, "genre": gid, "level": level,
+                    "plan": plan, "versions": versions, "by_scene": by[2] if by else None}
 
 
 def genre_ideas(cfg, gid, topic="", n=3, engine="auto"):
