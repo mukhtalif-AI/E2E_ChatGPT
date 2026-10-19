@@ -94,7 +94,7 @@ TABLES = {
                               "narration (min_pause_s, looked for within search_s of the word, min_play_s of room), never over it",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
     "voice_cast.CAST": "Ghost voice per series: on, roles (ghost -> preset name), max_lines a story, asks that must agree; model (\"\" = script writer), think; written_words = words before a quote that mean it is written, not heard",
-    "voice_cast.PRESETS": "Ghost voice sounds: dry, down_st/down_vol, up_st/up_vol (semitones, loudness), rev_vol (reversed copy), delay_ms [down, up, reversed], echo, whisper, growl (0-1)",
+    "voice_cast.PRESETS": "Ghost voice sounds: dry, down_st/down_vol, up_st/up_vol (semitones, loudness), rev_vol (reverse swell into each word), rev_ms, rev_whole (true = whole line backwards), delay_ms [down, up, reversed], echo, whisper, growl (0-1)",
     "create_form.DEFAULTS":"Create page: each series' starting values (the same settings for every series)",
     "thumbnail.SERIES": "Thumbnails per series (Thumbnails page): on = made after every video, layout, picture, letters, "
                         "colours, shade, badge, logo / channel name (from tools.CHANNEL)",

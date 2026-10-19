@@ -83,6 +83,9 @@ for name in v.PRESETS:
     rms = lambda x: float(np.sqrt(np.mean(x ** 2)))
     check(f"preset {name}: same loudness, no clipping", abs(rms(y[:len(word)]) / rms(word) - 1) < 0.05
           and np.abs(y).max() <= 0.98 and len(y) == len(word) + int(0.4 * sr))
+pulse = np.zeros(sr, np.float32); pulse[12000:13200] = 0.3
+sw = np.abs(v._swell(pulse, sr, 350))
+check("reverse swell rises before the word, nothing after it", sw[6000:11800].mean() > 1000 * sw[13400:19000].mean())
 out = v.apply(FF, dry, sr, [{"start": 3.5, "end": 5.0, "tail": 0.4, "preset": "ghost"}])
 diff = np.abs(out - dry)[:, 0]
 check("only the ghost line changes", diff[:int(3.46 * sr)].max() == 0 and diff[int(5.5 * sr):].max() == 0

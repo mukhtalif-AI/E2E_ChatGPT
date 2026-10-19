@@ -40,17 +40,19 @@ CAST = {
                       "पर्ची", "स्क्रीन पर", "दीवार पर", "डायरी में", "पढ़ा", "टाइप"],
 }
 # the sound: dry = the voice itself; semitones and loudness of each layer; delay_ms = [down, up, reversed];
-# echo, whisper (a breathy copy), growl (a rough low copy) 0-1, 0 = off
+# rev_vol = a reverse swell that rises into each word (rev_ms long; rev_whole: true = the whole line played
+# backwards instead, 19 Oct: it sounded like a separate voice); echo, whisper (a breathy copy), growl (a rough low
+# copy) 0-1, 0 = off
 PRESETS = {
-    "ghost": {"dry": 0.8, "down_st": -4, "down_vol": 0.7, "up_st": 3, "up_vol": 0.35, "rev_vol": 0.2,
+    "ghost": {"dry": 0.8, "down_st": -4, "down_vol": 0.7, "up_st": 3, "up_vol": 0.35, "rev_vol": 0.2, "rev_ms": 350,
               "delay_ms": [25, 45, 60], "echo": 0.25, "whisper": 0, "growl": 0},
-    "ghost_deep": {"dry": 0.6, "down_st": -6, "down_vol": 0.9, "up_st": 2, "up_vol": 0.25, "rev_vol": 0.25,
+    "ghost_deep": {"dry": 0.6, "down_st": -6, "down_vol": 0.9, "up_st": 2, "up_vol": 0.25, "rev_vol": 0.25, "rev_ms": 450,
                    "delay_ms": [30, 50, 80], "echo": 0.35, "whisper": 0, "growl": 0},
-    "ghost_airy": {"dry": 0.8, "down_st": -3, "down_vol": 0.4, "up_st": 4, "up_vol": 0.6, "rev_vol": 0.15,
+    "ghost_airy": {"dry": 0.8, "down_st": -3, "down_vol": 0.4, "up_st": 4, "up_vol": 0.6, "rev_vol": 0.15, "rev_ms": 300,
                    "delay_ms": [20, 35, 50], "echo": 0.3, "whisper": 0.3, "growl": 0},
-    "growl_male": {"dry": 0.5, "down_st": -5, "down_vol": 1.0, "up_st": 0, "up_vol": 0, "rev_vol": 0.1,
+    "growl_male": {"dry": 0.5, "down_st": -5, "down_vol": 1.0, "up_st": 0, "up_vol": 0, "rev_vol": 0.1, "rev_ms": 250,
                    "delay_ms": [15, 0, 40], "echo": 0.15, "whisper": 0, "growl": 0.7},
-    "whisper_female": {"dry": 0.0, "down_st": 0, "down_vol": 0, "up_st": 3, "up_vol": 0.0, "rev_vol": 0.1,
+    "whisper_female": {"dry": 0.0, "down_st": 0, "down_vol": 0, "up_st": 3, "up_vol": 0.0, "rev_vol": 0.1, "rev_ms": 300,
                        "delay_ms": [0, 0, 40], "echo": 0.3, "whisper": 1.0, "whisper_st": 3, "growl": 0},
 }
 ROLES = ("ghost", "human", "written", "unsure")
@@ -270,7 +272,7 @@ def _filter(p, sr):
         layers.append(f"{shift(p.get('down_st', -4))},volume={float(p['down_vol']):.3f}{delay(dl[0])}")
     if float(p.get("up_vol", 0)) > 0:
         layers.append(f"{shift(p.get('up_st', 3))},volume={float(p['up_vol']):.3f}{delay(dl[1])}")
-    if float(p.get("rev_vol", 0)) > 0:
+    if float(p.get("rev_vol", 0)) > 0 and p.get("rev_whole"):
         layers.append(f"areverse,volume={float(p['rev_vol']):.3f}{delay(dl[2])}")
     if float(p.get("whisper", 0)) > 0:                   # breath: the spectrum kept, the phase random
         layers.append(f"{shift(p.get('whisper_st', 0))},highpass=f=300,"
@@ -294,6 +296,19 @@ def _filter(p, sr):
     return ";".join(chains)
 
 
+def _swell(x, sr, ms=350):
+    """reverse echo: the line turned round, echoed, turned back, so a soft swell of each word's own sound rises
+    into that word, in time with it (not a second voice like the whole line played backwards)"""
+    import numpy as np
+    n, k = len(x), max(2, int(sr * ms / 1000.0))
+    ker = np.random.default_rng(7).standard_normal(k) * np.exp(-np.arange(k) / (k / 4.0))
+    ker = np.convolve(ker, np.ones(12) / 12.0, "same")  # soft, no hiss
+    ker[:int(0.01 * sr)] = 0                            # nothing right on top of the word
+    m = 1 << int(np.ceil(np.log2(n + k)))
+    z = np.fft.irfft(np.fft.rfft(x[::-1], m) * np.fft.rfft(ker, m), m)[:n][::-1]
+    return np.ascontiguousarray(z, dtype=np.float32)
+
+
 def render(ffmpeg, x, sr, preset, tail_s=0.4):
     """float mono samples -> the preset's sound, len(x) + tail_s, the same loudness as x while the words are spoken"""
     import numpy as np
@@ -313,6 +328,11 @@ def render(ffmpeg, x, sr, preset, tail_s=0.4):
     n = len(x) + pad
     y = np.concatenate([y, np.zeros(max(0, n - len(y)), np.float32)])[:n]
     rms = lambda v: float(np.sqrt(np.mean(v.astype(np.float64) ** 2))) if len(v) else 0.0
+    rv = float(p.get("rev_vol", 0))
+    if rv > 0 and not p.get("rev_whole") and len(x):
+        sw = _swell(x, sr, float(p.get("rev_ms", 350)))
+        if rms(sw) > 1e-9:
+            y[:len(x)] += sw * (rv * rms(x) / rms(sw))
     gx, gy = rms(x), rms(y[:len(x)])
     if gy > 1e-6 and gx > 0:
         y *= gx / gy
