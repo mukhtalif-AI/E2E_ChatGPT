@@ -4,8 +4,8 @@ This is a separate full-site UI copy. The standard hub serves it at `http://127.
 
 ## Current experiment: isolated workspace and visual refresh
 
-- Redesigned studio shell with compact desktop sidebar, mobile slide-in navigation, quieter high-contrast surfaces, responsive forms/cards, and a readable light default plus dark theme.
-- Clearer title hierarchy, spacing, cards, form controls, buttons, and focus indicators.
+- Structural redesign: workspace header with live page/section context and queue shortcut, grouped navigation rail, shared page canvas, and responsive mobile drawer. Parchment/ink palette, card and control hierarchy, and light/dark themes are Experimental-only.
+- Page titles now use one shared workspace header; renderer content mounts inside a consistent framed canvas. Existing page actions and API calls are preserved.
 - Mobile slide-in navigation, skip-to-content link, keyboard focus states, and reduced-motion support.
 - Persistent mode banner with a return link and a note describing the experiment.
 - Overview page (19 Oct): every page in 3 groups with one line each, a how-a-video-is-made strip, grouped sidebar; a failing page shows its own error box; status polling slows when idle and stops while the tab is hidden.
