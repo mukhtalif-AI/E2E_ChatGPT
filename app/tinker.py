@@ -93,6 +93,9 @@ TABLES = {
     "emotion_music.VOICE_FX": "Effects that sound like a voice (whisper, scream, laugh...): played only in a pause of the "
                               "narration (min_pause_s, looked for within search_s of the word, min_play_s of room), never over it",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
+    "emotion_music.EASE": "How music comes in and moves around turn lines (all series): fade_in_s = the opening swell, "
+                          "curve = how gently ramps start (1-3), turn_out_s / back_s = seconds down before and back "
+                          "after a turn line, dip_db = how far weight 1 and 2 turns dip (weight 3 still stops)",
     "voice_cast.CAST": "Ghost voice per series: on, roles (ghost -> preset name), max_lines a story, asks that must agree; model (\"\" = script writer), think; written_words = words before a quote that mean it is written, not heard",
     "voice_cast.PRESETS": "Ghost voice sounds: dry, down_st/down_vol, up_st/up_vol (semitones, loudness), rev_vol (reverse swell into each word), rev_ms, rev_whole (true = whole line backwards), delay_ms [down, up, reversed], echo, whisper, growl (0-1)",
     "create_form.DEFAULTS":"Create page: each series' starting values (the same settings for every series)",

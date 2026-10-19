@@ -77,6 +77,17 @@ TAG_MOOD = {"डर": ("Dark", "Tension", "Eerie"), "रहस्य": ("Tension
 MOOD_NEAR = {"Tension": ("Dark", "Eerie"), "Dark": ("Eerie", "Tension"), "Eerie": ("Dark", "Tension"),
              "Sad": ("Calm", "Dark"), "Calm": ("Sad", "Love"), "Love": ("Calm", "Happy"), "Happy": ("Calm", "Love"),
              "angry": ("Tension", "Dark")}
+# how the music comes in and moves around a turn (19 Oct 2026, Bhay-Infinite-Loop-Milestone-Number: the music rose
+# from silence to its full level in about 1.5 s, and five weight-2 turns cut it to silence in 0.4 s for 8-10 s and
+# brought it back in about 1 s - it sounded like the music stopped and then carried on).
+#   fade_in_s   the opening swell from silence; slow at first, it may go on under the first words (all series)
+#   curve       how gently every ramp starts and ends (1 = a plain S-curve, higher = a longer soft start)
+#   turn_out_s  seconds the music takes to go down before a turn line; back_s: to come back after it, per weight
+#   dip_db      weight 1 and 2 turns: how far the music goes down for the line (weight 3 still stops music,
+#               ambience and effects, your 17 Oct rule)
+# Tinker: emotion_music.EASE ("on": false = the old quick ramps and the weight-2 silence)
+EASE = {"on": True, "fade_in_s": 8.0, "curve": 1.5, "turn_out_s": 1.5, "back_s": {"1": 2.5, "2": 4.0, "3": 5.0},
+        "dip_db": {"1": -6.0, "2": -14.0}}
 TAG_WEIGHT = {"डर": 1, "रहस्य": 1, "उदास": 1, "प्यार": 1, "गुस्सा": 1, "उत्साह": 1, "फुसफुसाहट": 0}
 TAG_RE = re.compile(r"^\s*\[([^\]]+)\]\s*")
 # how a mood reads in MAP_ASK (17 Oct 2026): Kisse-Memories-Old-Atlas-Cycle, a story of two boyhood friends, opened
@@ -469,6 +480,20 @@ def drop_len(s, w, t):
 NOTE_DB = -22.0                          # the soft note after a heavy line, below the voice
 
 
+def ease(x, curve=None):
+    """0..1 -> 0..1 gain on an S-curve raised to EASE curve: it starts and ends gently (a swell, not a jump)"""
+    import numpy as np
+    p = float(EASE.get("curve", 1.5) if curve is None else curve)
+    x = np.clip(np.asarray(x, dtype=np.float64), 0, 1)
+    return ((1 - np.cos(np.pi * x)) / 2) ** max(0.5, p)
+
+
+def swell_s(shape_fade, lead):
+    """seconds of the opening swell: EASE fade_in_s (or the old fade-in, at most the lead, when EASE is off)"""
+    old = float(min(max(float(shape_fade or 2.0), 0.5), lead))
+    return max(old, float(EASE.get("fade_in_s", old))) if EASE.get("on", True) else old
+
+
 def _curve(n, pts):
     """control curve of n points from (time s, value) pairs, linear in between"""
     import numpy as np
@@ -477,14 +502,16 @@ def _curve(n, pts):
     return np.interp(t, px, [p[1] for p in pts])
 
 
-def _ramp_window(n, a, b, fade_in, fade_out, inside=1.0):
-    """1 outside, 'inside' between a and b, with linear ramps of fade_in before a and fade_out after b"""
+def _ramp_window(n, a, b, fade_in, fade_out, inside=1.0, eased=False):
+    """1 outside, 'inside' between a and b, with ramps of fade_in before a and fade_out after b (linear, or eased)"""
     import numpy as np
     t = np.arange(n) / CR
     w = np.ones(n)
     k_in = np.clip((t - (a - fade_in)) / max(1e-3, fade_in), 0, 1)
     k_out = np.clip(((b + fade_out) - t) / max(1e-3, fade_out), 0, 1)
     k = np.minimum(k_in, k_out)
+    if eased:
+        k = ease(k)
     return w + (inside - 1.0) * k
 
 
@@ -591,22 +618,48 @@ def stinger_curves(m, s, lead, n):
     if not s.get("stingers"):
         return mus, bed, notes
     k = float(s.get("strength", 1.0))
+    ez = bool(EASE.get("on", True))                   # 19 Oct 2026: eased ramps, a weight-2 turn dips instead of stopping
+    out_s = float(EASE.get("turn_out_s", 1.5)) if ez else FADE_S
+    back_s = {w: float((EASE.get("back_s") or {}).get(str(w), BACK_S[w])) if ez else BACK_S[w] for w in BACK_S}
     for t in m.get("turns") or []:
         w = int(t.get("weight", 0))
         A, E = lead + float(t["at"]), lead + float(t["line_end"])
         if w <= 0:
             continue
         if w == 1:
-            mus *= _ramp_window(n, A - 0.9, E, 0.3, BACK_S[1], 10 ** (DIP_DB * min(1.0, k) / 20))
+            mus *= _ramp_window(n, A - 0.9, E, out_s if ez else 0.3, back_s[1], 10 ** (dip_db(1) * min(1.0, k) / 20), ez)
             continue
         drop = drop_len(s, w, t)
-        s0 = A - PRE_S - drop                         # the silence starts here and lasts through the line
+        s0 = A - PRE_S - drop                         # the silence (weight 2: the dip) starts here, lasts through the line
         back = E + PRE_S + (float(s.get("return_delay_s", 0)) if w == 3 else 0)
-        mus *= _ramp_window(n, s0, back, FADE_S, BACK_S[w], 0.0)
-        bed *= _ramp_window(n, s0, E + PRE_S, FADE_S, BACK_S[w], 0.5 if w == 2 else 0.0)
+        inside = 10 ** (dip_db(2) * min(1.0, k) / 20) if (w == 2 and ez) else 0.0
+        mus *= _ramp_window(n, s0, back, out_s, back_s[w], inside, ez)
+        bed *= _ramp_window(n, s0, E + PRE_S, out_s, back_s[w], 0.5 if w == 2 else 0.0, ez)
         if w == 3 and s.get("soft_note"):
             notes.append((E + PRE_S, w))
     return mus, bed, notes
+
+
+def dip_db(w):
+    """how far the music goes down for a weight-1 / weight-2 turn line (dB, before the series' strength)"""
+    if w == 1:
+        return float((EASE.get("dip_db") or {}).get("1", DIP_DB)) if EASE.get("on", True) else DIP_DB
+    return float((EASE.get("dip_db") or {}).get("2", -14.0))
+
+
+def turn_says(s, t):
+    """what a turn does to the music, for the job log"""
+    w = int(t.get("weight", 0))
+    if w == 1:
+        return f"music dips {abs(dip_db(1) * min(1.0, float(s.get('strength', 1.0)))):.0f} dB"
+    if w == 2 and EASE.get("on", True):
+        return (f"music eases {abs(dip_db(2) * min(1.0, float(s.get('strength', 1.0)))):.0f} dB down from "
+                f"{drop_len(s, 2, t):g} s before the line")
+    if w == 2:
+        return f"music stops before the line ({drop_len(s, 2, t):g} s of silence)"
+    if w == 3:
+        return f"music, ambience and effects stop ({drop_len(s, 3, t):g} s of silence)"
+    return ""
 
 
 def soft_note(kind, sr=48000):
@@ -624,7 +677,7 @@ def soft_note(kind, sr=48000):
     return (y / (np.abs(y).max() or 1)).astype(np.float32)
 
 
-def render(v, tracks, segs, base_pts, m, s, lead, sr=48000, xfade=None):
+def render(v, tracks, segs, base_pts, m, s, lead, sr=48000, xfade=None, swell=0.0):
     """the music bed alone (no voice), stereo float32, and the curves used.
     v: voice (mono); tracks: {mood: (full stereo array, low-passed stereo array, level dB of the track)};
     segs: plan_segments(); base_pts: shape_mix-style level points [(s, dB relative to the voice)]."""
@@ -682,6 +735,8 @@ def render(v, tracks, segs, base_pts, m, s, lead, sr=48000, xfade=None):
             dl = np.maximum(dl, np.clip((tt - (b - xf)) / xf, 0, 1))
         gain_db = base + rel + (vdb_act - mdb)
         lin = 10 ** (gain_db / 20) * mus_k * win
+        if swell > 0:                                             # the opening swell from silence (EASE)
+            lin = lin * ease(tt / swell)
         P = len(full)
         kx = min(int(3 * sr), P // 3)                             # each track loops with 3 s crossfades, like shape_mix
         Pl = P - kx
@@ -811,9 +866,16 @@ def pick_tracks(ctx, segs, first_track, music_db, fixed=False):
             out[mood] = first_track
             continue
         t = ""
+        playing = list(out.values())[-1] if out else ""
         for m2 in near_moods(mood, allowed):
             if m2 != mood and not out and first_track and folder_of(first_track, cfg) == m2.lower():
                 t = first_track                         # the opening track already came from this neighbour
+            # 19 Oct 2026 (Bhay-Infinite-Loop-Milestone-Number): Tension had no fitting track and played a Dark one,
+            # then the Dark section switched to another Dark track - a change of music with no change of mood
+            if not t and playing and folder_of(playing, cfg) == m2.lower():
+                say(f"   section mood {mood}: the music playing is already from {m2} - it carries on, no switch")
+                t = playing
+                break
             for _ in range(0 if t else 4):
                 c = tools._horror_track(cfg, [m2]) if glob.glob(os.path.join(md, m2, "*.mp3")) else ""
                 if not c:
@@ -858,6 +920,7 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
     sh = dict(tools.load_audio_index(cfg).get("shape") or {})
     lead = float(np.clip(sh.get("lead_s", 4.0), 2, 15))
     fade_in = float(np.clip(sh.get("fade_in_s", 2.0), 0.5, lead))
+    swell = swell_s(sh.get("fade_in_s", 2.0), lead) if EASE.get("on", True) else 0.0
     story = float(sh.get("story_db", -18.0)) if music_db in (None, "") else -abs(float(music_db))
     intro = float(np.clip(sh.get("intro_db", story + 4), story - 4, story + 10))
     outro = float(np.clip(sh.get("outro_db", story + 3), story - 4, story + 10))
@@ -876,6 +939,8 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
     rise = min(4.0, 0.3 * max(0.1, end - ve))
     base_pts = [(0, -80.0), (fade_in, intro), (vs, intro), (vs + 3, story), (ve, story), (ve + rise, outro),
                 (max(ve + rise, end - fade_out), outro), (end, -80.0)]
+    if swell:                                                   # the level starts at intro; ease() does the swell
+        base_pts = [(0, intro)] + [p for p in base_pts[2:] if p[0] > 0]
     pauses = [(lead + a, lead + b) for a, b in gaps(sp_v)]
     for t in m.get("turns") or []:                             # the story's own pause just before each heavy line
         A = lead + float(t["at"])
@@ -896,7 +961,7 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
     arrays = {}
     for mood in {g["mood"] for g in segs}:
         arrays[mood] = _track_arrays(ctx, files[mood])
-    bed_music, info = render(v, arrays, segs, base_pts, m, s, lead, sr)
+    bed_music, info = render(v, arrays, segs, base_pts, m, s, lead, sr, swell=swell)
     a_v = int(lead * sr)
     mixd = bed_music
     mixd[a_v:a_v + len(v)] += v[: max(0, len(mixd) - a_v), None]
@@ -921,10 +986,10 @@ def mix(ctx, name, pictures, genre, track="", tail="1min", music_db=None, chosen
             f"{' (comes back in this mood after the heavy line)' if x['cut'] == 'return' else ''}")
     for e in sp_plan["dropped"]:
         say(f"   stinger left out at {fmt(lead + e['at'])}: {e['what']} ({e['why']})")
+    if swell:
+        say(f"   music swells in over {swell:g} s")
     for t in m.get("turns") or []:
-        what = {1: "music dips", 2: "music stops before the line", 3: "music, ambience and effects stop"}.get(t["weight"], "")
-        sil = f" ({drop_len(s, t['weight'], t):g} s of silence)" if t["weight"] >= 2 and drop_len(s, t["weight"], t) else ""
-        say(f"   turn {fmt(lead + t['at'])} weight {t['weight']}: {what}{sil} - {t['words']}"
+        say(f"   turn {fmt(lead + t['at'])} weight {t['weight']}: {turn_says(s, t)} - {t['words']}"
             + (f" (no lighter {t['return_skipped']} return: the story stays {m['sections'][-1]['mood'] if m.get('sections') else ''})"
                if t.get("return_skipped") else ""))
     json.dump({"lead_s": lead, "track": tracks[0]["file"] if tracks else track, "tracks": tracks, "intro_db": intro,

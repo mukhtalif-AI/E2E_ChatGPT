@@ -64,4 +64,19 @@ ctx = {"cfg": {"music_dir": "/m", "_music_series": "bhay"}, "say": said.append}
 r = E.pick_tracks(ctx, [{"mood": "Tension"}, {"mood": "Eerie"}], "/m/Dark/a.mp3", None)
 check(r == {"Tension": "/m/Dark/a.mp3", "Eerie": "/m/Eerie/c.mp3"}, f"Tension section keeps the Dark opening track {r}")
 check(any("using Dark" in s for s in said) and any("no usable track in Tension" in s for s in said), "the log says why")
+# drop-outs (19 Oct 2026): a drone that falls 25 dB for 0.5 s every 8 s keeps stopping and starting
+hole = pad.copy()
+for s0 in np.arange(8, 58, 8):
+    hole[int(s0 * sr):int((s0 + 0.5) * sr)] *= 0.05
+c, pm = A.holes(hole, sr)
+check(c >= 5 and pm > 3, f"drop-outs counted ({c}, {pm}/min)")
+check(A.holes(pad, sr)[0] == 0, "a steady pad has no drop-outs")
+check(A.misfit(dict(rp, holes_per_min=pm), "Dark").startswith("it keeps stopping and starting"), "drop-outs rejected for Dark")
+check(A.misfit(dict(rp, holes_per_min=pm), "Love").startswith("it keeps stopping and starting"), "and for every mood")
+check(A.misfit(dict(rp, holes_per_min=1.0), "Dark") == "", "a few drop-outs are fine")
+# a section whose mood ends up in the folder already playing keeps that track (no switch to a sister track)
+used.clear(); said.clear()
+lib["Dark"] = ["/m/Dark/a.mp3", "/m/Dark/b.mp3"]
+r = E.pick_tracks(ctx, [{"mood": "Tension"}, {"mood": "Dark"}], "", None)
+check(r["Tension"] == r["Dark"] == "/m/Dark/a.mp3", f"Tension fell back to Dark, the Dark section keeps it {r}")
 print(f"{ok} checks passed")

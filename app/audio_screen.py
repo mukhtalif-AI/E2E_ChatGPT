@@ -46,8 +46,13 @@ MOOD_FIT = {
     "moods": {"Dark": {"pulse_max": 0.7, "no_groove": True}, "Eerie": {"pulse_max": 0.7, "no_groove": True},
               "Tension": {"pulse_max": 0.85, "no_groove": True}, "Sad": {"pulse_max": 0.75, "no_groove": True},
               "Calm": {"pulse_max": 0.75, "no_groove": True}, "angry": {}, "Love": {}, "Happy": {}},
+    # every mood (19 Oct 2026): a track that keeps dropping out sounds like the music stopped and carried on under the
+    # voice (Bhay-Infinite-Loop-Milestone-Number: 'Storm Pulsation Drone ... Loop' falls 20-28 dB for 0.5 s every 8 s).
+    # holes = short drop-outs a minute (the level falls HOLE_DB or more under its own running level for at most 3 s)
+    "holes_per_min_max": 3.0,
 }
-PROFILE = 2        # measure() version: rows made before the beat/brightness profile are measured again once
+HOLE_DB = 15.0
+PROFILE = 3        # measure() version: rows made before the drop-out count are measured again once
 _LOCK = threading.Lock()
 _MEM = {}
 
@@ -125,6 +130,34 @@ def rhythm(a, sr):
     return {"pulse": round(float(ac[lo:hi].max()), 3), "bright_hz": round(cent)}
 
 
+def holes(a, sr, drop_db=None, max_s=3.0, ref_s=8.0):
+    """(count, per minute) of short drop-outs: 0.25 s frames HOLE_DB under the running median of ref_s, <= max_s
+    long; the first and last 3 s are not counted (a track's own start and end)"""
+    import numpy as np
+    drop_db = HOLE_DB if drop_db is None else drop_db
+    h = sr // 4
+    n = len(a) // h
+    if n < 40:
+        return 0, 0.0
+    db = 10 * np.log10((a[:n * h].reshape(n, h).astype(np.float64) ** 2).mean(1) + 1e-12)
+    k = int(ref_s * 4) | 1
+    ref = np.median(np.lib.stride_tricks.sliding_window_view(np.pad(db, k // 2, mode="edge"), k), axis=1)
+    low = db < ref - drop_db
+    low[:12] = False
+    low[-12:] = False
+    c, i = 0, 0
+    while i < n:
+        if not low[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and low[j]:
+            j += 1
+        c += (j - i) / 4 <= max_s
+        i = j
+    return int(c), round(c / max(0.25, (n / 4 - 6) / 60), 2)
+
+
 def measure(cfg, path, kind):
     """numbers that describe how a file sits under a voice"""
     import numpy as np
@@ -137,6 +170,11 @@ def measure(cfg, path, kind):
     except Exception:
         extra = {}
     extra["profile"] = PROFILE
+    if kind == "music":
+        try:
+            extra["holes"], extra["holes_per_min"] = holes(a, sr)
+        except Exception:
+            pass
     n = 2048
     frames = a[: len(a) // n * n].reshape(-1, n)
     rms = np.sqrt((frames ** 2).mean(1)) + 1e-12
@@ -296,6 +334,10 @@ def misfit(m, mood):
         return ""
     rules = {k.lower(): v for k, v in (MOOD_FIT.get("moods") or {}).items()}.get(str(mood).lower()) or {}
     pulse, bright = float(m["pulse"]), float(m.get("bright_hz") or 0)
+    hm = MOOD_FIT.get("holes_per_min_max")
+    if hm is not None and m.get("holes_per_min") is not None and float(m["holes_per_min"]) > float(hm):
+        return (f"it keeps stopping and starting: {float(m['holes_per_min']):.1f} short drop-outs a minute "
+                f"(the sound falls {HOLE_DB:.0f} dB or more for a moment; at most {float(hm):g} allowed)")
     g = MOOD_FIT.get("groove") or {}
     if rules.get("no_groove") and pulse >= float(g.get("pulse", 1)) and bright >= float(g.get("bright_hz", 1e9)):
         return (f"it does not sound {mood}: a steady beat (pulse {pulse:.2f}) and a bright sound ({bright:.0f} Hz) - "

@@ -168,6 +168,12 @@ def shape_mix(ctx, name, track="", tail="1min", music_db=None):
     rise = min(4.0, 0.3 * max(0.1, end - ve))                              # back up after you stop (short endings: faster)
     pts = [(0, 0), (fade_in, g(intro)), (vs, g(intro)), (vs + 3, g(story)), (ve, g(story)), (ve + rise, g(outro)),
            (max(ve + rise, end - fade_out), g(outro)), (end, 0)]
+    swell = 0.0
+    if cfg.get("experimental_mode") or cfg.get("_experimental_workspace"):    # 19 Oct 2026: a slow eased swell
+        import emotion_music                                                  # (Tinker emotion_music.EASE)
+        if emotion_music.EASE.get("on", True):
+            swell = emotion_music.swell_s(sh.get("fade_in_s", 2.0), lead)
+            pts = [(0, g(intro))] + [p for p in pts[2:] if p[0] > 0]
     px, py = [p[0] for p in pts], [p[1] for p in pts]
     a_v = int(lead * sr)
     raw = os.path.join(d, "_shape_mix.f32")
@@ -175,7 +181,10 @@ def shape_mix(ctx, name, track="", tail="1min", music_db=None):
     with open(raw, "wb") as fo:                                             # one minute at a time (low memory)
         for c0 in range(0, n, 60 * sr):
             c1 = min(n, c0 + 60 * sr)
-            ch = music(c0, c1) * np.interp(np.arange(c0, c1) / sr, px, py).astype(np.float32)[:, None]
+            env = np.interp(np.arange(c0, c1) / sr, px, py)
+            if swell and c0 < swell * sr:
+                env = env * emotion_music.ease(np.arange(c0, c1) / sr / swell)
+            ch = music(c0, c1) * env.astype(np.float32)[:, None]
             v0, v1 = max(c0, a_v), min(c1, a_v + len(v))
             if v1 > v0:
                 ch[v0 - c0:v1 - c0] += v[v0 - a_v:v1 - a_v, None]
@@ -185,8 +194,11 @@ def shape_mix(ctx, name, track="", tail="1min", music_db=None):
     if os.path.exists(outp):
         os.replace(outp, os.path.join(d, time.strftime("narration_music_old_%H%M%S.wav")))
     vol = f"volume={0.98 / peak:.4f}," if peak > 0.98 else ""
-    rc = ctx["run_cmd"]([cfg["ffmpeg"], "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "2", "-i", raw,
-                         "-af", vol + "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(sr), "-c:a", "pcm_s16le", outp])
+    if swell:                       # one-pass loudnorm acts like a slow compressor and would fill the swell back in
+        rc = 0 if emotion_music.loudnorm2(cfg, raw, sr, 2, outp, ctx["run_cmd"]) else 1
+    else:
+        rc = ctx["run_cmd"]([cfg["ffmpeg"], "-v", "error", "-y", "-f", "f32le", "-ar", str(sr), "-ac", "2", "-i", raw,
+                             "-af", vol + "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", str(sr), "-c:a", "pcm_s16le", outp])
     try:
         os.remove(raw)
     except OSError:

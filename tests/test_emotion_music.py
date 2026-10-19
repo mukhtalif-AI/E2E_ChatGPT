@@ -116,7 +116,19 @@ def test_mix():
     w2 = m["turns"][1]
     s0 = lead + w2["at"] - em.PRE_S - em.drop_len(s, 2, w2)
     quiet = seg(s0 + 0.05, lead + w2["line_end"])
-    check("weight 2: silence before and through the line", db(quiet) < vdb - 60, f"{db(quiet) - vdb:.0f} dB under the voice")
+    before2 = db(seg(lead + w2["at"] - 9, lead + w2["at"] - 6))
+    d2 = db(seg(s0 + 0.05, lead + w2["line_end"])) - before2
+    check("weight 2: the music eases down for the line, no silence (19 Oct)", -20 < d2 < -8, f"{d2:.1f} dB")
+    em.EASE["on"] = False
+    out_old, _ = em.render(v, tracks, segs, base, m, s, lead, SR)
+    em.EASE["on"] = True
+    quiet = out_old[int((s0 + 0.05) * SR):int((lead + w2["line_end"]) * SR)]
+    check("EASE off: weight 2 silence before and through the line, like before", db(quiet) < vdb - 60,
+          f"{db(quiet) - vdb:.0f} dB under the voice")
+    fall = [db(seg(s0 - 1.5 + i * 0.25, s0 - 1.25 + i * 0.25)) for i in range(6)]
+    steps = np.diff(fall)
+    check("the music takes about 1.5 s to go down before a turn (no step over 9 dB in 0.25 s)",
+          float(np.abs(steps).max()) < 9 and fall[0] - fall[-1] > 6, " ".join(f"{x:.0f}" for x in fall))
     w3 = m["turns"][2]
     s3 = lead + w3["at"] - em.PRE_S - em.drop_len(s, 3, w3)
     check("weight 3: drop starts 1.5-4 s before the line (scaled by the line and the pause)", 1.5 <= (lead + w3["at"]) - s3 <= 4.3,
@@ -161,6 +173,20 @@ def test_mix():
     out2, info2 = em.render(v, tracks, segs[:1], base, {"scenes": m["scenes"], "turns": []}, s_off, lead, SR)
     check("curve and stingers off: a flat bed like before", float(np.abs(np.asarray(info2["rel_db"])).max()) < 1e-6 and
           float(np.asarray(info2["music_k"]).min()) == 1.0)
+    # the opening swell: slow, eased, no jump (19 Oct 2026: before, silence to full level in about 1.5 s)
+    base_sw = [(0, -14.0)] + [p for p in base[2:] if p[0] > 0]
+    sw = em.swell_s(2.0, lead)
+    out3, _ = em.render(v, tracks, segs[:1], base_sw, {"scenes": m["scenes"], "turns": []}, s, lead, SR, swell=sw)
+    ref, _ = em.render(v, tracks, segs[:1], base_sw, {"scenes": m["scenes"], "turns": []}, s, lead, SR)
+    q = lambda x, t: db(x[int(t * SR):int((t + 0.25) * SR)])
+    lv = [q(out3, t) - q(ref, t) for t in np.arange(0, sw + 2, 0.25)]      # the swell alone (level points cancel)
+    abs_lv = [q(out3, t) for t in np.arange(0, sw + 2, 0.25)]
+    check("the swell lasts EASE fade_in_s", sw >= 8.0, f"{sw} s")
+    check("swell: still 15 dB under full level after 1.5 s", lv[6] < -15, f"{lv[6]:.0f} dB")
+    check("swell: about half way (-6 to -14 dB) at the middle", -14 < lv[int(sw / 2 * 4)] < -6, f"{lv[int(sw / 2 * 4)]:.0f} dB")
+    check("swell: full level once it is over", abs(lv[-1]) < 0.5, f"{lv[-1]:.1f} dB")
+    check("swell: never a jump over 6 dB in 0.25 s after the first second", float(np.diff(abs_lv[4:]).max()) < 6,
+          f"max {float(np.diff(abs_lv[4:]).max()):.1f} dB")
     return out, v, lead
 
 
