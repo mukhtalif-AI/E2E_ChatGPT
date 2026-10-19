@@ -39,6 +39,12 @@ judge (code value `picture_check.CHECK_MODEL`). Working mode still uses `config.
 | Picture checklists and repaint prompts | `scene_picture_model` | **off** (see the think row) |
 | Picture judge (`picture_check_model` in the hub config, else gemma3:12b) | gemma3:12b, falls back to `vision_llm` | none (Gemma 3) |
 
+## 19 Oct 2026
+
+| Change | Files | Status | Backup suffix |
+|---|---|---|---|
+| **Sukoon in Experimental: the music plays on after the voice again** (fills up to 'Whole video', e.g. 31 min). Root cause: Experimental jobs use `D:\MukhtalifGPT\Library` as their media folder, but `audio_index.json` (your Sukoon music shape) lives in `D:\MukhtalifGPT`. `load_audio_index` found nothing, so the planner's `use_shape` was false: no 'music the way your Sukoon episodes do it' step, and the voice engine mixed its own music that stops 4 s after the voice (1018_211150_63fd_episode: voice 11.7 min, video 11.8 min, wanted 31). Now `load_audio_index` falls back to `<experimental_root>\audio_index.json`. Genre series: their 10 s ending (your 16 Oct rule) was working (Romanch, Rahasya, Gyaan of 18-19 Oct: voice + 14 s), but they too used default shape values (lead 4 s instead of your 3.5 s); they now get your shape too. Working mode unchanged. | `app\steps\mix.py`, `tests\sukoon_tail_on_copy.py` | **compiled only** (sukoon_tail_on_copy on a copy of 1018_211150_63fd_episode: index found, use_shape on, 11.7 min voice -> 14.0 min mix with music after the voice); **needs a hub restart** | none (git, see Save / Git) |
+
 ## 18 Oct 2026
 
 | Change | Files | Status | Backup suffix |
@@ -129,7 +135,7 @@ Also on 16 Oct: pipeline review written (`reviews/pipeline_review.md`), no code 
 
 ## 15 Oct 2026 (v4.3, shared by both modes)
 
-| Change | Files | Status | Backup |
+| Change | Files | Status | Backup suffix |
 |---|---|---|---|
 | Hindi narration splitting (dependent clauses, पर, dialogue, short sentences) with a unit test | `engines/voice/voice/speak.py`, `textsplit.py`, `engines/voice/tests/test_hindi_narration.py` | test file exists; not listened to on a full episode | `app/_old/*_before_hindi_narration_20261015_*.bak` |
 | Script commentary fix (AI notes no longer leak into the spoken script) | `story.py`, voice `speak.py` | untested | `_backup_before_script_commentary_fix_20261015\` |

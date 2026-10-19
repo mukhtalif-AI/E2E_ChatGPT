@@ -16,10 +16,17 @@ def audio_index_path(cfg):
 
 
 def load_audio_index(cfg):
-    try:
-        return json.load(open(audio_index_path(cfg), encoding="utf-8"))
-    except Exception:
-        return {}
+    # Experimental jobs use <root>\Library as media_dir, but the index is built in the data root (19 Oct 2026: without
+    # this, Sukoon in Experimental skipped shape_mix and its music stopped with the voice)
+    paths = [audio_index_path(cfg)]
+    if cfg.get("experimental_mode") and cfg.get("experimental_root"):
+        paths.append(os.path.join(cfg["experimental_root"], "audio_index.json"))
+    for p in paths:
+        try:
+            return json.load(open(p, encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
 
 
 def audio_index(ctx, rebuild=False):
