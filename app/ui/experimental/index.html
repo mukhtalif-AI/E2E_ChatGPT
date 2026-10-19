@@ -266,6 +266,23 @@ video.v{max-height:420px}.lightbox img,.lightbox video{border-radius:14px}.more{
 .spd>b{all:unset;cursor:pointer;padding:1px 7px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);color:var(--text);font-weight:600;line-height:18px}
 .spd>b:hover{border-color:var(--accent)}.spd>b.on{background:var(--accent);border-color:var(--accent);color:#1a1208}
 .spd>b:focus-visible{outline:2px solid var(--accent2);outline-offset:1px}
+/* Overview page, grouped sidebar, page error box (19 Oct) */
+nav .grp{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);opacity:.8;padding:12px 12px 2px;font-weight:650}
+.ov-flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ov-step{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-weight:560;font-size:13.5px}
+.ov-step:hover,.ov-step:focus-visible{border-color:var(--accent)}.ov-step svg{width:17px;height:17px;color:var(--accent)}
+.ov-arrow{color:var(--muted)}
+.ov-sec>p{color:var(--muted);margin:-6px 0 12px;font-size:13px}
+.ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.ov-card{all:unset;box-sizing:border-box;cursor:pointer;display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.ov-card:hover,.ov-card:focus-visible{border-color:var(--accent)}
+.ov-card .ic{width:34px;height:34px;flex:none;border-radius:9px;background:var(--panel2);display:grid;place-items:center;color:var(--accent)}
+.ov-card .ic svg{width:18px;height:18px}
+.ov-card b{display:block;font-size:14.5px}.ov-card small{display:block;color:var(--muted);font-size:12.5px;line-height:1.45;margin-top:2px}
+.ov-card .live{display:block;font-size:12px;margin-top:6px}.ov-card .live:empty{display:none}
+.pgerr{border:1px solid var(--bad);border-radius:12px;padding:14px 16px;margin:0 0 16px;background:var(--panel)}
+.pgerr b{color:var(--bad)}.pgerr code{font-family:var(--mono);font-size:12px;word-break:break-word}
+@media(max-width:900px){nav .grp{display:none}}
 </style>
 </head>
 <body>
@@ -315,7 +332,26 @@ const I={home:'<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z
  git:'<circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="9" r="2.2"/><path d="M6 8.2v7.6M18 11.2c0 3-3.5 3.6-10 5.6"/>',
  sys:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'};
 const svg=k=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
-const PAGES=[["home","Create"],["mode","Working mode"],["lib","Library"],["sounds","Sounds"],["narrator","Narrator"],["thumbs","Thumbnails"],["ratings","Ratings"],["jobs","Activity"],["queue","Build queue"],["tinker","Tinker"],["git","Save / Git"],["sep"],["sys","Settings"],["help","Help"]];
+// One map of the hub: the sidebar groups and the Overview page both come from it (name, one line on what the page does).
+const SITE=[
+ {t:"Make",d:"Start a video and follow it while it builds.",pages:[
+  ["home","Create","Pick a series for a finished video, or one tool for one step."],
+  ["queue","Build queue","Everything waiting for the graphics card, in order. Move or remove jobs."],
+  ["jobs","Activity","Every job with its steps and log. Pause, resume or stop here."]]},
+ {t:"Check and polish",d:"Watch, rate and touch up what was made.",pages:[
+  ["lib","Library","Every finished voice, picture and video in one place."],
+  ["ratings","Ratings","Your scores and notes, and what the hub learned from them."],
+  ["thumbs","Thumbnails","One 1920×1080 cover picture per episode."],
+  ["narrator","Narrator","The small talking figure in the corner of a video."],
+  ["sounds","Sounds","The music, ambience and effects the hub picks from."]]},
+ {t:"Settings and safety",d:"Change how the hub works, and keep your work saved.",pages:[
+  ["tinker","Tinker","Try other models, prompts and tables in Experimental runs only."],
+  ["git","Save / Git","Save a snapshot of the code so any change can be undone."],
+  ["sys","Settings","Voices per series, script models, your music, story library, folders."],
+  ["mode","Working mode","Switch back to the regular, stable hub."],
+  ["help","Help","How each page and switch works, in plain words."]]}];
+const FLOW=[["script","Script"],["voice","Voice"],["sound","Music & sound"],["pics","Pictures"],["video","Video"],["reels","Reels"]];
+const PAGES=[["overview","Overview"],...SITE.flatMap(g=>[["grp",g.t],...g.pages.map(p=>[p[0],p[1],p[2]])])];
 const GENRES=[{id:"sukoon",name:"सुकून",en:"Calming stories",about:"Sleep, healing, counselling — Hindi in your voice, or English.",page:"episode"},
   {id:"bhay",name:"भय",en:"Horror",about:"Slow-burn Hindi horror: scenes, fog, sound effects.",page:"genre"},
   {id:"kisse",name:"किस्से",en:"Emotional stories",about:"Stories that move you.",page:"genre"},
@@ -334,8 +370,16 @@ const serName=g=>(GENRES.find(x=>x.id==g)||{}).name||g;
 const GROUP={genre:"home",script:"home",sound:"home",horror:"home",voice:"home",pics:"home",video:"home",image:"home",episode:"home",reels:"home",repair:"home"};
 let P={presets:null,lib:null,status:null,page:"home",job:null,logNext:0,dockNext:0,dockJob:null,sel:{},known:{},preview:null};
 
-function nav(){const a=GROUP[P.page]||P.page;$("#nav").innerHTML=PAGES.map(p=>p[0]=="sep"?'<div class="sep"></div>':p[0]=="mode"?`<button onclick="window.location.replace('/?from=experimental')">${svg("experimental")}${p[1]}</button>`:`<button class="${a==p[0]?"on":""}" onclick="go('${p[0]}')">${svg(p[0]=="home"?"image":p[0]=="sounds"?"sound":p[0])}${p[1]}</button>`).join("")}
-function go(p,arg){P.page=p;store.set("page",p);nav();Promise.resolve(R[p](arg)).then(()=>{if(GROUP[p]&&P.page==p)(f=>f&&f.classList.contains("simple")?f:$("main"))($("main").firstElementChild).insertAdjacentHTML("afterbegin",'<button class="back" onclick="go(\'home\')">← Back to Create</button>')});$("main").scrollTop=0}
+function nav(){const a=GROUP[P.page]||P.page,tip=p=>p[2]?` title="${esc(p[2])}"`:"";$("#nav").innerHTML=PAGES.map(p=>p[0]=="sep"?'<div class="sep"></div>':p[0]=="grp"?`<div class="grp">${esc(p[1])}</div>`:p[0]=="mode"?`<button${tip(p)} onclick="window.location.replace('/?from=experimental')">${svg("experimental")}${p[1]}</button>`:`<button class="${a==p[0]?"on":""}"${tip(p)} onclick="go('${p[0]}')">${svg(navIcon(p[0]))}${p[1]}</button>`).join("")}
+const navIcon=k=>k=="home"?"image":k=="sounds"?"sound":k=="overview"?"home":k=="mode"?"experimental":k;
+// A page that fails shows a red box with the reason and a Try again button; the sidebar, the job dock and every other page keep working.
+function pageErr(p,e){console.error("page "+p,e);const m=$("main");if(!m||P.page!=p)return;m.querySelector(".pgerr")?.remove();
+  m.insertAdjacentHTML("afterbegin",`<div class="pgerr"><b>This page hit a problem.</b> The rest of the hub still works.<div class="hint"><code>${esc(e&&e.message||e)}</code></div><div class="actions" style="margin-top:10px"><button class="btn small" onclick="go('${p}')">Try again</button><button class="btn small" onclick="go('overview')">Overview</button></div></div>`)}
+function go(p,arg){if(typeof R[p]!="function")p="overview";P.page=p;store.set("page",p);nav();let run;try{run=Promise.resolve(R[p](arg))}catch(e){run=Promise.reject(e)}
+  run.then(()=>{try{if(GROUP[p]&&P.page==p)(f=>f&&f.classList.contains("simple")?f:$("main"))($("main").firstElementChild).insertAdjacentHTML("afterbegin",'<button class="back" onclick="go(\'home\')">← Back to Create</button>')}catch(e){}},e=>pageErr(p,e));$("main").scrollTop=0}
+// Errors nobody caught (a button handler, a timer) become one short note instead of a frozen page.
+{let last="",at=0;const note=m=>{m=String(m||"unknown error");if(/ResizeObserver|Script error/.test(m))return;if(m==last&&Date.now()-at<10000)return;last=m;at=Date.now();try{toast("Something on this page failed: "+m.slice(0,140)+". Other parts keep working.",1)}catch(e){}};
+ window.addEventListener("error",e=>note(e.message));window.addEventListener("unhandledrejection",e=>note(e.reason&&e.reason.message||e.reason))}
 const more=(title,html,open)=>`<details class="more" ${open?"open":""}><summary>${title}</summary>${html}</details>`;
 async function loadLib(){P.lib=await api("/api/library");return P.lib}
 async function pre(){if(!P.presets)P.presets=await api("/api/presets");return P.presets}
@@ -359,7 +403,7 @@ async function upload(files){const out=[];for(const f of files){if(!/\.(png|jpe?
 function dropImg(el,after){el.addEventListener("dragover",e=>{e.preventDefault();el.classList.add("over")});el.addEventListener("dragleave",()=>el.classList.remove("over"));
   el.addEventListener("drop",async e=>{e.preventDefault();el.classList.remove("over");const r=await upload([...e.dataTransfer.files]);after&&after(r)});
   el.addEventListener("click",()=>{const i=document.createElement("input");i.type="file";i.accept="image/*";i.multiple=true;i.onchange=async()=>{const r=await upload([...i.files]);after&&after(r)};i.click()})}
-async function start(kind,body,btn){try{btn&&(btn.disabled=true);const r=await api("/api/jobs",{kind,...narrRunVal(),...body,_experimental_mode:true});toast("Started — it waits its turn if another job is running");return r.id}catch(e){toast(e.message,1)}finally{btn&&(btn.disabled=false)}}
+async function start(kind,body,btn){try{btn&&(btn.disabled=true);const r=await api("/api/jobs",{kind,...narrRunVal(),...body,_experimental_mode:true});toast("Started — it waits its turn if another job is running");setTimeout(tickOnce,300);return r.id}catch(e){toast(e.message,1)}finally{btn&&(btn.disabled=false)}}
 async function startGo(kind,body,btn){const id=await start(kind,body,btn);if(id){P.job=id;go("jobs")}}
 function picker(id,groups,sel){let h="";for(const [title,list] of groups){if(!list.length)continue;h+=`<div class="hint" style="margin:10px 0 6px">${esc(title)}</div><div class="thumbs">`+list.map(f=>`<div class="thumb ${f==sel?"sel":""}" data-f="${esc(f)}" onclick="pick('${id}',this)"><img loading="lazy" src="${media(f)}"><span>${esc(base(f)).slice(0,22)}</span></div>`).join("")+`</div>`}
   return `<div id="${id}">${h||'<div class="empty">No pictures yet.</div>'}</div>`}
@@ -390,9 +434,23 @@ R.experimental=async(name)=>{
 };
 async function loadExperimental(){const id=$("#exId")?.value.trim();if(!id)return toast("Enter an EXP_ run ID",1);try{const d=await api("/api/experimental/"+encodeURIComponent(id));const rows=(d.entries||[]).map(e=>'<div class="item"><b>'+esc(e.result=="worked"?"✓ Worked":"⚠ Issue")+' · '+esc(e.stage)+' · '+esc(e.time)+'</b><div>'+esc(e.note)+'</div></div>').join("");const flagged=(d.lines||[]).filter(x=>x.why&&x.why.length);const takes=d.recordings||[];const cards=flagged.map(x=>{const mine=takes.filter(t=>t.line==x.n);return '<div class="item"><b>Line '+x.n+' · '+esc(x.text)+'</b><div class="hint">'+esc(x.why.join(", "))+' · '+Math.floor(x.start/60)+':'+String(Math.floor(x.start%60)).padStart(2,"0")+'</div><label>Replacement sentence (edit as needed)</label><textarea id="exSentence_'+x.n+'">'+esc(x.text)+'</textarea><div class="row"><div><label>Emotion / delivery cue</label><input id="exEmotion_'+x.n+'" value="'+esc(x.emotion||"")+'" placeholder="e.g. डर, दुख, राहत, फुसफुसाहट"></div><div style="flex:0 0 auto;align-self:end"><button class="btn expRec" data-line="'+x.n+'">🎙 Record replacement</button></div></div><div class="hint">Speak the cue yourself; it guides your performance and does not add emotion automatically.</div>'+mine.map(t=>'<audio controls preload="none" src="'+media(t.file)+'" style="width:100%"></audio><div class="hint">Take '+t.take+' · '+esc(t.time)+' · '+esc(t.emotion||"no cue")+'</div>').join("")+'</div>'}).join("");$("#exReview").innerHTML=(d.video?'<label>Generated video</label><video class="v" controls preload="metadata" src="'+media(d.video)+'"></video>':'<div class="hint">Video is not ready yet. Refresh after the job finishes.</div>')+'<details class="more"><summary>Generated script</summary><pre id="exScript" style="white-space:pre-wrap;max-height:380px;overflow:auto"></pre></details><h3>Flagged spoken lines</h3><div class="hint">Edit the suggested line if needed, perform its emotion cue, then record a replacement. Multiple takes are kept.</div><div class="list">'+(cards||'<div class="empty">No flagged spoken lines yet. Generate the voice, then refresh to run the checker.</div>')+'</div><div class="hint">Output report: '+esc(d.report)+'</div><div class="row"><div><label>Stage</label><select id="exStage"><option>script</option><option>voice / pronunciation</option><option>scenes / images</option><option>sound / music</option><option>video playback</option><option>reels</option><option>overall</option></select></div><div><label>Result</label><select id="exResult"><option value="issue">Needs fixing / did not work</option><option value="worked">Worked well</option></select></div></div><label>Observation</label><textarea id="exNote" placeholder="Example: script has an awkward line; or at 00:42 narration stutters and a word is mispronounced. Note what worked well too."></textarea><div class="actions"><button class="btn primary" id="exSave">Save observation</button><button class="btn" id="exRefresh">Refresh video, lines and notes</button></div><div class="list">'+(rows||'<div class="hint">No observations saved yet.</div>')+'</div>';const qa=d.audio_review||{};if(Object.keys(qa).length){const qrows=(qa.files||[]).map(x=>x.file+": "+(x.duration_s??x.status??"?")+" · peak "+(x.peak_dbfs??"n/a")+" dBFS peak / "+(x.rms_dbfs??"n/a")+" RMS · clipped "+(x.clipped_sample_pct??"n/a")+"% · near-silence "+(x.near_silence_pct??"n/a")+"% · edges "+(x.start_edge_pct_full_scale??"n/a")+"/"+(x.end_edge_pct_full_scale??"n/a")+"% full scale").join("\n");$("#exReview").insertAdjacentHTML("afterbegin",'<details class="more" open><summary>Experimental audio review · '+(qa.files||[]).length+' WAV files</summary><div class="hint">'+esc(qa.interpretation||"")+'</div><pre style="white-space:pre-wrap;overflow:auto">'+esc(qrows||"No WAV files were measured.")+'</pre></details>')}fetch(media(d.script)).then(r=>r.ok?r.text():"Script not generated yet.").then(t=>{if($("#exScript"))$("#exScript").textContent=t});$$(".expRec").forEach(btn=>btn.onclick=async()=>{if(btn.dataset.recording=="1"){expRecorder&&expRecorder.stop();return}if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)return toast("This browser does not support microphone recording",1);try{expMicStream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=MediaRecorder.isTypeSupported("audio/webm;codecs=opus")?"audio/webm;codecs=opus":"audio/webm";expRecorder=new MediaRecorder(expMicStream,{mimeType:mime});const chunks=[];expRecorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};expRecorder.onstop=async()=>{expMicStream.getTracks().forEach(t=>t.stop());btn.dataset.recording="0";btn.textContent="🎙 Record replacement";btn.disabled=true;try{const blob=new Blob(chunks,{type:mime});const data=await new Promise((resolve,reject)=>{const fr=new FileReader();fr.onload=()=>resolve(fr.result);fr.onerror=reject;fr.readAsDataURL(blob)});const n=+btn.dataset.line;const out=await api("/api/experimental/recording",{name:id,line:n,sentence:$("#exSentence_"+n).value,emotion:$("#exEmotion_"+n).value,data});toast("Saved WAV take "+out.take);await loadExperimental()}catch(err){toast(err.message,1)}finally{btn.disabled=false}};expRecorder.start();btn.dataset.recording="1";btn.textContent="■ Stop and save";toast("Recording — perform the emotion cue naturally")}catch(err){toast("Microphone unavailable: "+err.message,1)}});$("#exSave").onclick=async()=>{try{await api("/api/experimental/feedback",{name:id,stage:$("#exStage").value,result:$("#exResult").value,note:$("#exNote").value});toast("Observation saved to the output report");loadExperimental()}catch(e){toast(e.message,1)}};$("#exRefresh").onclick=loadExperimental}catch(e){toast(e.message,1)}}
 // ---------------- HOME
+R.overview=()=>{
+  const card=p=>`<button class="ov-card" onclick="${p[0]=="mode"?"window.location.replace('/?from=experimental')":`go('${p[0]}')`}"><span class="ic">${svg(navIcon(p[0]))}</span><span><b>${esc(p[1])}</b><small>${esc(p[2])}</small><span class="live" data-live="${p[0]}"></span></span></button>`;
+  $("main").innerHTML=`<h1>The hub at a glance</h1><p class="sub">Every page in one place, grouped by what you do there. Each card says what the page is for; click it to open. The same groups are in the sidebar.</p>
+  <section class="ov-sec"><h2>How a video is made</h2><p>Create runs these steps for you in order. Click a step to run just that one by itself.</p>
+   <div class="ov-flow">${FLOW.map(([k,t],i)=>`${i?'<span class="ov-arrow">→</span>':""}<button class="ov-step" onclick="go('${k}')">${svg(k)}${t}</button>`).join("")}</div></section>
+  ${SITE.map(g=>`<section class="ov-sec"><h2>${esc(g.t)}</h2><p>${esc(g.d)}</p><div class="ov-grid">${g.pages.map(card).join("")}</div></section>`).join("")}`;
+  ovLive()};
+// Live lines on the Overview cards. Uses only the status the sidebar already fetches, so the page adds no extra requests.
+function ovLive(){if(P.page!="overview")return;const s=P.status,set=(k,h)=>{const el=document.querySelector(`[data-live="${k}"]`);if(el&&el.innerHTML!=h)el.innerHTML=h};
+  const parts={jobs:()=>s.running?`<span class="dot run"></span>Working: ${esc(s.running.title)} · step ${s.running.step+1}/${s.running.n_steps}`:'<span class="dot ok"></span>Nothing running',
+   queue:()=>s.queued?`${s.queued} waiting`:"Empty",
+   sys:()=>`<span class="dot ${s.comfy?"ok":""}"></span>ComfyUI · <span class="dot ${s.ollama?"ok":""}"></span>Ollama`,
+   home:()=>s.update_ready?'<span class="dot run"></span>New code is waiting for a hub restart':""};
+  if(!s)return;for(const k in parts){try{set(k,parts[k]())}catch(e){}}}
 R.home=async()=>{
   const st=P.status&&P.status.engines&&(!P.status.engines.voice||!P.status.engines.studio);
-  $("main").innerHTML=`<h1>What do you want to make?</h1><p class="sub">Pick a series for a finished video, or a tool for one step. Extra settings sit in the folded sections (▸).</p>
+  $("main").innerHTML=`<h1>What do you want to make?</h1><p class="sub">Pick a series for a finished video, or a tool for one step. Extra settings sit in the folded sections (▸). The whole hub on one page: <a href="#" onclick="event.preventDefault();go('overview')">Overview</a>.</p>
   ${st?`<div class="card" style="border-color:var(--warn);margin-bottom:14px"><b>One-time setup needed</b> — double-click <b>setup_hub.bat</b> in the hub folder.</div>`:""}
   <h2 style="margin-top:6px">Series</h2>
   <div class="make genres">${GENRES.map(g=>`<div class="card flow genre ${g.page?"":"soon"}" onclick="${g.page?`go('${g.page}'${g.page=="genre"?`,'${g.id}'`:""})`:`toast('${esc(g.name)} is coming - tick its recordings and train its voice in Settings first')`}">
@@ -1163,6 +1221,7 @@ R.thumbs=async(keep)=>{if(!TH.d||TH.d.for!=TH.ser){try{TH.d=await api("/api/thum
   thPreview()};
 R.help=()=>{const S=(t,b)=>`<h2>${t}</h2><div class="card help">${b}</div>`;
   $("main").innerHTML=`<div class="simple"><h1>How to use the hub</h1><p class="sub">Everything runs on this PC. One graphics-card job at a time; script writing, element fetching and checks run beside it. Nothing is ever deleted – old files go to <b>_old</b>.</p>
+  ${S("Find your way around",`<p><b>Overview</b> (top of the sidebar) shows every page on one screen in three groups: <b>Make</b> (Create, Build queue, Activity), <b>Check and polish</b> (Library, Ratings, Thumbnails, Narrator, Sounds) and <b>Settings and safety</b> (Tinker, Save / Git, Settings, Working mode, Help). Each card says in one line what the page is for, and some show live state (job running, queue, ComfyUI / Ollama). The strip at the top shows the steps a video goes through; click one to run only that step. Hover a sidebar item for the same one-line description.</p><p>If a page fails to load it shows a red box with the reason and <b>Try again</b>; the sidebar, the job dock and the other pages keep working. The page checks the hub every 1.5 s while a job runs, every 4 s when idle, and not at all while the tab is hidden.</p>`)}
   ${S("Make a whole Sukoon episode",`<ol>
    <li><b>Create → Sukoon episode.</b> Give it a name.</li>
    <li><b>Script:</b> choose <b>I have a script</b> (paste, Open .txt, or pick one – ✎ new · 🎙 voice made · ✓ episode made) – you see the speech time in your own voice. Or choose <b>Let the AI write it</b>: pick a kind of episode, type a topic or press <b>3 fresh ideas</b> and click one. <i>Only write scripts</i> writes several to choose from later.</li>
@@ -1751,23 +1810,28 @@ function toggleTheme(){const t=document.documentElement.dataset.theme=="light"?"
 
 // ---------------- live status + dock
 async function tick(){try{P.status=await api("/api/status")}catch(e){$("#sideStatus").innerHTML='<span class="dot bad"></span>hub not reachable';return}
-  const s=P.status,aiName="Ollama",aiUp=s.ollama;$("#sideStatus").innerHTML=`<div><span class="dot ${s.running?"run":"ok"}"></span>${s.running?"working":"idle"}${s.queued?` · ${s.queued} waiting`:""}</div><div><span class="dot ${s.comfy?"ok":""}"></span>ComfyUI · <span class="dot ${aiUp?"ok":""}"></span>${aiName}</div>${s.gpu?`<div>GPU ${Math.round(s.gpu.mem_used/102.4)/10} GB · ${s.gpu.util}%</div>`:""}`;
+  const s=P.status,aiName="Ollama",aiUp=s.ollama;try{$("#sideStatus").innerHTML=`<div><span class="dot ${s.running?"run":"ok"}"></span>${s.running?"working":"idle"}${s.queued?` · ${s.queued} waiting`:""}</div><div><span class="dot ${s.comfy?"ok":""}"></span>ComfyUI · <span class="dot ${aiUp?"ok":""}"></span>${aiName}</div>${s.gpu?`<div>GPU ${Math.round(s.gpu.mem_used/102.4)/10} GB · ${s.gpu.util}%</div>`:""}`;
   $("#dockDot").className="dot "+(s.running?"run":"ok");$("#dockQ").textContent=s.queued?`${s.queued} waiting`:"";
-  $("#dockT").textContent=s.running?`${s.running.title} — step ${s.running.step+1}/${s.running.n_steps}: ${s.running.step_label}`:"No job running";
-  try{await refreshJobs()}catch(e){}
+  $("#dockT").textContent=s.running?`${s.running.title} — step ${s.running.step+1}/${s.running.n_steps}: ${s.running.step_label}`:"No job running"}catch(e){console.error("status",e)}
+  // the job list is the heaviest answer: every tick while a job runs or Activity / Build queue is open, otherwise every 6 s
+  if(s.running||["jobs","queue"].includes(P.page)||!P.jobsAt||Date.now()-P.jobsAt>6000){P.jobsAt=Date.now();try{await refreshJobs()}catch(e){}}
   if(!s.running&&!P.dockJob&&JOBS[0])P.dockJob=JOBS[0].id;
   const id=s.running?.id||P.dockJob;if(id&&id!=P.dockJob){P.dockJob=id;P.dockNext=0;$("#dockLog").innerHTML=""}
   if(P.dockJob&&$("#dock").classList.contains("open")){try{const r=await api(`/api/jobs/${P.dockJob}/log?from=${P.dockNext}`);if(r.text){const L=$("#dockLog");if(r.trimmed)L.textContent="[Earlier log lines omitted; showing the latest output]\n";appendLog(L,r.text)}P.dockNext=r.next}catch(e){}}
-  if(P.page=="jobs")await pollJob();if(P.page=="home"||P.page=="sys")renderStats();if(["episode","genre","queue"].includes(P.page))drawQueue();
+  try{if(P.page=="jobs")await pollJob();if(P.page=="home"||P.page=="sys")renderStats();if(["episode","genre","queue"].includes(P.page))drawQueue();ovLive()}catch(e){console.error("page refresh",e)}
   if(!P.stampAt||Date.now()-P.stampAt>8000){P.stampAt=Date.now();                 // new things made? show them without a restart
     try{const st=(await api("/api/library/stamp")).stamp;if(P.stamp&&st!==P.stamp){P.lib=null;
       const playing=[...document.querySelectorAll("video,audio")].some(m=>!m.paused);
-      if(["lib","home"].includes(P.page)&&!playing&&!document.activeElement.matches?.("input,textarea,select"))R[P.page]();
+      if(["lib","home"].includes(P.page)&&!playing&&!document.activeElement.matches?.("input,textarea,select")){const pg=P.page;Promise.resolve().then(()=>R[pg]()).catch(e=>pageErr(pg,e))}
       else if(["reels","repair","episode"].includes(P.page))toast("New items made - they are in the lists next time you open this page")}
      P.stamp=st}catch(e){}}}
 $("#dockBar").onclick=()=>{$("#dock").classList.toggle("open");$("#dockArrow").textContent=$("#dock").classList.contains("open")?"▼ log":"▲ log"};
 document.documentElement.dataset.theme=store.get("theme","light");
-(async()=>{try{await pre()}catch(e){}nav();go(store.get("page","home"));tick();setInterval(tick,1500)})();
+// Status poll: every 1.5 s while a job runs or Activity is open, every 4 s when idle, paused while this tab is hidden; one at a time.
+let tickBusy=0;async function tickOnce(){if(tickBusy)return;tickBusy=1;try{await tick()}catch(e){console.error("tick",e)}finally{tickBusy=0}}
+function tickLoop(){(document.hidden?Promise.resolve():tickOnce()).finally(()=>setTimeout(tickLoop,document.hidden?3000:(P.status&&P.status.running)||P.page=="jobs"?1500:4000))}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)tickOnce()});
+(async()=>{try{await pre()}catch(e){}nav();go(store.get("page","overview"));tickLoop()})();
 // Playback speed for every voice / video player (Experimental only): one speed for all players, remembered in this browser.
 // preservesPitch keeps voices natural; muted looping previews and the hidden music audition stay at 1x.
 const SPD={list:[1,1.5,2,3],get v(){const r=+store.get("playSpeed",1);return r>=0.25&&r<=4?r:1}};

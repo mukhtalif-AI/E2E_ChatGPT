@@ -8,6 +8,7 @@ This is a separate full-site UI copy, opened at `http://127.0.0.1:8781/experimen
 - Clearer title hierarchy, spacing, cards, form controls, buttons, and focus indicators.
 - Responsive horizontal navigation on small screens, skip-to-content link, and reduced-motion support.
 - Persistent mode banner with a return link and a note describing the experiment.
+- Overview page (19 Oct): every page in 3 groups with one line each, a how-a-video-is-made strip, grouped sidebar; a failing page shows its own error box; status polling slows when idle and stops while the tab is hidden.
 
 The Experimental UI is served from `app/ui/experimental/index.html`; stable mode remains at `/`. Shared server changes are limited to dispatching Experimental requests and routing their files and jobs to the isolated workspace. Job ordering, model selection, and media-generation functions stay the same.
 
