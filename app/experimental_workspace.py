@@ -362,6 +362,24 @@ def _feedback_steps(plan, b, series):
                                      "args": {"name": a.get("name", ""), "pictures": a.get("pictures", ""),
                                               "genre": a.get("genre", "") or series}})
             break
+    if any(s.get("fn") == "horror_sound" for s in steps) and b.get("ghost_voice", True):
+        # 19 Oct: a ghost's own quoted lines get the ghost voice (voice_cast.py; Tinker voice_cast.CAST)
+        import voice_cast
+        g = b.get("genre") or series
+        if voice_cast.settings(g).get("on"):
+            for index, step in enumerate(steps):
+                if step.get("fn") == "sv_speak" and not (step.get("args") or {}).get("redo"):
+                    a = step.get("args") or {}
+                    steps.insert(index, {"fn": "exp_voice_cast",
+                                         "label": "who speaks each quoted line (a ghost's own lines get the ghost voice)",
+                                         "args": {"name": a.get("name", ""), "genre": g}})
+                    break
+            for index, step in enumerate(steps):
+                if step.get("fn") == "horror_sound":
+                    a = step.get("args") or {}
+                    steps.insert(index, {"fn": "exp_voice_fx", "label": "the ghost's lines in the ghost voice",
+                                         "args": {"name": a.get("name", "")}})
+                    break
     for index, step in enumerate(steps):
         if step.get("fn") == "horror_video":
             a = step.get("args") or {}
@@ -399,6 +417,25 @@ def exp_sound_word_cues(ctx, name, pictures):
         return sound_words.cues(ctx, name, pictures)
     except Exception as exc:
         ctx["say"]("   (sound word effects skipped: {})".format(exc))
+        return True
+
+
+def exp_voice_cast(ctx, name, genre=""):
+    """before the voice: who speaks each quote; a ghost's lines chosen and put on lines of their own (voice_cast.py)"""
+    import voice_cast
+    try:
+        return voice_cast.step(ctx, name, genre)
+    except Exception as exc:                # never stop a run over this; everything stays in the narrator voice
+        ctx["say"]("   (ghost voice not checked: {})".format(exc))
+        return True
+
+
+def exp_voice_fx(ctx, name):
+    import voice_cast
+    try:
+        return voice_cast.fx(ctx, name)
+    except Exception as exc:
+        ctx["say"]("   (ghost voice skipped: {})".format(exc))
         return True
 
 

@@ -1145,7 +1145,9 @@ OUTLINE_ASK = (
     "\"reveal\": \"\", \"beats\": [\"\"]}")
 
 QUOTE_RULE = ("Quotes: say who is speaking before a quote, close every quote on the same line, and put the narrator's "
-              "own next sentence on a new line, so a listener always knows who is talking.")
+              "own next sentence on a new line, so a listener always knows who is talking."
+              " Double quotes \"...\" are only for words heard aloud; a text message, letter or words written somewhere "
+              "go in single quotes '...'. When a ghost or spirit speaks, say so plainly before its words.")
 
 SOUND_WORD_RULE = ("Sounds: never write a sound as a word to be read aloud (no 'ठक... ठक...', 'ट्रिंग ट्रिंग', "
                    "'खुर्र...', 'टिक-टिक', 'धड़ाम'). Say what is heard in a normal sentence instead (दरवाज़े पर तीन बार "

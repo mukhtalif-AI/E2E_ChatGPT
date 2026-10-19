@@ -51,7 +51,7 @@ SECRET_KEYS = {"local_model", "story_engine", "gemini_model"}
 CFG_KEYS = {"llm", "prompt_model", "vision_llm", "image_engine", "director_model", "scene_picture_model", "scene_seconds",
             "end_seconds", "subscribe_end"}
 
-PROMPT_MODULES = ("story", "tools", "emotion_music")
+PROMPT_MODULES = ("story", "tools", "emotion_music", "voice_cast")
 PROMPT_LABELS = {
     "story.RULES": "Sukoon script rules (Hindi)",
     "story.CHECK": "Sukoon checklist pass (Hindi)",
@@ -72,6 +72,7 @@ PROMPT_LABELS = {
     "tools.VISION_ASK": "Picture describer (vision)",
     "tools.TRANSLATE_ASK": "Translate to Hindi",
     "emotion_music.MAP_ASK": "Emotion map: mood and weight per scene, turn lines (music that follows the story)",
+    "voice_cast.CAST_ASK": "Ghost voice: who speaks each quoted line (ghost / human / written, heard aloud, sure)",
 }
 TABLES = {
     "tools.GENRES": "Series machine settings: music folders, voice, expressiveness (ex), pause, temperature, drama",
@@ -92,7 +93,9 @@ TABLES = {
     "emotion_music.VOICE_FX": "Effects that sound like a voice (whisper, scream, laugh...): played only in a pause of the "
                               "narration (min_pause_s, looked for within search_s of the word, min_play_s of room), never over it",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
-    "create_form.DEFAULTS": "Create page: each series' starting values (the same settings for every series)",
+    "voice_cast.CAST": "Ghost voice per series: on, roles (ghost -> preset name), max_lines a story, asks that must agree; model (\"\" = script writer), think; written_words = words before a quote that mean it is written, not heard",
+    "voice_cast.PRESETS": "Ghost voice sounds: dry, down_st/down_vol, up_st/up_vol (semitones, loudness), rev_vol (reversed copy), delay_ms [down, up, reversed], echo, whisper, growl (0-1)",
+    "create_form.DEFAULTS":"Create page: each series' starting values (the same settings for every series)",
     "thumbnail.SERIES": "Thumbnails per series (Thumbnails page): on = made after every video, layout, picture, letters, "
                         "colours, shade, badge, logo / channel name (from tools.CHANNEL)",
     "narrator.SERIES": "Corner narrator per series: on, narrator, corner / size / margin for the video and reels (Narrator page)",
