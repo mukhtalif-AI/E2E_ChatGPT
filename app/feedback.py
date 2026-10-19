@@ -488,6 +488,14 @@ def pick_track(cfg, folders, orig):
     scores = file_scores(cfg, "music")
     blocked = sound_library.blocked(cfg, "music")
     ok = [f for f in cands if norm(f) not in blocked and not rejected(scores.get(norm(f)))]   # never a 'never use' / badly rated one
+    # 19 Oct 2026: the music check makes the music again without the tracks that failed it (this episode only)
+    avoid = {str(x).lower() for x in cfg.get("_music_avoid") or []}
+    if avoid and ok:
+        left = [f for f in ok if os.path.basename(f).lower() not in avoid]
+        if not left:
+            cfg.setdefault("_music_misfit", []).append(f"{'/'.join(folders)}: every usable track failed the music check")
+            return ""
+        ok = left
     import audio_screen
     rows = {f: audio_screen.screen(cfg, f, "music") for f in ok}
     # 18 Oct 2026: when every track in these folders is rejected (a song, no voice band, does not sound like the mood)

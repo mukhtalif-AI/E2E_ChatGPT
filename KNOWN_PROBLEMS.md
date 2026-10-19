@@ -47,6 +47,7 @@ What changed and how far each change was tested: `CHANGELOG.md`.
 9b. **The music library still mixes music and soundscapes.** The soundscape move (decision B) has not run: the 12
    soundscapes and 5 non-music files are still in `BGM`. The new 'atmo' ambience category points at `SFX\atmo`,
    which does not exist yet. 'The Hungry Ghost' (Sad, "maybe" list) was Blue Ink Diary's first track.
+9d. **The music check measures, it does not listen.** `music_check.py` (19 Oct) catches the faults you have reported (fast swell, cuts, drop-outs, stingers, effects over words, songs and grooves, short endings), but it cannot tell whether a track feels right for the story. Its stinger and effect limits were set only on episodes you complained about (no episode was rated good for effects). Making the music again without a failing track has not run in a real job yet.
 9c. **Two music use counters.** The new per-series `D:\MukhtalifGPT\Library\music_used.json` (Experimental Bhay,
    Rahasya, Kisse, Romanch) and the old shared `bhay_music_used.json` (in `D:\MukhtalifGPT` and in `Library`) are both
    still written. The music analysis and fit-based pick (`MASTER_SOUND_PLAN.md` section 3) are plan only.

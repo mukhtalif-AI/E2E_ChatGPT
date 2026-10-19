@@ -380,6 +380,23 @@ def _feedback_steps(plan, b, series):
                     steps.insert(index, {"fn": "exp_voice_fx", "label": "the ghost's lines in the ghost voice",
                                          "args": {"name": a.get("name", "")}})
                     break
+    # 19 Oct 2026: the finished music is checked (and corrected where it can be) after the last music step of every
+    # series; music_check.py, Tinker music_check.RULES. Sukoon without a shape step: after the voice engine's own mix.
+    if b.get("music_check", True):
+        last = max([i for i, s in enumerate(steps) if s.get("fn") in ("horror_sound", "shape_mix")] or [-1])
+        if last < 0 and series == "sukoon":
+            last = max([i for i, s in enumerate(steps) if s.get("fn") == "sv_speak"
+                        and not (s.get("args") or {}).get("redo")] or [-1])
+        if last >= 0:
+            s0 = steps[last]
+            a = s0.get("args") or {}
+            remake = ({"fn": s0["fn"], "args": dict(a)} if s0["fn"] in ("horror_sound", "shape_mix") else
+                      {"fn": "shape_mix", "args": {"name": a.get("name", ""), "track": "", "tail": "usual"}})
+            steps.insert(last + 1, {"fn": "exp_music_check",
+                                    "label": "music check: swell, jumps, drop-outs, stingers, effects over the words, "
+                                             "ending, tracks (fixed where it can be; music_report.txt)",
+                                    "args": {"name": a.get("name", ""), "pictures": a.get("pictures", ""),
+                                             "genre": a.get("genre", "") or series, "remake": remake}})
     for index, step in enumerate(steps):
         if step.get("fn") == "horror_video":
             a = step.get("args") or {}
@@ -436,6 +453,16 @@ def exp_voice_fx(ctx, name):
         return voice_cast.fx(ctx, name)
     except Exception as exc:
         ctx["say"]("   (ghost voice skipped: {})".format(exc))
+        return True
+
+
+def exp_music_check(ctx, name, pictures="", genre="", remake=None):
+    """after the music: check the finished mix, fix what can be fixed, music_report.txt (music_check.py)"""
+    import music_check
+    try:
+        return music_check.step(ctx, name, pictures, genre, remake)
+    except Exception as exc:                # never stop a run over this; the music stays as it was made
+        ctx["say"]("   (music check skipped: {})".format(exc))
         return True
 
 

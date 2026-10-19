@@ -93,6 +93,11 @@ TABLES = {
     "emotion_music.VOICE_FX": "Effects that sound like a voice (whisper, scream, laugh...): played only in a pause of the "
                               "narration (min_pause_s, looked for within search_s of the word, min_play_s of room), never over it",
     "emotion_music.MOOD_NEAR": "When no track in a mood folder fits, the nearest moods to use instead, best first",
+    "music_check.RULES": "Music check after every music step (all series): on, fix, repick (make the music again without "
+                         "a failing track), swell_min_s, jump_db / jumps_max, hole_db / dropouts_per_min_max, gap_max_s, "
+                         "sting_level_db / sting_rise_db / sting_close_max / sting_rate_x, fx_speech_db / fx_speech_s, "
+                         "clarity_p10_db, audible_db / loud_db (music in the speech band vs the voice), tail_min_s per "
+                         "series, fade_min_s, cut_db, heavy_drop_db, slew_db_s (how fast a corrected ramp may move)",
     "emotion_music.EASE": "How music comes in and moves around turn lines (all series): fade_in_s = the opening swell, "
                           "curve = how gently ramps start (1-3), turn_out_s / back_s = seconds down before and back "
                           "after a turn line, dip_db = how far weight 1 and 2 turns dip (weight 3 still stops)",

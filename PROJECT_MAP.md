@@ -86,6 +86,7 @@ Ollama's own log (useful when a step is slow): `C:\Users\Shail\AppData\Local\Oll
 | `narrator.py`, `narrator_render.py` | Corner narrator with lip sync (Narrator page, `narrator.SERIES` table). Not run on the PC yet. | 16 Oct |
 | `thumbnail.py` (+ `engines\video\engine\thumbnail.py`) | Thumbnails page: 1920x1080 thumbnail per episode in each series' look (`thumbnail.SERIES` table, logo/name from `tools.CHANNEL`); made after every Experimental genre video. | 18 Oct |
 | `picture_check.py` | New picture check for genre scenes: checklist from 'what happens', judge answers plain questions, code decides, up to 2 repaints, then flag. `CHECK_MODEL` = gemma3:12b. | 16 Oct |
+| `music_check.py` | After the music step (Experimental, every series): checks the finished mix (swell, jumps, drop-outs, gaps, stingers, effects over the words, clarity, ending, tracks), fixes what it can, `music_report.txt` in the episode folder; step `exp_music_check`, Tinker `music_check.RULES`. | 19 Oct |
 | `emotion_music.py` | Music that follows the story's emotion: the emotion map (mood + weight per scene, music sections, turn lines; step `exp_emotion_map`) and the mixer `horror_sound` uses for it (`EMOTION_MUSIC_PLAN.md`). | 17 Oct |
 | `sound_needs.py` | Report of the music moods and effects the stories need and the library lacks (`Activity\Reports\sound_needs_*.md`); downloads nothing. | 17 Oct |
 | `create_form.py` | One Create form for every series; `DEFAULTS` per series (Tinker table). | 16 Oct |
