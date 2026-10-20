@@ -3,7 +3,7 @@
 Do not import this file directly: import tools and use tools.<name>. Names that stay in tools.py, and names other files swap
 (feedback, narrator, Tinker), are written as tools.X here on purpose.
 """
-import glob, json, os, random, re, shutil, subprocess, time, urllib.error, urllib.parse, urllib.request, wave, zlib
+import glob, json, math, os, random, re, shutil, subprocess, time, urllib.error, urllib.parse, urllib.request, wave, zlib
 
 import tools
 
@@ -241,11 +241,13 @@ CUE_PASS_ASK = (
     "down, a page turns...): not feelings, thoughts, memories or things only looked at. For each sound give \"part\" "
     "(its number), \"words\" (2-4 consecutive words copied EXACTLY from that part where the sound happens, same "
     "language and script, never translated) and \"sfx\" (ONE name from SOUNDS that is that exact sound). At most {cpp} "
-    "per part; most parts have none.\nSOUNDS: {names}\n"
+    "per part; most parts have none. The WHOLE STORY has room for at most {budget} effects. Choose the most audible, "
+    "story-relevant moments and spread them through the story; do not fill the quota just to add noise. Prefer clear "
+    "actions and changes of place, and skip thoughts or descriptions with no sound.\nSOUNDS: {names}\n"
     'Answer ONLY JSON: {{"cues": [{{"part": n, "words": "...", "sfx": "..."}}]}}\n\nPARTS:\n{parts}')
 
 
-def _cue_pass(cfg, shots, cue_names, sfx, cpp, G, say, sound_name):
+def _cue_pass(cfg, shots, cue_names, sfx, cpp, budget, G, say, sound_name):
     """Experimental (17 Oct 2026): a second, small ask only for the sound effects, because the director's big ask
     usually returns none (7 of 10 runs). The usual checks stay: the words must be in the part's text, the name in the
     series' list, at most cpp per part, and the sense check runs after this."""
@@ -255,9 +257,13 @@ def _cue_pass(cfg, shots, cue_names, sfx, cpp, G, say, sound_name):
         return
     got = placed = no_name = no_words = 0
     for k in range(0, len(need), 8):
+        if placed >= budget:
+            break
         part = need[k:k + 8]
-        ask = CUE_PASS_ASK.format(desc=G.get("desc", ""), label=G.get("label", ""), cpp=cpp, names=", ".join(cue_names),
-                                  parts="\n".join(f"{i + 1}. {shots[i]['text'][:900]}" for i in part))
+        ask = CUE_PASS_ASK.format(desc=G.get("desc", ""), label=G.get("label", ""), cpp=cpp,
+                                  budget=max(0, budget - placed), names=", ".join(cue_names),
+                                  parts="\n".join(f"{i + 1}. [{shots[i]['start']:.0f}-{shots[i]['end']:.0f}s] "
+                                                  f"{shots[i]['text'][:900]}" for i in part))
         try:
             t, _model = story.ask(cfg, ask, "auto", 0.2, True, say=lambda *a: None)
             rows = json.loads(t).get("cues") or []
@@ -265,6 +271,8 @@ def _cue_pass(cfg, shots, cue_names, sfx, cpp, G, say, sound_name):
             say(f"   (sound pass skipped for parts {part[0] + 1}-{part[-1] + 1}: {e})")
             continue
         for c in rows:
+            if placed >= budget:
+                break
             if not isinstance(c, dict):
                 continue
             try:
@@ -793,7 +801,18 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
     amb = [k for k in sfx if sfx_lib.kind_of(cfg, sfx[k]) == "amb"]
     cue_names = [k for k in sfx if k not in amb]
     per_min = sfx_lib.SERIES.get(genre, ([], 0))[1]
-    cpp = max(0, round(per_min * (total / max(1, n)) / 60))
+    if exp and per_min > 0:
+        # The series rate is a STORY-wide ceiling, not a per-scene target. Rounding
+        # the average scene allowance made every 10-30 s scene round to zero for
+        # Gyaan, Kareeb and Romanch, which disabled both director and sound passes.
+        cue_budget = max(0, int(per_min * total / 60))
+        avg_scene = total / max(1, len(parts))
+        cpp = min(2, max(1, math.ceil(per_min * avg_scene / 60))) if cue_budget else 0
+        say(f"   cinematic sound budget: up to {cue_budget} word-timed effects across {total / 60:.1f} min; "
+            f"up to {cpp} in a scene, with beds and rare story-turn hits planned separately")
+    else:
+        cue_budget = 0
+        cpp = max(0, round(per_min * (total / max(1, n)) / 60))
     hits = [k for k in sfx if k not in amb and any(w in k for w in ("braam", "door", "drop", "whoosh", "sweep", "footsteps",
                                                                      "slam", "riser", "thunder", "bell", "sobbing"))]
     G = tools.GENRES.get(genre, tools.GENRES["bhay"])
@@ -828,6 +847,17 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
                                             for i, p in enumerate(parts)))
     if exp:
         ask = ask.replace("\nAMBIENCE: ", "\n" + BED_RULE + "AMBIENCE: ", 1)
+        ask = ask.replace(
+            '"hit" (ONE name from HITS for a scary turn at the start of this part, or "" - use hits rarely, at '
+            'most every third part)',
+            '"hit" (ONE name from HITS for a major reveal, reversal, or scare at this part, or "" - use only at '
+            'the strongest turns; silence is also a sound-design choice)', 1)
+        ask += (f"\nSOUND DESIGN: Build a restrained cinematic soundscape: use at most {cue_budget} word-timed effects "
+                "across the whole story, choosing the strongest moments and spreading them through its duration. "
+                "Keep one fitting place bed continuous across "
+                "scenes in that location; place real footsteps, doors, phones, paper, weather, and other audible actions "
+                "at their spoken words; use a listed hit only on a major reveal or reversal. Let important lines breathe. "
+                "Use the available library deliberately, but never invent an event or add sound just to fill a scene.\n")
     cut = [i + 1 for i, p in enumerate(parts) if len(p["text"]) > 1200]
     if cut:
         say(f"   ⚠ scene(s) {', '.join(map(str, cut))} are longer than 1200 letters - the director only reads the start")
@@ -984,9 +1014,26 @@ def horror_scenes(ctx, name, narration, out, count=0, genre="bhay", replan=False
         say(f"   sound effect words checked against the narration: {fixed_cues} re-copied from the story text, "
             f"{dropped_cues} dropped (that sound does not happen there)")
     if exp and cpp > 0:
-        _cue_pass(cfg, shots, cue_names, sfx, cpp, G, say, sound_name)
+        planned = sum(len(s.get("cues") or []) for s in shots)
+        remaining_budget = max(0, cue_budget - planned)
+        if remaining_budget:
+            _cue_pass(cfg, shots, cue_names, sfx, cpp, remaining_budget, G, say, sound_name)
+        else:
+            say("   director used the story's word-timed effect budget; the second sound pass was not needed")
     if exp and any(s["cues"] for s in shots):
         _cue_check(cfg, shots, genre, G, say)
+    if exp and cue_budget:
+        # Keep the story-wide ceiling while distributing any excess accepted cues
+        # across its duration, instead of letting the first scenes consume it.
+        events = [(i, j, float(c.get("at", s["start"])))
+                  for i, s in enumerate(shots) for j, c in enumerate(s.get("cues") or [])]
+        if len(events) > cue_budget:
+            keep = {int((k + 0.5) * len(events) / cue_budget) for k in range(cue_budget)}
+            chosen = {(i, j) for k, (i, j, _at) in enumerate(events) if k in keep}
+            for i, s in enumerate(shots):
+                s["cues"] = [c for j, c in enumerate(s.get("cues") or []) if (i, j) in chosen]
+            say(f"   sound design kept {cue_budget} of {len(events)} accepted effects, spread across the story "
+                "to preserve clear space between moments")
     if exp and shots:
         flick = 0
         for i in range(1, len(shots) - 1):           # A B A with a short B -> A A A (no jump to a bed and straight back)
