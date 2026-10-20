@@ -36,11 +36,19 @@ def legacy_roots(cfg):
 
 def initialize(cfg):
     base = root(cfg)
-    for path in (f"{layout(cfg, 'experimental_library', 'Library')}/{layout(cfg, 'experimental_scripts', 'Scripts')}",
-                 f"{layout(cfg, 'experimental_library', 'Library')}/{layout(cfg, 'experimental_assets', 'Assets')}",
-                 f"{layout(cfg, 'experimental_activity', 'Activity')}/{layout(cfg, 'logs', 'Logs')}",
-                 f"{layout(cfg, 'experimental_activity', 'Activity')}/{layout(cfg, 'experimental_reports', 'Reports')}",
-                 layout(cfg, 'experimental_series', 'Series'), layout(cfg, 'experimental_work', '_work')):
+    paths = (
+        f"{layout(cfg, 'experimental_library', 'Library')}/"
+        f"{layout(cfg, 'experimental_scripts', 'Scripts')}",
+        f"{layout(cfg, 'experimental_library', 'Library')}/"
+        f"{layout(cfg, 'experimental_assets', 'Assets')}",
+        f"{layout(cfg, 'experimental_activity', 'Activity')}/"
+        f"{layout(cfg, 'logs', 'Logs')}",
+        f"{layout(cfg, 'experimental_activity', 'Activity')}/"
+        f"{layout(cfg, 'experimental_reports', 'Reports')}",
+        layout(cfg, 'experimental_series', 'Series'),
+        layout(cfg, 'experimental_work', '_work'),
+    )
+    for path in paths:
         os.makedirs(os.path.join(base, *path.split("/")), exist_ok=True)
     return base
 
@@ -55,19 +63,49 @@ SERIES_PREFIX = {"bhay": "Bhay", "rahasya": "Rahasya", "kisse": "Kisse", "romanc
 
 
 def _make_episode(episode_dir, L, job_id, kind, series, b, input_name="input.json"):
-    for path in (L.get("experimental_input", "00_Input"), L.get("experimental_script", "01_Script"), L.get("experimental_narration", "02_Narration"), L.get("experimental_artwork", "03_Artwork"), L.get("episode_output", "Output")):
+    folders = (
+        L.get("experimental_input", "00_Input"),
+        L.get("experimental_script", "01_Script"),
+        L.get("experimental_narration", "02_Narration"),
+        L.get("experimental_artwork", "03_Artwork"),
+        L.get("episode_output", "Output"),
+    )
+    for path in folders:
         os.makedirs(os.path.join(episode_dir, path), exist_ok=True)
-    with open(os.path.join(episode_dir, L.get("experimental_input", "00_Input"), input_name), "w", encoding="utf-8") as f:
-        json.dump({"job_id": job_id, "kind": kind, "series": series, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
-                   "request": {k: v for k, v in b.items() if k not in ("data",)}}, f, ensure_ascii=False, indent=2)
+    input_path = os.path.join(
+        episode_dir,
+        L.get("experimental_input", "00_Input"),
+        input_name,
+    )
+    with open(input_path, "w", encoding="utf-8") as f:
+        request = {key: value for key, value in b.items() if key not in ("data",)}
+        metadata = {
+            "job_id": job_id,
+            "kind": kind,
+            "series": series,
+            "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "request": request,
+        }
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
 
 
 def _episode_of_narration(base, L, series, name):
     """the episode folder that already holds this voice (Video / Pictures pages on an existing narration)"""
     if not name:
         return ""
-    for ep in glob.glob(os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), "*")):
-        if os.path.isfile(os.path.join(ep, L.get("experimental_narration", "02_Narration"), L.get("narrations", "narrations"), name, "timing.json")):
+    episodes_dir = os.path.join(
+        base,
+        L.get("experimental_series", "Series"),
+        series,
+        L.get("experimental_episode_collection", "Episodes"),
+    )
+    narration_folder = L.get("experimental_narration", "02_Narration")
+    narrations_folder = L.get("narrations", "narrations")
+    for ep in glob.glob(os.path.join(episodes_dir, "*")):
+        timing_path = os.path.join(
+            ep, narration_folder, narrations_folder, name, "timing.json"
+        )
+        if os.path.isfile(timing_path):
             return ep
     return ""
 
@@ -77,7 +115,11 @@ def _short_name(base, L, series, b):
     from tools import slug
     prefix = SERIES_PREFIX.get(series, series.title())
     recipe = b.get("recipe") if isinstance(b.get("recipe"), dict) else {}
-    title = str(b.get("name") or "").strip() or str(b.get("topic") or "").strip() or str(recipe.get("topic") or "").strip()
+    title = (
+        str(b.get("name") or "").strip()
+        or str(b.get("topic") or "").strip()
+        or str(recipe.get("topic") or "").strip()
+    )
     if title:
         name = re.sub(r"-{2,}", "-", re.sub(r"[\s_]+", "-", slug(title, 40))).strip("-.")
         if not re.match(re.escape(prefix) + r"\s*-", name, re.I):
@@ -85,10 +127,18 @@ def _short_name(base, L, series, b):
     else:
         name = f"{prefix}-{time.strftime('%m%d-%H%M')}"
     name = name[:48].rstrip("-.")
-    episodes = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"))
+    episodes = os.path.join(
+        base,
+        L.get("experimental_series", "Series"),
+        series,
+        L.get("experimental_episode_collection", "Episodes"),
+    )
     scripts = os.path.join(base, L.get("experimental_library", "Library"), L.get("scripts", "scripts"))
     candidate, n = name, 2
-    while os.path.exists(os.path.join(episodes, candidate)) or os.path.exists(os.path.join(scripts, candidate + ".txt")):
+    while (
+        os.path.exists(os.path.join(episodes, candidate))
+        or os.path.exists(os.path.join(scripts, candidate + ".txt"))
+    ):
         candidate = f"{name}-{n}"
         n += 1
     return candidate
@@ -176,27 +226,69 @@ def prepare(kind, body, cfg, job_id):
                 if "script" in stages and not str(b.get("name") or "").strip() and not str(b.get("script") or "").strip():
                     b["auto_name"] = True      # no typed name: horror_story renames to <Series>-<English title>
                 b["name"] = _short_name(base, L, series, b)
-                episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), b["name"])
+                episode_dir = os.path.join(
+                    base,
+                    L.get("experimental_series", "Series"),
+                    series,
+                    L.get("experimental_episode_collection", "Episodes"),
+                    b["name"],
+                )
         else:
             original = b.get("name") or b.get("title") or b.get("topic") or kind
             short = slug(original)
             # The job id makes every run its own durable episode folder.
             episode_name = short if kind == "experimental" else f"{job_id}_{short}"
             b["name"] = episode_name
-            episode_dir = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes"), episode_name)
+            episode_dir = os.path.join(
+                base,
+                L.get("experimental_series", "Series"),
+                series,
+                L.get("experimental_episode_collection", "Episodes"),
+                episode_name,
+            )
             _make_episode(episode_dir, L, job_id, kind, series, b)
 
     job_cfg = tinker.apply_models(cfg, snap)
     job_cfg["experimental_mode"] = True
     job_cfg["experimental_root"] = base
     job_cfg["media_dir"] = os.path.join(base, L.get("experimental_library", "Library"))
-    job_cfg["episodes_dir"] = os.path.join(base, L.get("experimental_series", "Series"), series, L.get("experimental_episode_collection", "Episodes")) if episode_dir else os.path.join(base, L.get("experimental_series", "Series"), "_Loose")
-    job_cfg["sukoonvoice_media"] = os.path.join(episode_dir, L.get("experimental_narration", "02_Narration")) if episode_dir else os.path.join(base, "Library", "Narration")
+    if episode_dir:
+        job_cfg["episodes_dir"] = os.path.join(
+            base,
+            L.get("experimental_series", "Series"),
+            series,
+            L.get("experimental_episode_collection", "Episodes"),
+        )
+        job_cfg["sukoonvoice_media"] = os.path.join(
+            episode_dir,
+            L.get("experimental_narration", "02_Narration"),
+        )
+    else:
+        job_cfg["episodes_dir"] = os.path.join(
+            base, L.get("experimental_series", "Series"), "_Loose"
+        )
+        job_cfg["sukoonvoice_media"] = os.path.join(
+            base, "Library", "Narration"
+        )
     os.makedirs(job_cfg["media_dir"], exist_ok=True)
     job_cfg["layout"] = L
-    for alias, key in (("scripts_dir", "scripts"), ("pictures_dir", "pictures"), ("videos_dir", "videos"), ("images_dir", "images"), ("temporary_dir", "temporary")):
+    aliases = (
+        ("scripts_dir", "scripts"),
+        ("pictures_dir", "pictures"),
+        ("videos_dir", "videos"),
+        ("images_dir", "images"),
+        ("temporary_dir", "temporary"),
+    )
+    for alias, key in aliases:
         job_cfg[alias] = os.path.join(job_cfg["media_dir"], L.get(key, {"temporary": "_tmp"}.get(key, key)))
-    for name in (L.get("scripts", "scripts"), L.get("pictures", "pictures"), L.get("videos", "videos"), L.get("images", "images"), L.get("temporary", "_tmp")):
+    folders = (
+        L.get("scripts", "scripts"),
+        L.get("pictures", "pictures"),
+        L.get("videos", "videos"),
+        L.get("images", "images"),
+        L.get("temporary", "_tmp"),
+    )
+    for name in folders:
         os.makedirs(os.path.join(job_cfg["media_dir"], name), exist_ok=True)
 
     try:

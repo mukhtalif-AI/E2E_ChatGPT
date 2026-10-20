@@ -669,15 +669,64 @@ SCENE_ASK = (
 
 
 # ---- moved out of tools.py (TOOLS_SPLIT_PLAN.md). tools stays the front door: keep this block at the END.
-from steps.hub import (gpu_info, _gpu_cache, status, _dismissed_path, dismiss, suggestions, _mtime, library, episodes, library_stamp, remove_item, open_path, system_action, _settings_path, apply_settings, llm_models, set_llm, set_prompt_model)  # noqa: E402,F401  (4a)
-from steps.thumbs import (index_path, load_index, series_of, SUKOON_WORDS, thumb_sources, look_text, style_index)  # noqa: E402,F401  (4b)
-from steps.voice_series import (SERIES_DEFAULT, _series_file, series_load, _norm, episode_series_of, genre_voice_sets, series_model, voice_series, voice_series_save, _voice_cfg_path, voice_scan, voice_add_folders, sv_dataset, classify_recordings, train_all_series, sv_train)  # noqa: E402,F401  (4c)
-from steps.mix import (audio_index_path, load_audio_index, audio_index, auto_track, harshness, tamed, _decode, shape_mix)  # noqa: E402,F401  (4d)
-from steps.sukoon_video import (_first_image, _audio_of, studio_prepare, studio_video, _wav_len, font_family, _ass_color, _ass_time, make_ass, slideshow)  # noqa: E402,F401  (4e)
-from steps.pictures import (_parts, llm_prompts, default_style, _script_sample, art_prompt, pick_art, HOT_DRINK, no_steam, comfy_images, _judge, pick_scenes, repaint)  # noqa: E402,F401  (4f)
-from steps.voice import (rack_path, word_rack, hard_words, rack_save, avoid_hard_words, practice_story, free_gpu, free_llm, sv_python, _story_voice_style, sv_speak, en_dir, en_python, en_speak, en_setup, en_test)  # noqa: E402,F401  (4g)
-from steps.script import (translate, llm_translate, _clean_script, llm_story, fit_script, _queue_fetch, elements_check, elements_fetch, write_stories, write_script, EMOTIONS, EMO_BATCH, _emo_salvage, _emo_reply, mark_emotions)  # noqa: E402,F401  (4h)
-from steps.fixes import (_secs, repair_check, repair_keep_old, repair_save_voice, repair_patch, repair_series_subtitles, repair_write_subtitle_text, series_of_video, _series_note, remix_like_before, narration_lines, repair_rerender, _duration, _PREV, reel_motions, studio_reels)  # noqa: E402,F401  (4i)
-from steps.scenes import (_sfx_names, _sfx_names_old, AMB_WORDS, PICTURE_RULES, _pic_rules, _anchor_text, SCENE_SIMILAR_MAX, SCENE_VARY_HINTS, _PEOPLE, _look_for_prompt, _overlap, _vary_scene, _words_in, AMB_SOURCES, _amb_fits, _fix_cue_words, sfx_fetch, _word_time, _SENT_END, INVENTED, WEATHER, _wre, _beat_parts, _invented, _strip_words, _model_cfg, _ask_step, story_ask, _loads, _clean_scene, _picture_prompts, _set_aside_scenes, horror_scenes)  # noqa: E402,F401  (4j)
-from steps.genre import (horror_story, write_horror_stories, _horror_track, _usable_music, horror_sound, _subtitle_text_for_timing, _is_exp, _end_seconds, _subscribe_sounds, _subscribe_end, horror_video, genre_reels)  # noqa: E402,F401  (4k)
-from steps.planner import (presets, use_shape, voice_sets, studio_opts, save_upload, unique_genre_name, _rename_job_values, plan)  # noqa: E402,F401  (4l)
+from steps.hub import (  # noqa: E402,F401 (4a)
+    gpu_info, _gpu_cache, status, _dismissed_path, dismiss, suggestions, _mtime,
+    library, episodes, library_stamp, remove_item, open_path, system_action,
+    _settings_path, apply_settings, llm_models, set_llm, set_prompt_model,
+)
+from steps.thumbs import (  # noqa: E402,F401 (4b)
+    index_path, load_index, series_of, SUKOON_WORDS, thumb_sources, look_text,
+    style_index,
+)
+from steps.voice_series import (  # noqa: E402,F401 (4c)
+    SERIES_DEFAULT, _series_file, series_load, _norm, episode_series_of,
+    genre_voice_sets, series_model, voice_series, voice_series_save,
+    _voice_cfg_path, voice_scan, voice_add_folders, sv_dataset,
+    classify_recordings, train_all_series, sv_train,
+)
+from steps.mix import (  # noqa: E402,F401 (4d)
+    audio_index_path, load_audio_index, audio_index, auto_track, harshness,
+    tamed, _decode, shape_mix,
+)
+from steps.sukoon_video import (  # noqa: E402,F401 (4e)
+    _first_image, _audio_of, studio_prepare, studio_video, _wav_len,
+    font_family, _ass_color, _ass_time, make_ass, slideshow,
+)
+from steps.pictures import (  # noqa: E402,F401 (4f)
+    _parts, llm_prompts, default_style, _script_sample, art_prompt, pick_art,
+    HOT_DRINK, no_steam, comfy_images, _judge, pick_scenes, repaint,
+)
+from steps.voice import (  # noqa: E402,F401 (4g)
+    rack_path, word_rack, hard_words, rack_save, avoid_hard_words,
+    practice_story, free_gpu, free_llm, sv_python, _story_voice_style, sv_speak,
+    en_dir, en_python, en_speak, en_setup, en_test,
+)
+from steps.script import (  # noqa: E402,F401 (4h)
+    translate, llm_translate, _clean_script, llm_story, fit_script,
+    _queue_fetch, elements_check, elements_fetch, write_stories, write_script,
+    EMOTIONS, EMO_BATCH, _emo_salvage, _emo_reply, mark_emotions,
+)
+from steps.fixes import (  # noqa: E402,F401 (4i)
+    _secs, repair_check, repair_keep_old, repair_save_voice, repair_patch,
+    repair_series_subtitles, repair_write_subtitle_text, series_of_video,
+    _series_note, remix_like_before, narration_lines, repair_rerender,
+    _duration, _PREV, reel_motions, studio_reels,
+)
+from steps.scenes import (  # noqa: E402,F401 (4j)
+    _sfx_names, _sfx_names_old, AMB_WORDS, PICTURE_RULES, _pic_rules,
+    _anchor_text, SCENE_SIMILAR_MAX, SCENE_VARY_HINTS, _PEOPLE,
+    _look_for_prompt, _overlap, _vary_scene, _words_in, AMB_SOURCES,
+    _amb_fits, _fix_cue_words, sfx_fetch, _word_time, _SENT_END, INVENTED,
+    WEATHER, _wre, _beat_parts, _invented, _strip_words, _model_cfg,
+    _ask_step, story_ask, _loads, _clean_scene, _picture_prompts,
+    _set_aside_scenes, horror_scenes,
+)
+from steps.genre import (  # noqa: E402,F401 (4k)
+    horror_story, write_horror_stories, _horror_track, _usable_music,
+    horror_sound, _subtitle_text_for_timing, _is_exp, _end_seconds,
+    _subscribe_sounds, _subscribe_end, horror_video, genre_reels,
+)
+from steps.planner import (  # noqa: E402,F401 (4l)
+    presets, use_shape, voice_sets, studio_opts, save_upload,
+    unique_genre_name, _rename_job_values, plan,
+)

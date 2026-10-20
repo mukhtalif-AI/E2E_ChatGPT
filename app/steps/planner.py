@@ -13,7 +13,10 @@ def presets(cfg):
     md = cfg.get("music_dir") or ""
     for f in sorted(glob.glob(os.path.join(md, "*", "*.mp3")) + glob.glob(os.path.join(md, "*", "*.wav"))):
         music.setdefault(os.path.basename(os.path.dirname(f)), []).append(f)
-    fonts = sorted(f for f in glob.glob(os.path.join(tools.fonts_dir(cfg), "*")) if f.lower().endswith((".ttf", ".otf")))
+    fonts = sorted(
+        f for f in glob.glob(os.path.join(tools.fonts_dir(cfg), "*"))
+        if f.lower().endswith((".ttf", ".otf"))
+    )
     sp = tools.sv_config(cfg).get("speak", {})
     idx = tools.load_index(cfg)
     styles = {k: v for k, v in tools.THEMES.items() if idx.get("themes", {}).get(k.split("_")[0])}
@@ -406,7 +409,16 @@ def plan(kind, b, cfg):
         v = b.get("video") or ""
         if not v or not os.path.exists(v):
             raise ValueError("pick a finished episode video")
-        ep_dir = os.path.dirname(os.path.dirname(os.path.dirname(v))) if os.path.basename(os.path.dirname(v)).lower() == cfg.get("layout", {}).get("episode_reels", "reels").lower() else os.path.dirname(os.path.dirname(v))
+        reels_dir = os.path.dirname(v)
+        is_episode_reel = (
+            os.path.basename(reels_dir).lower()
+            == cfg.get("layout", {}).get("episode_reels", "reels").lower()
+        )
+        ep_dir = (
+            os.path.dirname(os.path.dirname(reels_dir))
+            if is_episode_reel
+            else os.path.dirname(reels_dir)
+        )
         work = tools.studio_work_dir(cfg, ep_dir, os.path.splitext(os.path.basename(v))[0])
         if not os.path.isdir(work):
             raise ValueError("this video was not made by HubGPT Video here (no transcript / moments for it)")
@@ -437,9 +449,22 @@ def plan(kind, b, cfg):
                 raise ValueError("choose a narration (made with your voice)")
             steps = []
             if "scenes" in ST:
-                steps.append({"fn": "sfx_fetch", "label": "sound effects library for this series (CC0, only what is missing)", "args": {"genre": gid}}); steps.append({"fn": "horror_scenes", "label": "the AI plans the scenes: pictures + sounds for every part",
-                              "args": {"name": name, "narration": nar, "out": pics, "count": int(b.get("scenes") or 0),
-                                       "genre": gid}})
+                steps.append({
+                    "fn": "sfx_fetch",
+                    "label": "sound effects library for this series (CC0, only what is missing)",
+                    "args": {"genre": gid},
+                })
+                steps.append({
+                    "fn": "horror_scenes",
+                    "label": "the AI plans the scenes: pictures + sounds for every part",
+                    "args": {
+                        "name": name,
+                        "narration": nar,
+                        "out": pics,
+                        "count": int(b.get("scenes") or 0),
+                        "genre": gid,
+                    },
+                })
             if "sound" in ST:
                 steps.append({"fn": "horror_sound", "label": f"{G['label']} music" + (" + ambience + effects" if "scenes" in ST
                               or os.path.exists(os.path.join(pics, "shots.json")) else "") + " under your voice",
@@ -456,9 +481,22 @@ def plan(kind, b, cfg):
                            "args": {"name": name, "pictures": pics, "narration": nar, "out": out,
                                     "title": b.get("title_text") or "", "genre": gid}}]
             if "reels" in ST and int(b.get("reels", 2) or 0) > 0:
-                steps.append({"fn": "genre_reels", "label": f"{int(b.get('reels', 2))} reel(s), 9:16",
-                              "args": {"name": name, "pictures": pics, "out": os.path.join(os.path.dirname(out), cfg.get("layout", {}).get("episode_reels", "reels")),
-                                       "count": int(b.get("reels", 2)), "length": float(b.get("reel_len") or 30), "genre": gid}})
+                reel_output = os.path.join(
+                    os.path.dirname(out),
+                    cfg.get("layout", {}).get("episode_reels", "reels"),
+                )
+                steps.append({
+                    "fn": "genre_reels",
+                    "label": f"{int(b.get('reels', 2))} reel(s), 9:16",
+                    "args": {
+                        "name": name,
+                        "pictures": pics,
+                        "out": reel_output,
+                        "count": int(b.get("reels", 2)),
+                        "length": float(b.get("reel_len") or 30),
+                        "genre": gid,
+                    },
+                })
             what = {"scenes": "scenes", "sound": "sound", "pictures": "pictures", "video": "video", "reels": "reels"}
             return {"title": f"{G['label']} {' + '.join(what[x] for x in what if x in ST)}: {name}", "steps": steps,
                     "outputs": [pics if "video" not in ST else os.path.dirname(out), nar]}
@@ -487,7 +525,11 @@ def plan(kind, b, cfg):
         steps += [{"fn": "free_gpu", "label": "free the graphics card"},
                   {"fn": "sv_speak", "label": f"your voice reads it in {voice_label}",
                    "args": {"name": name, "sets": gv[0], "redo": "", "style": voice_style}},
-                  {"fn": "sfx_fetch", "label": "sound effects library for this series (CC0, only what is missing)", "args": {"genre": gid}},
+                  {
+                      "fn": "sfx_fetch",
+                      "label": "sound effects library for this series (CC0, only what is missing)",
+                      "args": {"genre": gid},
+                  },
                   {"fn": "horror_scenes", "label": "the AI plans the scenes: pictures + sounds for every part",
                    "args": {"name": name, "narration": nar, "out": pics, "count": int(b.get("scenes") or 0), "genre": gid}},
                   {"fn": "horror_sound", "label": "music + ambience + sound effects under your voice",
@@ -506,8 +548,15 @@ def plan(kind, b, cfg):
             steps.append({"fn": "genre_reels", "label": f"{int(b.get('reels', 2))} reel(s), 9:16",
                           "args": {"name": name, "pictures": pics, "out": os.path.join(os.path.dirname(out), cfg.get("layout", {}).get("episode_reels", "reels")),
                                    "count": int(b.get("reels", 2)), "length": float(b.get("reel_len") or 30), "genre": gid}})
-        FN = {"sfx_fetch": "scenes", "pick_scenes": "pictures", "horror_scenes": "scenes", "horror_sound": "sound", "comfy_images": "pictures", "horror_video": "video",
-              "genre_reels": "reels"}
+        FN = {
+            "sfx_fetch": "scenes",
+            "pick_scenes": "pictures",
+            "horror_scenes": "scenes",
+            "horror_sound": "sound",
+            "comfy_images": "pictures",
+            "horror_video": "video",
+            "genre_reels": "reels",
+        }
         steps = [x for x in steps if FN.get(x["fn"], "voice") in ST or x["fn"] in ("free_gpu",)]
         while steps and steps[-1]["fn"] == "free_gpu":
             steps.pop()
@@ -522,7 +571,9 @@ def plan(kind, b, cfg):
             {"fn": "write_horror_stories", "label": f"the AI writes {n} fresh {tools.GENRES[gid]['label']} scripts (no repeats)",
              "args": {"n": n, "topics": topics, "minutes": float(b.get("speech_min") or 15), "engine": b.get("writer", "auto"),
                       "genre": gid, "level": b.get("level") or "standard"}}],
-            "outputs": [os.path.join(media, cfg.get("layout", {}).get("scripts", "scripts"))]}
+            "outputs": [
+                os.path.join(media, cfg.get("layout", {}).get("scripts", "scripts"))
+            ]}
     if kind == "sound":                                       # music under any narration
         nm = tools.slug(b.get("name") or "")
         if not os.path.exists(os.path.join(tools.narration_dir(cfg, nm, existing=True), "narration.wav")):
